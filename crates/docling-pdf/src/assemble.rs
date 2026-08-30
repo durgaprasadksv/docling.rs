@@ -2140,7 +2140,7 @@ pub fn region_texts_exclusive(regions: &[Region], cells: &[TextCell]) -> Vec<Str
 /// [`region_texts_exclusive`] with a region's trailing soft hyphen kept
 /// (#919): the page assembler strips it and hands it to the paragraph it ends.
 fn region_texts_keep_wrap(regions: &[Region], cells: &[TextCell]) -> Vec<String> {
-    region_texts_spanned_keep_wrap(regions, cells)
+    region_texts_spanned_keep_wrap(regions, cells, &[])
         .into_iter()
         .map(|(t, _)| t)
         .collect()
@@ -2151,10 +2151,12 @@ fn region_texts_keep_wrap(regions: &[Region], cells: &[TextCell]) -> Vec<String>
 /// that region's text, with the cell's box. `None` where no correspondence
 /// could be established — the non-claimers (tables, wrappers, pictures) take
 /// their text by a different rule ([`region_text`]), and Arabic regions lose
-/// the mapping to the bidi fix-ups.
+/// the mapping to the bidi fix-ups. `word_cells` subdivide the line-granular
+/// spans ([`refine_with_words`]).
 fn region_texts_spanned_keep_wrap(
     regions: &[Region],
     cells: &[TextCell],
+    word_cells: &[TextCell],
 ) -> Vec<(String, Option<Vec<CellSpan>>)> {
     let owned = assign_cells(regions, cells);
     // Non-claimers (tables/wrappers/pictures) keep the inclusive > 0.5 text:
@@ -2165,7 +2167,10 @@ fn region_texts_spanned_keep_wrap(
         .zip(owned)
         .map(|(r, cs)| {
             if claims_cells(r) {
-                cells_text_spanned_keep_wrap(cs.iter().map(|&i| &cells[i]).collect())
+                let (text, spans) =
+                    cells_text_spanned_keep_wrap(cs.iter().map(|&i| &cells[i]).collect());
+                let spans = spans.map(|sp| refine_with_words(sp, &text, word_cells));
+                (text, spans)
             } else {
                 (region_text(r, cells), None)
             }
@@ -2690,6 +2695,76 @@ fn remap_spans(spans: Vec<CellSpan>, map: &[u32]) -> Vec<CellSpan> {
             })
         })
         .collect()
+}
+
+/// Subdivide line spans into word spans using the page's word cells.
+///
+/// A cell on a scanned page is a whole OCR line, so the spans
+/// [`cells_text_spanned_keep_wrap`] records are line-granular. `word_cells` —
+/// from the text layer on a digital page, or recovered from the recognition
+/// run's CTC timesteps on a scanned one — give the finer geometry; this pairs
+/// them up.
+///
+/// Pairing is positional, not by string match: the words inside a line box,
+/// in x order, against that line's whitespace-delimited tokens. **A line whose
+/// counts disagree keeps its line span** — better a coarser highlight than
+/// boxes silently attached to the wrong words.
+fn refine_with_words(spans: Vec<CellSpan>, text: &str, word_cells: &[TextCell]) -> Vec<CellSpan> {
+    if word_cells.is_empty() {
+        return spans;
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut out: Vec<CellSpan> = Vec::with_capacity(spans.len());
+    for span in spans {
+        let mut inside: Vec<&TextCell> = word_cells
+            .iter()
+            .filter(|w| {
+                let (cx, cy) = ((w.l + w.r) / 2.0, (w.t + w.b) / 2.0);
+                cx >= span.l && cx <= span.r && cy >= span.t.min(span.b) && cy <= span.t.max(span.b)
+            })
+            .collect();
+        if inside.len() < 2 {
+            out.push(span);
+            continue;
+        }
+        inside.sort_by(|a, b| a.l.total_cmp(&b.l));
+
+        // Tokenize the span's slice of the text, keeping each token's range.
+        let (s0, s1) = (
+            span.char_start as usize,
+            (span.char_end as usize).min(chars.len()),
+        );
+        let mut toks: Vec<(u32, u32)> = Vec::new();
+        let mut start: Option<usize> = None;
+        for i in s0..s1 {
+            if chars[i].is_whitespace() {
+                if let Some(b) = start.take() {
+                    toks.push((b as u32, i as u32));
+                }
+            } else if start.is_none() {
+                start = Some(i);
+            }
+        }
+        if let Some(b) = start {
+            toks.push((b as u32, s1 as u32));
+        }
+
+        if toks.len() != inside.len() {
+            out.push(span);
+            continue;
+        }
+        for ((cs, ce), w) in toks.into_iter().zip(inside) {
+            out.push(CellSpan {
+                char_start: cs,
+                char_end: ce,
+                l: w.l,
+                t: w.t,
+                r: w.r,
+                b: w.b,
+            });
+        }
+    }
+    out
 }
 
 /// Clamp spans to a text that lost its tail (the popped trailing soft
@@ -3707,7 +3782,7 @@ pub fn assemble_page(
         .cloned()
         .collect();
     let (mut region_texts, mut region_spans): (Vec<String>, Vec<Option<Vec<CellSpan>>>) =
-        region_texts_spanned_keep_wrap(&with_children, &page.cells)
+        region_texts_spanned_keep_wrap(&with_children, &page.cells, &page.word_cells)
             .into_iter()
             .unzip();
     // A trailing soft hyphen marks a word split across the line break; only a

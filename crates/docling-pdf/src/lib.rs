@@ -1136,9 +1136,24 @@ impl Recognizer {
         scale: f32,
         detected: Option<&[ocr_det::DetBox]>,
     ) -> Result<Vec<(TextCell, f32)>, String> {
+        Ok(self.ocr_page_with_words(img, regions, scale, detected)?.0)
+    }
+
+    /// [`Self::ocr_page_with`], also returning body-text word boxes (#80):
+    /// PP-OCR recovers them from its recognition run's CTC timesteps
+    /// ([`ocr::OcrModel::ocr_page_with_words`]); Tesseract's line cells carry
+    /// none, so its lines keep line-granular geometry.
+    #[allow(clippy::type_complexity)]
+    fn ocr_page_with_words(
+        &mut self,
+        img: &image::RgbImage,
+        regions: &[layout::Region],
+        scale: f32,
+        detected: Option<&[ocr_det::DetBox]>,
+    ) -> Result<(Vec<(TextCell, f32)>, Vec<TextCell>), String> {
         match self {
-            Self::PpOcr(m) => m.ocr_page_with(img, regions, scale, detected),
-            Self::Tesseract(t) => t.ocr_page(img, regions, scale),
+            Self::PpOcr(m) => m.ocr_page_with_words(img, regions, scale, detected),
+            Self::Tesseract(t) => Ok((t.ocr_page(img, regions, scale)?, Vec::new())),
         }
     }
 
@@ -2064,13 +2079,19 @@ impl Worker {
             // recognized text, instead of failing the conversion.
             if let Some(ocr) = self.ocr_model()? {
                 let (img, scl) = ocr_input(&mut ocr_view, &page.image, page.scale, ocr_scale);
-                let cells = timing::timed("ocr.page", || {
-                    ocr.ocr_page_with(img, &regions, scl, det_lines)
+                let (cells, words) = timing::timed("ocr.page", || {
+                    ocr.ocr_page_with_words(img, &regions, scl, det_lines)
                 })
                 .map_err(|e| PdfError::Ocr(format!("page {}: {e}", n + 1)))?;
                 ocr_confs.extend(cells.iter().map(|(_, conf)| conf));
                 ocr_cells.extend(cell_confs(&cells));
                 page.cells = cells.into_iter().map(|(cell, _)| cell).collect();
+                // Word boxes recovered from the recognition run's CTC timesteps
+                // (`ocr_page_with_words`). Body text has no other source for
+                // them — the model reads a whole line — and the assembler
+                // subdivides its line spans with these so highlight geometry
+                // is per word (#80).
+                page.word_cells = words;
                 // Table interiors carry no words yet: region-scoped OCR skips
                 // table labels, and a scanned page has no pdfium text layer — so
                 // TableFormer's cell matcher got an empty word list and the table
@@ -2088,7 +2109,7 @@ impl Worker {
                     ocr_cells.extend(cell_confs(&words));
                     let words: Vec<_> = words.into_iter().map(|(cell, _)| cell).collect();
                     page.cells.extend(words.iter().cloned());
-                    page.word_cells = words;
+                    page.word_cells.extend(words);
                 }
             }
             // docling's OCR engines detect text lines over the whole bitmap

@@ -82,11 +82,32 @@ pub fn decode_row(chars: &[String], probs: &[f32], nc: usize) -> String {
 /// `TextCell.confidence` carries for OCR cells, feeding the `ocr_score`
 /// confidence aggregate, #183). `0.0` when nothing decodes.
 pub fn decode_row_scored(chars: &[String], probs: &[f32], nc: usize) -> (String, f32) {
+    let (text, conf, _) = decode_row_positions(chars, probs, nc);
+    (text, conf)
+}
+
+/// [`decode_row_scored`], additionally returning the CTC timestep that emitted
+/// each output character.
+///
+/// The recognition model does no word segmentation — a space is a character it
+/// predicts, like `a` or `7` — so the only positional signal a line crop carries
+/// is *which* feature column emitted each character. The CNN downsamples
+/// horizontally by a fixed factor and never mixes columns, so a timestep maps
+/// linearly onto x across the crop; that is what turns a decoded string back
+/// into word boxes, at no extra inference cost.
+///
+/// One entry per character of the returned string, so the two index together.
+pub fn decode_row_positions(
+    chars: &[String],
+    probs: &[f32],
+    nc: usize,
+) -> (String, f32, Vec<usize>) {
     let mut out = String::new();
+    let mut at: Vec<usize> = Vec::new();
     let mut prev = 0usize;
     let mut conf_sum = 0.0f32;
     let mut conf_n = 0usize;
-    for row in probs.chunks_exact(nc) {
+    for (t, row) in probs.chunks_exact(nc).enumerate() {
         let mut best = 0usize;
         let mut bestv = row[0];
         for (c, &v) in row.iter().enumerate().skip(1) {
@@ -98,6 +119,9 @@ pub fn decode_row_scored(chars: &[String], probs: &[f32], nc: usize) -> (String,
         if best != prev && best != 0 {
             if let Some(ch) = chars.get(best) {
                 out.push_str(ch);
+                // A dictionary entry can be more than one `char` (multi-codepoint
+                // graphemes); every one of them was emitted at this timestep.
+                at.extend(std::iter::repeat_n(t, ch.chars().count()));
                 conf_sum += bestv;
                 conf_n += 1;
             }
@@ -109,7 +133,7 @@ pub fn decode_row_scored(chars: &[String], probs: &[f32], nc: usize) -> (String,
     } else {
         conf_sum / conf_n as f32
     };
-    (out, conf)
+    (out, conf, at)
 }
 
 pub(crate) fn luma(p: &Rgb<u8>) -> f32 {

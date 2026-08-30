@@ -16,7 +16,7 @@ use crate::layout::Region;
 // The ONNX-free half (line prep, batching, CTC decode) lives in `ocr_prep`
 // so the wasm build shares it verbatim (#79 phase 2).
 use crate::ocr_prep::{
-    batch_input, decode_row_scored, dict_chars, prep_region_lines, prep_region_lines_det,
+    batch_input, decode_row_positions, dict_chars, prep_region_lines, prep_region_lines_det,
     prep_table_words, prep_table_words_det, width_batches, PrepLine, REC_HEIGHT,
 };
 use crate::pdfium_backend::TextCell;
@@ -364,6 +364,18 @@ pub(crate) fn resolve_rec_pair(lang: OcrLang) -> (String, String) {
 /// One recognised line: its text and mean emitted-character confidence.
 type Recognized = (String, f32);
 
+/// One recognized line keeping the CTC timestep that emitted each character
+/// (`at`, one per `char` of `text`), with the run's sequence length and the
+/// padded batch width the crop was recognized at — what [`line_words`] turns
+/// into word boxes.
+struct Positioned {
+    text: String,
+    conf: f32,
+    at: Vec<usize>,
+    t_len: usize,
+    padded_w: usize,
+}
+
 /// One crop read by [`OcrModel::recognize_crops`] /
 /// [`OcrModel::recognize_det_boxes`] (#939).
 #[derive(Debug, Clone, PartialEq)]
@@ -624,12 +636,26 @@ impl OcrModel {
     /// lanes, and return `(line index, (text, confidence))` in batch order —
     /// the same order the sequential loop produced, whatever the scheduling.
     fn recognize_all(&mut self, lines: &[PrepLine]) -> Result<Vec<(usize, Recognized)>, String> {
+        Ok(self
+            .recognize_all_positioned(lines)?
+            .into_iter()
+            .map(|(i, p)| (i, (p.text, p.conf)))
+            .collect())
+    }
+
+    /// [`Self::recognize_all`] keeping each character's CTC timestep (#80):
+    /// the same lanes and batch order, so the texts and confidences are the
+    /// ones every other caller sees.
+    fn recognize_all_positioned(
+        &mut self,
+        lines: &[PrepLine],
+    ) -> Result<Vec<(usize, Positioned)>, String> {
         let batches = width_batches(lines);
         let lanes = self.recs.len().min(batches.len()).max(1);
         let chars = &self.chars;
         // One result slot per batch keeps the merge order independent of
         // which lane finished first.
-        let mut per_batch: Vec<Option<Result<Vec<Recognized>, String>>> =
+        let mut per_batch: Vec<Option<Result<Vec<Positioned>, String>>> =
             (0..batches.len()).map(|_| None).collect();
         if lanes <= 1 {
             for (slot, (w, chunk)) in per_batch.iter_mut().zip(&batches) {
@@ -709,6 +735,21 @@ impl OcrModel {
         scale: f32,
         detected: Option<&[crate::ocr_det::DetBox]>,
     ) -> Result<Vec<(TextCell, f32)>, String> {
+        Ok(self.ocr_page_with_words(img, regions, scale, detected)?.0)
+    }
+
+    /// [`Self::ocr_page_with`], also returning the word boxes recovered from
+    /// the recognition run's CTC timesteps ([`line_words`]) — body text's only
+    /// source of word geometry on a scanned page (#80). No second inference
+    /// pass, and the boxes align with the words the model actually read.
+    #[allow(clippy::type_complexity)]
+    pub fn ocr_page_with_words(
+        &mut self,
+        img: &RgbImage,
+        regions: &[Region],
+        scale: f32,
+        detected: Option<&[crate::ocr_det::DetBox]>,
+    ) -> Result<(Vec<(TextCell, f32)>, Vec<TextCell>), String> {
         // Gather every line crop on the page first (shared with the browser
         // path), so equal-width lines can share a recognition run regardless
         // of which region they came from.
@@ -722,16 +763,28 @@ impl OcrModel {
 
         // Deterministic width-batching (shared with the wasm path), dealt
         // across the recognition lanes.
-        let mut texts = vec![(String::new(), 0.0f32); lines.len()];
+        let mut read: Vec<Option<Positioned>> = (0..lines.len()).map(|_| None).collect();
         crate::timing::timed("ocr.rec", || -> Result<(), String> {
-            for (i, text) in self.recognize_all(&lines)? {
-                texts[i] = text;
+            for (i, p) in self.recognize_all_positioned(&lines)? {
+                read[i] = Some(p);
             }
             Ok(())
         })?;
+        let mut texts: Vec<Recognized> = Vec::with_capacity(lines.len());
+        let mut words: Vec<TextCell> = Vec::new();
+        for ((p, line), bbox) in read.into_iter().zip(&lines).zip(&bboxes) {
+            let Some(p) = p else {
+                texts.push((String::new(), 0.0));
+                continue;
+            };
+            words.extend(line_words(
+                &p.text, &p.at, p.t_len, p.padded_w, line.w, *bbox,
+            ));
+            texts.push((p.text, p.conf));
+        }
 
         // Emit cells in page order, exactly as the sequential walk did.
-        Ok(collect_cells(bboxes, texts))
+        Ok((collect_cells(bboxes, texts), words))
     }
 
     /// Recognize the *word* crops inside the page's table regions (mirroring
@@ -789,7 +842,7 @@ fn recognize_batch(
     w: usize,
     chunk: &[usize],
     lines: &[PrepLine],
-) -> Result<Vec<(String, f32)>, String> {
+) -> Result<Vec<Positioned>, String> {
     let n = chunk.len();
     let data = batch_input(w, chunk, lines);
     let input = Tensor::from_array(([n, 3, REC_HEIGHT as usize, w], data))
@@ -802,13 +855,106 @@ fn recognize_batch(
     let t_len = shape[1] as usize;
     let nc = shape[2] as usize;
     Ok((0..n)
-        .map(|i| decode_row_scored(chars, &probs[i * t_len * nc..(i + 1) * t_len * nc], nc))
+        .map(|i| {
+            let (text, conf, at) =
+                decode_row_positions(chars, &probs[i * t_len * nc..(i + 1) * t_len * nc], nc);
+            Positioned {
+                text,
+                conf,
+                at,
+                t_len,
+                padded_w: w,
+            }
+        })
         .collect())
+}
+
+/// Word boxes for one recognized line from its characters' CTC timesteps.
+///
+/// The recognition model does no word segmentation — a space is a character
+/// it predicts — but the CNN downsamples horizontally by a fixed factor and
+/// never mixes columns, so timestep `t` of `t_len` sits at `t / t_len` of the
+/// *padded* batch width; `padded_w / line_w` turns that into a fraction of the
+/// crop's true width (dividing by the padded width alone shifts every box
+/// right by the padding), which maps linearly onto the line's page box. The
+/// trailing edge uses `last + 1` because a timestep covers a column, not a
+/// point. A line whose decode holds no space yields no words and keeps its
+/// line box; so does one whose timestep list does not index its text.
+fn line_words(
+    text: &str,
+    at: &[usize],
+    t_len: usize,
+    padded_w: usize,
+    line_w: usize,
+    (l, t, r, b): (f32, f32, f32, f32),
+) -> Vec<TextCell> {
+    if t_len == 0 || line_w == 0 || at.len() != text.chars().count() || !text.contains(' ') {
+        return Vec::new();
+    }
+    let span = r - l;
+    let frac = |step: usize| -> f32 {
+        ((step as f32 / t_len as f32) * padded_w as f32 / line_w as f32).clamp(0.0, 1.0)
+    };
+    let mut out = Vec::new();
+    let mut word = String::new();
+    let mut first: Option<usize> = None;
+    let mut last = 0usize;
+    let mut flush = |word: &mut String, first: &mut Option<usize>, last: usize| {
+        if let Some(f) = first.take() {
+            let w = word.trim();
+            if !w.is_empty() {
+                out.push(TextCell {
+                    text: w.to_string(),
+                    l: l + frac(f) * span,
+                    t,
+                    r: l + frac(last + 1) * span,
+                    b,
+                });
+            }
+        }
+        word.clear();
+    };
+    for (c, &step) in text.chars().zip(at) {
+        if c == ' ' {
+            flush(&mut word, &mut first, last);
+            continue;
+        }
+        if first.is_none() {
+            first = Some(step);
+        }
+        last = step;
+        word.push(c);
+    }
+    flush(&mut word, &mut first, last);
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn line_words_map_timesteps_onto_the_line_box() {
+        // "ab cd" over 8 timesteps of a crop padded to twice its width: the
+        // letters sit at steps 0,1 and 3,4 — i.e. the first half of the
+        // padded run, which is the whole true crop.
+        let words = line_words(
+            "ab cd",
+            &[0, 1, 2, 3, 4],
+            8,
+            200,
+            100,
+            (10.0, 0.0, 110.0, 10.0),
+        );
+        assert_eq!(words.len(), 2);
+        assert_eq!(words[0].text, "ab");
+        assert!((words[0].l - 10.0).abs() < 1e-3 && (words[0].r - 60.0).abs() < 1e-3);
+        assert_eq!(words[1].text, "cd");
+        assert!((words[1].l - 85.0).abs() < 1e-3 && (words[1].r - 110.0).abs() < 1e-3);
+        // No space, or a timestep list that does not index the text: no words.
+        assert!(line_words("abcd", &[0, 1, 2, 3], 8, 200, 100, (0.0, 0.0, 1.0, 1.0)).is_empty());
+        assert!(line_words("ab cd", &[0, 1], 8, 200, 100, (0.0, 0.0, 1.0, 1.0)).is_empty());
+    }
 
     /// #889: under a Tesseract default, `DOCLING_RS_OCR_LANG` is Tesseract's
     /// language list — a value naming no en/ch model picks English without
