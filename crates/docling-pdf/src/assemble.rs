@@ -1223,7 +1223,7 @@ fn region_text(region: &Region, cells: &[TextCell]) -> String {
 /// first region, like docling's strict `>` best-overlap scan.
 /// [`region_texts_spanned`] without the provenance.
 pub fn region_texts_exclusive(regions: &[Region], cells: &[TextCell]) -> Vec<String> {
-    region_texts_spanned(regions, cells)
+    region_texts_spanned(regions, cells, &[])
         .into_iter()
         .map(|(t, _)| t)
         .collect()
@@ -1239,6 +1239,7 @@ pub fn region_texts_exclusive(regions: &[Region], cells: &[TextCell]) -> Vec<Str
 pub fn region_texts_spanned(
     regions: &[Region],
     cells: &[TextCell],
+    word_cells: &[TextCell],
 ) -> Vec<(String, Option<Vec<CellSpan>>)> {
     let claimer: Vec<bool> = regions
         .iter()
@@ -1272,7 +1273,9 @@ pub fn region_texts_spanned(
         .zip(owned)
         .map(|(r, cs)| {
             if r.label != "picture" && !is_wrapper(r.label) {
-                cells_text_spanned(cs)
+                let (text, spans) = cells_text_spanned(cs);
+                let spans = spans.map(|sp| refine_with_words(sp, &text, word_cells));
+                (text, spans)
             } else {
                 (region_text(r, cells), None)
             }
@@ -1453,6 +1456,72 @@ fn remap_spans(spans: Vec<CellSpan>, map: &[u32]) -> Vec<CellSpan> {
             })
         })
         .collect()
+}
+
+/// Subdivide line spans into word spans using the page's word cells.
+///
+/// A cell on a scanned page is a whole OCR line, so the spans `cells_text_spanned`
+/// records are line-granular. `word_cells` — from pdfium's text layer on a digital
+/// page, or recovered from the recognition run's CTC timesteps on a scanned one —
+/// give the finer geometry; this pairs them up.
+///
+/// Pairing is positional, not by string match: the words inside a line box, in x
+/// order, against that line's whitespace-delimited tokens. **A line whose counts
+/// disagree keeps its line span** — better a coarser highlight than boxes silently
+/// attached to the wrong words.
+fn refine_with_words(spans: Vec<CellSpan>, text: &str, word_cells: &[TextCell]) -> Vec<CellSpan> {
+    if word_cells.is_empty() {
+        return spans;
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut out: Vec<CellSpan> = Vec::with_capacity(spans.len());
+    for span in spans {
+        let mut inside: Vec<&TextCell> = word_cells
+            .iter()
+            .filter(|w| {
+                let (cx, cy) = ((w.l + w.r) / 2.0, (w.t + w.b) / 2.0);
+                cx >= span.l && cx <= span.r && cy >= span.t.min(span.b) && cy <= span.t.max(span.b)
+            })
+            .collect();
+        if inside.len() < 2 {
+            out.push(span);
+            continue;
+        }
+        inside.sort_by(|a, b| a.l.total_cmp(&b.l));
+
+        // Tokenize the span's slice of the text, keeping each token's char range.
+        let (s0, s1) = (span.char_start as usize, span.char_end as usize);
+        let mut toks: Vec<(u32, u32)> = Vec::new();
+        let mut start: Option<usize> = None;
+        for i in s0..s1.min(chars.len()) {
+            if chars[i].is_whitespace() {
+                if let Some(b) = start.take() {
+                    toks.push((b as u32, i as u32));
+                }
+            } else if start.is_none() {
+                start = Some(i);
+            }
+        }
+        if let Some(b) = start {
+            toks.push((b as u32, s1.min(chars.len()) as u32));
+        }
+
+        if toks.len() != inside.len() {
+            out.push(span);
+            continue;
+        }
+        for ((cs, ce), w) in toks.into_iter().zip(inside) {
+            out.push(CellSpan {
+                char_start: cs,
+                char_end: ce,
+                l: w.l,
+                t: w.t,
+                r: w.r,
+                b: w.b,
+            });
+        }
+    }
+    out
 }
 
 /// [`cells_text_spanned`] without the provenance.
@@ -2073,7 +2142,7 @@ pub fn assemble_page(
     // list and reused for every serialization below, so a cell can never render
     // in two regions.
     let (region_texts, region_spans): (Vec<String>, Vec<Option<Vec<CellSpan>>>) =
-        region_texts_spanned(&regions, &page.cells)
+        region_texts_spanned(&regions, &page.cells, &page.word_cells)
             .into_iter()
             .unzip();
     let is_text: Vec<bool> = regions

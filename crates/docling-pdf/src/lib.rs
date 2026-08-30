@@ -916,10 +916,16 @@ impl Worker {
             // recognized text, instead of failing the conversion.
             if let Some(ocr) = self.ocr_model()? {
                 let (img, scl) = ocr_input(&mut ocr_view, &page.image, page.scale, ocr_scale);
-                let cells = timing::timed("ocr.page", || ocr.ocr_page(img, &regions, scl))
-                    .map_err(|e| PdfError::Ocr(format!("page {}: {e}", n + 1)))?;
+                let (cells, words) =
+                    timing::timed("ocr.page", || ocr.ocr_page_words(img, &regions, scl))
+                        .map_err(|e| PdfError::Ocr(format!("page {}: {e}", n + 1)))?;
                 ocr_confs.extend(cells.iter().map(|(_, conf)| conf));
                 page.cells = cells.into_iter().map(|(cell, _)| cell).collect();
+                // Word boxes recovered from the recognition run's CTC timesteps
+                // (`ocr_page_words`). Body text has no other source for them —
+                // the model reads a whole line — and the assembler subdivides its
+                // line spans with these so highlight geometry is per word.
+                page.word_cells = words;
                 // Table interiors carry no words yet: region-scoped OCR skips
                 // table labels, and a scanned page has no pdfium text layer — so
                 // TableFormer's cell matcher got an empty word list and the table

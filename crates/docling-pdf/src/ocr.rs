@@ -243,6 +243,42 @@ impl OcrModel {
             .collect())
     }
 
+    /// [`Self::recognize_batch`], additionally returning each character's CTC
+    /// timestep and the sequence length, which together locate a character
+    /// horizontally inside its crop.
+    fn recognize_batch_positioned(
+        &mut self,
+        w: usize,
+        chunk: &[usize],
+        lines: &[PrepLine],
+    ) -> Result<(Vec<(String, f32, Vec<usize>)>, usize), String> {
+        let n = chunk.len();
+        let data = batch_input(w, chunk, lines);
+        let input = Tensor::from_array(([n, 3, REC_HEIGHT as usize, w], data))
+            .map_err(|e| format!("ocr: input tensor: {e}"))?;
+        let outputs = self
+            .rec
+            .run(ort::inputs!["x" => input])
+            .map_err(|e| format!("ocr: rec inference: {e}"))?;
+        let (shape, probs) = outputs[0]
+            .try_extract_tensor::<f32>()
+            .map_err(|e| format!("ocr: extract rec: {e}"))?;
+        let t_len = shape[1] as usize;
+        let nc = shape[2] as usize;
+        Ok((
+            (0..n)
+                .map(|i| {
+                    crate::ocr_prep::decode_row_positions(
+                        &self.chars,
+                        &probs[i * t_len * nc..(i + 1) * t_len * nc],
+                        nc,
+                    )
+                })
+                .collect(),
+            t_len,
+        ))
+    }
+
     /// Recognize `lines` and reduce to orientation-probe evidence: the
     /// confidence-weighted character count `Σ(conf × chars)` plus the raw
     /// character total (#225). Same deterministic width-batching as page OCR.
@@ -269,29 +305,69 @@ impl OcrModel {
         regions: &[Region],
         scale: f32,
     ) -> Result<Vec<(TextCell, f32)>, String> {
+        Ok(self.ocr_page_words(img, regions, scale)?.0)
+    }
+
+    /// [`Self::ocr_page`], additionally returning per-**word** cells.
+    ///
+    /// The recognition model reads a whole line and emits a string; it never
+    /// produces word boxes. But it does emit each character at a CTC timestep,
+    /// and the crop is downsampled horizontally by a fixed factor, so a timestep
+    /// maps linearly onto x. Splitting the decode at its space characters and
+    /// mapping the surrounding timesteps therefore recovers word geometry from
+    /// the run that already happened — no second pass, and aligned to the words
+    /// the model actually read (unlike an ink-gap split, which yields boxes with
+    /// nothing to pair them to when its count disagrees with the decode).
+    ///
+    /// A line whose decode holds no space yields no words; callers fall back to
+    /// the line box.
+    pub fn ocr_page_words(
+        &mut self,
+        img: &RgbImage,
+        regions: &[Region],
+        scale: f32,
+    ) -> Result<(Vec<(TextCell, f32)>, Vec<TextCell>), String> {
         // Gather every line crop on the page first (shared with the browser
         // path), so equal-width lines can share a recognition run regardless
         // of which region they came from.
         let (bboxes, lines) = prep_region_lines(img, regions, scale);
 
         // Deterministic width-batching (shared with the wasm path).
-        let mut texts = vec![(String::new(), 0.0f32); lines.len()];
+        let mut texts = vec![(String::new(), 0.0f32, Vec::new()); lines.len()];
+        // The padded batch width each line was recognized at: a timestep spans
+        // the *padded* crop, so the true width is what turns it into a fraction.
+        let mut batch_w = vec![0usize; lines.len()];
+        let mut t_lens = vec![0usize; lines.len()];
         for (w, chunk) in width_batches(&lines) {
-            for (&i, text) in chunk.iter().zip(self.recognize_batch(w, &chunk, &lines)?) {
-                texts[i] = text;
+            let (decoded, t_len) = self.recognize_batch_positioned(w, &chunk, &lines)?;
+            for (&i, row) in chunk.iter().zip(decoded) {
+                texts[i] = row;
+                batch_w[i] = w;
+                t_lens[i] = t_len;
             }
         }
 
         // Emit cells in page order, exactly as the sequential walk did.
         let mut cells = Vec::new();
-        for ((l, t, r, b), (text, conf)) in bboxes.into_iter().zip(texts) {
+        let mut words = Vec::new();
+        for (i, ((l, t, r, b), (text, conf, at))) in
+            bboxes.into_iter().zip(texts).enumerate()
+        {
+            words.extend(line_words(
+                &text,
+                &at,
+                t_lens[i],
+                batch_w[i],
+                lines[i].w,
+                (l, t, r, b),
+            ));
             let text = text.trim().to_string();
             if text.is_empty() {
                 continue;
             }
             cells.push((TextCell { text, l, t, r, b }, conf));
         }
-        Ok(cells)
+        Ok((cells, words))
     }
 
     /// Recognize the *word* crops inside the page's table regions (mirroring
@@ -350,4 +426,61 @@ mod tests {
         assert_eq!(OcrMode::parse("easyocr"), None);
         assert_eq!(OcrMode::parse(""), None);
     }
+}
+
+/// Split one line's decode at its space characters and map each word's span of
+/// CTC timesteps onto a box inside the line's page-point rect.
+///
+/// A timestep indexes the *padded* batch crop, so the fraction of the real crop
+/// it sits at is `t / t_len * padded_w / line_w` — dividing by the padded width
+/// instead is the mistake that shifts every box right by the padding.
+fn line_words(
+    text: &str,
+    at: &[usize],
+    t_len: usize,
+    padded_w: usize,
+    line_w: usize,
+    (l, t, r, b): (f32, f32, f32, f32),
+) -> Vec<TextCell> {
+    if t_len == 0 || line_w == 0 || at.len() != text.chars().count() || !text.contains(' ') {
+        return Vec::new();
+    }
+    let span = r - l;
+    let frac = |step: usize| -> f32 {
+        ((step as f32 / t_len as f32) * padded_w as f32 / line_w as f32).clamp(0.0, 1.0)
+    };
+    let mut out = Vec::new();
+    let mut word = String::new();
+    let mut first: Option<usize> = None;
+    let mut last = 0usize;
+    let mut flush = |word: &mut String, first: &mut Option<usize>, last: usize| {
+        if let Some(f) = first.take() {
+            let w = word.trim();
+            if !w.is_empty() {
+                out.push(TextCell {
+                    text: w.to_string(),
+                    l: l + frac(f) * span,
+                    t,
+                    // `last + 1`: a timestep covers a column, so the word ends at
+                    // the far edge of the one that emitted its final character.
+                    r: l + frac(last + 1) * span,
+                    b,
+                });
+            }
+        }
+        word.clear();
+    };
+    for (c, &step) in text.chars().zip(at) {
+        if c == ' ' {
+            flush(&mut word, &mut first, last);
+            continue;
+        }
+        if first.is_none() {
+            first = Some(step);
+        }
+        last = step;
+        word.push(c);
+    }
+    flush(&mut word, &mut first, last);
+    out
 }
