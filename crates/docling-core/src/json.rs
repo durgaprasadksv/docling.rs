@@ -1493,6 +1493,9 @@ struct Builder {
     /// [`Node::Anchor`]s met since the last text item (#852): that item's
     /// `_anchors` on the Pandoc path.
     pending_anchors: Vec<String>,
+    /// The enclosing [`Node::Spanned`] wrapper's per-cell text provenance,
+    /// waiting to be consumed as the next text item's `words` array.
+    pending_spans: Option<Vec<crate::document::CellSpan>>,
     /// `$ref`s an item wants placed in its parent's `children` *before* its
     /// own — a chart's caption item, which docling's office backends add to
     /// the container ahead of the picture that references it.
@@ -2285,6 +2288,15 @@ impl Builder {
                 self.pending_loc = None;
                 r
             }
+            // Per-cell text provenance for the wrapped item's `words` array.
+            Node::Spanned { spans, inner } => {
+                if self.cur_page > 0 {
+                    self.pending_spans = Some(spans.clone());
+                }
+                let r = self.add_node(inner, parent);
+                self.pending_spans = None;
+                r
+            }
             Node::Anchor { id } => {
                 self.pending_anchors.push(id.clone());
                 None
@@ -2495,8 +2507,42 @@ impl Builder {
         if self.note_keys && !anchors.is_empty() {
             merge(item.value_mut(index), json!({ "_anchors": anchors }));
         }
+        if let Some(words) = self.take_words() {
+            merge(item.value_mut(index), json!({ "words": words }));
+        }
         self.texts.push(item);
         self_ref
+    }
+
+    /// Consume the pending per-cell spans into a `words` array: each entry is
+    /// a character range in the item's text plus that cell's box, flipped to
+    /// BOTTOMLEFT like every other bbox the export writes. Opt-in
+    /// (`DOCLING_RS_WORD_PROV`) — the array is additive, so with the flag off
+    /// the JSON is byte-identical and `prov[0]` stays the only geometry any
+    /// existing consumer sees.
+    fn take_words(&mut self) -> Option<Value> {
+        let spans = self.pending_spans.take()?;
+        if spans.is_empty() || self.cur_page == 0 || !crate::env::flag("DOCLING_RS_WORD_PROV") {
+            return None;
+        }
+        let r2 = round2;
+        Some(Value::Array(
+            spans
+                .iter()
+                .map(|s| {
+                    json!({
+                        "charspan": [s.char_start, s.char_end],
+                        "bbox": {
+                            "l": r2(s.l as f64),
+                            "t": r2(self.cur_h - s.t as f64),
+                            "r": r2(s.r as f64),
+                            "b": r2(self.cur_h - s.b as f64),
+                            "coord_origin": "BOTTOMLEFT",
+                        },
+                    })
+                })
+                .collect(),
+        ))
     }
 
     /// A display-math formula item. `latex` is the raw content (no `$$`); docling

@@ -122,6 +122,20 @@ impl Notice {
     }
 }
 
+/// One text cell's contribution to a node's text: the character range it
+/// occupies in the serialized string, and the cell's box in **page points with
+/// a top-left origin** (the PDF pipeline's native cell coordinates — the JSON
+/// export flips them to BOTTOMLEFT like every other bbox it writes).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CellSpan {
+    pub char_start: u32,
+    pub char_end: u32,
+    pub l: f32,
+    pub t: f32,
+    pub r: f32,
+    pub b: f32,
+}
+
 /// A single piece of document content.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
@@ -380,6 +394,20 @@ pub enum Node {
     /// tokens as the element's first children.
     Located {
         location: [u16; 4],
+        inner: Box<Node>,
+    },
+    /// A node carrying per-cell text provenance: for each text cell that
+    /// composed the wrapped node's text, the character range it occupies and
+    /// its page-point box. Produced by the PDF assembler — the last stage that
+    /// knows which cells made which node's text — and consumed only by the
+    /// JSON export's `words` array. Markdown, DocLang, DocTags and the
+    /// chunkers render the wrapped node unchanged.
+    ///
+    /// This is what per-word (and, for OCR'd body text, per-line) highlight
+    /// geometry is built from: `prov` carries one box for the whole block,
+    /// which is useless for tracking a spoken word across a paragraph.
+    Spanned {
+        spans: Vec<CellSpan>,
         inner: Box<Node>,
     },
     /// Exact page provenance for a backend whose geometry already *is* the
@@ -1489,6 +1517,7 @@ impl DoclingDocument {
             match n {
                 Node::Table(t) => Some(t),
                 Node::Located { inner, .. }
+                | Node::Spanned { inner, .. }
                 | Node::Prov { inner, .. }
                 | Node::Track { inner, .. } => unwrap_table(inner),
                 _ => None,
@@ -1506,6 +1535,7 @@ impl DoclingDocument {
             match n {
                 Node::Table(t) => Some(t),
                 Node::Located { inner, .. }
+                | Node::Spanned { inner, .. }
                 | Node::Prov { inner, .. }
                 | Node::Track { inner, .. } => unwrap_table(inner),
                 _ => None,

@@ -664,6 +664,7 @@ impl Walker<'_> {
             }
             // Layout provenance and comment annotations are transparent.
             Node::Located { inner, .. }
+            | Node::Spanned { inner, .. }
             | Node::Prov { inner, .. }
             | Node::Track { inner, .. }
             | Node::Commented { inner, .. } => self.one(inner),
@@ -1201,6 +1202,7 @@ fn block_chunk_text(node: &Node) -> String {
         }
         Node::Heading { text, .. } => unescape_text(text),
         Node::Located { inner, .. }
+        | Node::Spanned { inner, .. }
         | Node::Prov { inner, .. }
         | Node::Track { inner, .. }
         | Node::Commented { inner, .. } => block_chunk_text(inner),

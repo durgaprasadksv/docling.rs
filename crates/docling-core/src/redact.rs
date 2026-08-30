@@ -1281,6 +1281,7 @@ impl<'a> Redactor<'a> {
             Node::Furniture { inner, .. }
             | Node::Commented { inner, .. }
             | Node::Located { inner, .. }
+            | Node::Spanned { inner, .. }
             | Node::Prov { inner, .. }
             | Node::DoclangOnly(inner) => self.redact_node(inner),
             // A transcript cue (#694): the words are redacted once, in

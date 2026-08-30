@@ -138,6 +138,7 @@ fn node_words(node: &Node, into: &mut Words) {
         | Node::Commented { inner, .. }
         | Node::Track { inner, .. }
         | Node::Located { inner, .. }
+        | Node::Spanned { inner, .. }
         | Node::Prov { inner, .. }
         | Node::DoclangOnly(inner) => node_words(inner, into),
         Node::PageBreak | Node::PageInfo { .. } | Node::Anchor { .. } => {}
