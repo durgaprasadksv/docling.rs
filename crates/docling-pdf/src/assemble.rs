@@ -5,7 +5,7 @@
 //! assigned to its best-containing region, regions are ordered in reading order
 //! (two-column aware), and each becomes a typed node by its layout label.
 
-use docling_core::{Node, PictureClass, PictureImage, Table};
+use docling_core::{CellSpan, Node, PictureClass, PictureImage, Table};
 #[cfg(feature = "ml")]
 use image::RgbImage;
 
@@ -837,43 +837,153 @@ fn md_escape(text: &str) -> String {
 }
 
 fn clean_text(text: &str) -> String {
+    clean_text_mapped(text).0
+}
+
+/// [`clean_text`], plus a per-output-character map back into the *input*'s
+/// character indices — what per-cell provenance needs to translate the offsets
+/// recorded during [`cells_text_spanned`]'s join into offsets in the serialized
+/// text.
+///
+/// The sanitizer is not length-preserving: `\u{2}`/`\u{ad}` wrap hyphens are
+/// dropped (and can merge two words), `…` expands to three characters, and the
+/// ends are trimmed. Offsets taken before it are therefore meaningless after it
+/// — recording them and hoping is the silent-wrongness case, boxes that look
+/// plausible and sit a few characters off wherever a soft hyphen appeared.
+///
+/// `None` when no stable correspondence exists: [`fix_arabic_lam_alef`]
+/// reorders characters and inserts spaces at bidi boundaries. Callers degrade to
+/// block geometry there rather than emit subtly wrong boxes.
+///
+/// This is the single implementation; [`clean_text`] discards the map, so the
+/// two can never drift. `clean_text_matches_reference` machine-checks it against
+/// the original chained-`replace` version.
+fn clean_text_mapped(text: &str) -> (String, Option<Vec<u32>>) {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out: Vec<char> = Vec::with_capacity(chars.len());
+    let mut src: Vec<u32> = Vec::with_capacity(chars.len());
+
     // Typographic-quote normalization follows docling-parse's sanitizer table
     // (`pdf_sanitators/constants.h`): every curly quote — single *and double* —
-    // becomes the ASCII apostrophe `'`, and `‚` a comma. A `"` in docling's
-    // output only ever comes from a literal `quotedbl` glyph, never from `“ ”`
-    // (2206's `'text in the wild"` pairs a curly open with a literal-quote
-    // close). This replaces an earlier Hangul-only special case that patched
-    // one symptom of mapping `“ ”` to `"`.
-    let replaced = text
-        .replace("\u{2} ", "")
-        .replace("\u{ad} ", "")
-        .replace(['\u{2}', '\u{ad}'], "") // any stray wrap hyphens not at a join
-        .replace(
-            [
-                '\u{2018}', '\u{2019}', '\u{201b}', '\u{201c}', '\u{201d}', '\u{201e}', '\u{201f}',
-            ],
-            "'",
-        ) // ‘ ’ ‛ “ ” „ ‟ → '
-        .replace('\u{201a}', ",") // ‚ → ,
-        .replace(
-            [
-                '\u{2010}', '\u{2011}', '\u{2012}', '\u{2013}', '\u{2014}', '\u{2015}', '\u{2212}',
-            ],
-            "-",
-        ) // hyphen/dash family → -
-        .replace('\u{2044}', "/") // ⁄ fraction slash → /
-        .replace('\u{2022}', "\u{b7}") // • → · (docling never emits •; inline CCS-concept separators)
-        .replace('\u{2026}', "..."); // … → ...
-    let out = if crate::pdfium_backend::use_dp_lines() {
+    // becomes the ASCII apostrophe, and `‚` a comma. A `"` in docling's output
+    // only ever comes from a literal `quotedbl` glyph, never from `“ ”`.
+    let mut i = 0usize;
+    while i < chars.len() {
+        let c = chars[i];
+        let idx = i as u32;
+        match c {
+            // Wrap hyphens: dropped, taking a following space with them. The
+            // reference chains `replace("\u{2} ", "")` before the bare-char
+            // replace, so the two-character form always wins — which collapses
+            // to this single lookahead.
+            '\u{2}' | '\u{ad}' => {
+                i += if chars.get(i + 1) == Some(&' ') { 2 } else { 1 };
+                continue;
+            }
+            // ‘ ’ ‛ “ ” „ ‟ → '
+            '\u{2018}' | '\u{2019}' | '\u{201b}' | '\u{201c}' | '\u{201d}' | '\u{201e}'
+            | '\u{201f}' => {
+                out.push('\'');
+                src.push(idx);
+            }
+            '\u{201a}' => {
+                out.push(',');
+                src.push(idx);
+            }
+            // hyphen/dash family → -
+            '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
+            | '\u{2212}' => {
+                out.push('-');
+                src.push(idx);
+            }
+            // ⁄ fraction slash → /
+            '\u{2044}' => {
+                out.push('/');
+                src.push(idx);
+            }
+            // • → · (docling never emits •; inline CCS-concept separators)
+            '\u{2022}' => {
+                out.push('\u{b7}');
+                src.push(idx);
+            }
+            // … → ... — the one expansion; three output chars share one source.
+            '\u{2026}' => {
+                for _ in 0..3 {
+                    out.push('.');
+                    src.push(idx);
+                }
+            }
+            // Line breaks and tabs become spaces. Unconditional: the legacy
+            // branch below collapses whitespace runs anyway, so pre-mapping them
+            // cannot change its result.
+            '\n' | '\r' | '\t' => {
+                out.push(' ');
+                src.push(idx);
+            }
+            _ => {
+                out.push(c);
+                src.push(idx);
+            }
+        }
+        i += 1;
+    }
+
+    let (out, src) = if crate::pdfium_backend::use_dp_lines() {
         // The docling-parse sanitizer already placed the correct spacing (e.g.
-        // justified double spaces); preserve internal runs of spaces, only
-        // normalizing line breaks/tabs and trimming the ends.
-        replaced.replace(['\n', '\r', '\t'], " ").trim().to_string()
+        // justified double spaces); preserve internal runs, trim the ends.
+        trim_mapped(out, src)
     } else {
         // Legacy: collapse all whitespace runs to single spaces.
-        replaced.split_whitespace().collect::<Vec<_>>().join(" ")
+        collapse_ws_mapped(out, src)
     };
-    fix_arabic_lam_alef(&out)
+
+    let joined: String = out.iter().collect();
+    let fixed = fix_arabic_lam_alef(&joined);
+    // Pass 1 reorders (alef+lam → lam+alef), pass 2 inserts spaces at
+    // Arabic↔Latin boundaries. Either invalidates the map, and both sit behind
+    // an all-non-Arabic early return — so an unchanged string means it holds.
+    if fixed == joined {
+        (fixed, Some(src))
+    } else {
+        (fixed, None)
+    }
+}
+
+/// Trim leading and trailing whitespace, keeping the character map aligned.
+fn trim_mapped(out: Vec<char>, src: Vec<u32>) -> (Vec<char>, Vec<u32>) {
+    let start = out
+        .iter()
+        .position(|c| !c.is_whitespace())
+        .unwrap_or(out.len());
+    let end = out
+        .iter()
+        .rposition(|c| !c.is_whitespace())
+        .map_or(start, |e| e + 1);
+    (out[start..end].to_vec(), src[start..end].to_vec())
+}
+
+/// Collapse every whitespace run to a single space and trim, keeping the map
+/// aligned — the legacy join's `split_whitespace().join(" ")`. The emitted space
+/// takes the source index of the character that *ends* the run, keeping the map
+/// monotonically non-decreasing (all a range lookup needs).
+fn collapse_ws_mapped(out: Vec<char>, src: Vec<u32>) -> (Vec<char>, Vec<u32>) {
+    let mut o: Vec<char> = Vec::with_capacity(out.len());
+    let mut s: Vec<u32> = Vec::with_capacity(src.len());
+    let mut pending_space = false;
+    for (&c, &i) in out.iter().zip(src.iter()) {
+        if c.is_whitespace() {
+            pending_space = !o.is_empty();
+            continue;
+        }
+        if pending_space {
+            o.push(' ');
+            s.push(i);
+            pending_space = false;
+        }
+        o.push(c);
+        s.push(i);
+    }
+    (o, s)
 }
 
 /// pdfium decomposes the Arabic lam-alef ligature (لا / لإ / لأ / لآ) into its
@@ -1111,7 +1221,25 @@ fn region_text(region: &Region, cells: &[TextCell]) -> String {
 /// joins it (`## 들어가며 1`) instead of leaking as an orphan. Pictures and
 /// wrappers never claim (docling walks regular clusters only); ties go to the
 /// first region, like docling's strict `>` best-overlap scan.
+/// [`region_texts_spanned`] without the provenance.
 pub fn region_texts_exclusive(regions: &[Region], cells: &[TextCell]) -> Vec<String> {
+    region_texts_spanned(regions, cells)
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect()
+}
+
+/// [`region_texts_exclusive`], additionally returning each region's [`CellSpan`]
+/// list: the character range every contributing cell occupies in that region's
+/// serialized text, with the cell's box.
+///
+/// `None` where no correspondence could be established — the non-claimers
+/// (tables, wrappers, pictures) take their text by a different rule
+/// (`region_text`), and Arabic regions lose the mapping to the bidi fix-ups.
+pub fn region_texts_spanned(
+    regions: &[Region],
+    cells: &[TextCell],
+) -> Vec<(String, Option<Vec<CellSpan>>)> {
     let claimer: Vec<bool> = regions
         .iter()
         .map(|r| r.label != "picture" && !is_wrapper(r.label))
@@ -1144,9 +1272,9 @@ pub fn region_texts_exclusive(regions: &[Region], cells: &[TextCell]) -> Vec<Str
         .zip(owned)
         .map(|(r, cs)| {
             if r.label != "picture" && !is_wrapper(r.label) {
-                cells_text(cs)
+                cells_text_spanned(cs)
             } else {
-                region_text(r, cells)
+                (region_text(r, cells), None)
             }
         })
         .collect()
@@ -1154,7 +1282,7 @@ pub fn region_texts_exclusive(regions: &[Region], cells: &[TextCell]) -> Vec<Str
 
 /// Join a prefiltered cell list into the region's text (docling's
 /// `sanitize_text` on the docling-parse path, gap-aware band join on legacy).
-fn cells_text(mut inside: Vec<&TextCell>) -> String {
+fn cells_text_spanned(mut inside: Vec<&TextCell>) -> (String, Option<Vec<CellSpan>>) {
     // Quantize the top coordinate into ~line bands so cells on the same line
     // sort in reading order; this is a strict total order (a raw fuzzy comparator
     // is not transitive and makes Rust's sort panic). For a right-to-left
@@ -1193,7 +1321,7 @@ fn cells_text(mut inside: Vec<&TextCell>) -> String {
             ((c.t / band).round() as i64, if rtl { -x } else { x })
         });
     }
-    let joined = if dp {
+    let (joined, spans) = if dp {
         // docling's `PageAssembleModel.sanitize_text`, ported verbatim over the
         // parse-index-ordered lines: append a separating space to a line —
         // unless it ends with `-`. A dash-ending line whose last word and the
@@ -1208,12 +1336,14 @@ fn cells_text(mut inside: Vec<&TextCell>) -> String {
         // `-"C" cell a new table cell`. Our cells still carry the raw dash
         // family (docling-parse normalizes to `-` before this; clean_text does
         // it after), so the endswith test matches them all.
-        let texts: Vec<&str> = inside
+        // Paired with its cell so each contribution can record the character
+        // range it occupies; the text alone loses which box produced which span.
+        let texts: Vec<(&str, &TextCell)> = inside
             .iter()
-            .map(|c| c.text.trim())
+            .map(|c| (c.text.trim(), *c))
             // Skip whitespace-only cells (a justified line's trailing space
             // glyph): an empty line would double the separator.
-            .filter(|t| !t.is_empty())
+            .filter(|(t, _)| !t.is_empty())
             .collect();
         let last_word_alnum = |s: &str| {
             s.split(|c: char| !(c.is_alphanumeric() || c == '_'))
@@ -1226,9 +1356,10 @@ fn cells_text(mut inside: Vec<&TextCell>) -> String {
                 .is_some_and(|w| w.chars().all(char::is_alphanumeric))
         };
         let mut out = String::new();
-        for (i, t) in texts.iter().enumerate() {
+        let mut spans: Vec<CellSpan> = Vec::with_capacity(texts.len());
+        for (i, &(t, cell)) in texts.iter().enumerate() {
             if i > 0 {
-                let prev = texts[i - 1];
+                let prev = texts[i - 1].0;
                 let dashish = matches!(
                     prev.chars().last(),
                     Some(
@@ -1244,20 +1375,28 @@ fn cells_text(mut inside: Vec<&TextCell>) -> String {
                 if dashish {
                     if last_word_alnum(prev) && first_word_alnum(t) {
                         out.pop(); // wrapped word: fuse without the dash
+                        // The popped dash was the previous cell's last
+                        // character; its span shrinks with it.
+                        if let Some(last) = spans.last_mut() {
+                            last.char_end = last.char_end.saturating_sub(1);
+                        }
                     }
                     // dash-ending line never takes a separating space
                 } else {
                     out.push(' ');
                 }
             }
+            let start = out.chars().count() as u32;
             out.push_str(t);
+            spans.push(cell_span(start, out.chars().count() as u32, cell));
         }
-        out
+        (out, spans)
     } else {
         // Legacy reconstruction: join same-band cells with a space only across a
         // real gap, because it can split a word into abutting segments
         // (`الت`|`ي` → `التي`).
         let mut out = String::new();
+        let mut spans: Vec<CellSpan> = Vec::with_capacity(inside.len());
         let mut prev: Option<&&TextCell> = None;
         for c in &inside {
             let t = c.text.trim();
@@ -1272,12 +1411,53 @@ fn cells_text(mut inside: Vec<&TextCell>) -> String {
                     out.push(' ');
                 }
             }
+            let start = out.chars().count() as u32;
             out.push_str(t);
+            spans.push(cell_span(start, out.chars().count() as u32, c));
             prev = Some(c);
         }
-        out
+        (out, spans)
     };
-    clean_text(&joined)
+    // Offsets above index `joined`; the sanitizer is not length-preserving, so
+    // they must be translated through its map before they mean anything about
+    // the serialized text.
+    let (text, map) = clean_text_mapped(&joined);
+    (text, map.map(|m| remap_spans(spans, &m)))
+}
+
+fn cell_span(char_start: u32, char_end: u32, cell: &TextCell) -> CellSpan {
+    CellSpan {
+        char_start,
+        char_end,
+        l: cell.l,
+        t: cell.t,
+        r: cell.r,
+        b: cell.b,
+    }
+}
+
+/// Translate spans from pre-sanitizer offsets into the serialized text's, via
+/// [`clean_text_mapped`]'s per-output-character source map. The map is
+/// monotonically non-decreasing, so each bound is a partition point. Spans the
+/// sanitizer deleted entirely — a cell that was only a wrap hyphen — are dropped.
+fn remap_spans(spans: Vec<CellSpan>, map: &[u32]) -> Vec<CellSpan> {
+    spans
+        .into_iter()
+        .filter_map(|s| {
+            let start = map.partition_point(|&m| m < s.char_start) as u32;
+            let end = map.partition_point(|&m| m < s.char_end) as u32;
+            (end > start).then_some(CellSpan {
+                char_start: start,
+                char_end: end,
+                ..s
+            })
+        })
+        .collect()
+}
+
+/// [`cells_text_spanned`] without the provenance.
+fn cells_text(inside: Vec<&TextCell>) -> String {
+    cells_text_spanned(inside).0
 }
 
 /// Tighten the spaces pdfium leaves around tight punctuation in a code line
@@ -1892,7 +2072,10 @@ pub fn assemble_page(
     // Exclusive docling cell assignment: computed once for the ordered region
     // list and reused for every serialization below, so a cell can never render
     // in two regions.
-    let region_texts: Vec<String> = region_texts_exclusive(&regions, &page.cells);
+    let (region_texts, region_spans): (Vec<String>, Vec<Option<Vec<CellSpan>>>) =
+        region_texts_spanned(&regions, &page.cells)
+            .into_iter()
+            .unzip();
     let is_text: Vec<bool> = regions
         .iter()
         .enumerate()
@@ -1996,6 +2179,9 @@ pub fn assemble_page(
         if text.is_empty() {
             continue;
         }
+        // Everything this region pushes gets its per-cell provenance attached
+        // below; taking the mark here covers every arm without touching each.
+        let spans_mark = nodes.len();
         match region.label {
             // docling assembles checkboxes as TEXT_ELEM items (the region's
             // cells are the option label, e.g. right_to_left_03's بلی/خير)
@@ -2205,6 +2391,20 @@ pub fn assemble_page(
                     None => escaped,
                 };
                 nodes.push(located(loc, Node::Paragraph { text }))
+            }
+        }
+        // Attach the region's per-cell provenance to whatever it produced. The
+        // wrapper sits *outside* the location wrapper so both survive; only the
+        // JSON export reads it, and only when asked.
+        if let Some(spans) = &region_spans[i] {
+            if !spans.is_empty() {
+                for node in nodes.iter_mut().skip(spans_mark) {
+                    let inner = std::mem::replace(node, Node::PageBreak);
+                    *node = Node::Spanned {
+                        spans: spans.clone(),
+                        inner: Box::new(inner),
+                    };
+                }
             }
         }
     }
