@@ -1001,6 +1001,13 @@ impl Worker {
                     ocr_confs.extend(scored.iter().map(|(_, conf)| conf));
                 }
                 pic_cells = scored.into_iter().map(|(cell, _)| cell).collect();
+                debug_log!(
+                    "docling-pdf: page {}: speculative picture OCR over {} bare region(s) \
+                     recognized {} line(s)",
+                    n + 1,
+                    bare.len(),
+                    pic_cells.len()
+                );
                 page.cells.extend(pic_cells.iter().cloned());
             }
         }

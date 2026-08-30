@@ -286,7 +286,15 @@ pub fn prep_region_lines(
         if r <= l || b <= t {
             continue;
         }
-        let crop = imageops::crop_imm(img, l, t, r - l, b - t).to_image();
+        // Light-on-dark regions have to be inverted before segmentation:
+        // `segment_lines` thresholds ink as *darker* than the crop average, so on
+        // an inverted region it profiles the background and finds nothing (or one
+        // giant band). Done per region rather than per page because a page is
+        // routinely mixed — a dark cover plate or a photograph beside ordinary
+        // black-on-white body text — and a whole-page decision gets one of them
+        // wrong. The browser path already normalizes; this closes the gap on the
+        // native one.
+        let crop = normalize_polarity(imageops::crop_imm(img, l, t, r - l, b - t).to_image());
         for (lx, ly, rx, ry) in segment_lines(&crop) {
             let line = imageops::crop_imm(&crop, lx, ly, rx - lx, ry - ly).to_image();
             let Some(pl) = prep_line(&line) else {
@@ -377,7 +385,15 @@ pub fn prep_table_words(
         if r <= l || b <= t {
             continue;
         }
-        let crop = imageops::crop_imm(img, l, t, r - l, b - t).to_image();
+        // Light-on-dark regions have to be inverted before segmentation:
+        // `segment_lines` thresholds ink as *darker* than the crop average, so on
+        // an inverted region it profiles the background and finds nothing (or one
+        // giant band). Done per region rather than per page because a page is
+        // routinely mixed — a dark cover plate or a photograph beside ordinary
+        // black-on-white body text — and a whole-page decision gets one of them
+        // wrong. The browser path already normalizes; this closes the gap on the
+        // native one.
+        let crop = normalize_polarity(imageops::crop_imm(img, l, t, r - l, b - t).to_image());
         for (lx, ly, rx, ry) in segment_lines(&crop) {
             let line = imageops::crop_imm(&crop, lx, ly, rx - lx, ry - ly).to_image();
             for (wx0, _, wx1, _) in segment_words(&line) {
