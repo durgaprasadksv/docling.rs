@@ -509,7 +509,7 @@ fn render_one(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
         Node::Furniture { .. } => {}
         Node::PageFurniture { .. } => {}
         // Layout provenance is DocLang-only; render the wrapped node.
-        Node::Located { inner, .. } => render_one(inner, blocks, ctx),
+        Node::Located { inner, .. } | Node::Spanned { inner, .. } => render_one(inner, blocks, ctx),
         // Page breaks are DocLang-only; docling omits them from Markdown.
         Node::PageBreak => {}
         // Page markers feed the JSON export only.

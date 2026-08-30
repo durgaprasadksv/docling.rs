@@ -38,6 +38,20 @@ pub struct DoclingDocument {
     pub confidence: Option<crate::confidence::ConfidenceReport>,
 }
 
+/// One text cell's contribution to a node's text: the character range it
+/// occupies in the serialized string, and the cell's box in **page points with
+/// a top-left origin** (the PDF pipeline's native cell coordinates — the JSON
+/// export flips them to BOTTOMLEFT like every other bbox it writes).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CellSpan {
+    pub char_start: u32,
+    pub char_end: u32,
+    pub l: f32,
+    pub t: f32,
+    pub r: f32,
+    pub b: f32,
+}
+
 /// A single piece of document content.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
@@ -170,6 +184,20 @@ pub enum Node {
     /// node with a `<layer value="{layer}"/>` head.
     Furniture {
         layer: ContentLayer,
+        inner: Box<Node>,
+    },
+    /// A node carrying per-cell text provenance: for each text cell that
+    /// composed the wrapped node's text, the character range it occupies and its
+    /// page-point box. Produced by the PDF assembler — the last stage that knows
+    /// which cells made which node's text — and consumed only by the JSON
+    /// export's `words` array. Markdown, DocLang, DocTags and the chunkers
+    /// render the wrapped node unchanged.
+    ///
+    /// This is what per-word (and, for OCR'd body text, per-line) highlight
+    /// geometry is built from: `prov` carries one box for the whole block, which
+    /// is useless for tracking a spoken word across a paragraph.
+    Spanned {
+        spans: Vec<CellSpan>,
         inner: Box<Node>,
     },
     /// A node carrying layout provenance — the four DocLang `<location>` values
@@ -677,7 +705,7 @@ impl DoclingDocument {
         fn unwrap_table(n: &Node) -> Option<&Table> {
             match n {
                 Node::Table(t) => Some(t),
-                Node::Located { inner, .. } => unwrap_table(inner),
+                Node::Located { inner, .. } | Node::Spanned { inner, .. } => unwrap_table(inner),
                 _ => None,
             }
         }
@@ -692,7 +720,7 @@ impl DoclingDocument {
         fn unwrap_table(n: &mut Node) -> Option<&mut Table> {
             match n {
                 Node::Table(t) => Some(t),
-                Node::Located { inner, .. } => unwrap_table(inner),
+                Node::Located { inner, .. } | Node::Spanned { inner, .. } => unwrap_table(inner),
                 _ => None,
             }
         }

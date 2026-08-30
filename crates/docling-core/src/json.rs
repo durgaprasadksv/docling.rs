@@ -171,6 +171,9 @@ struct Builder {
     /// The enclosing [`Node::Located`] wrapper's 0–511 grid box, waiting to be
     /// consumed as the next item's provenance.
     pending_loc: Option<[u16; 4]>,
+    /// The enclosing [`Node::Spanned`] wrapper's per-cell text provenance,
+    /// waiting to be consumed as the next item's `words` array.
+    pending_spans: Option<Vec<crate::document::CellSpan>>,
 }
 
 impl Builder {
@@ -195,6 +198,36 @@ impl Builder {
             },
             "charspan": [0, char_len],
         }])
+    }
+
+    /// Consume the pending per-cell spans into a `words` array: each entry is a
+    /// character range in the item's text plus that cell's box, flipped to
+    /// BOTTOMLEFT like every other bbox the export writes. Opt-in — the array is
+    /// additive, so with the flag off the JSON is byte-identical and `prov[0]`
+    /// stays the only geometry any existing consumer sees.
+    fn take_words(&mut self) -> Option<Value> {
+        let spans = self.pending_spans.take()?;
+        if spans.is_empty() || self.cur_page == 0 || !crate::env::flag("DOCLING_RS_WORD_PROV") {
+            return None;
+        }
+        let r2 = |v: f64| (v * 100.0).round() / 100.0;
+        Some(Value::Array(
+            spans
+                .iter()
+                .map(|s| {
+                    json!({
+                        "charspan": [s.char_start, s.char_end],
+                        "bbox": {
+                            "l": r2(s.l as f64),
+                            "t": r2(self.cur_h - s.t as f64),
+                            "r": r2(s.r as f64),
+                            "b": r2(self.cur_h - s.b as f64),
+                            "coord_origin": "BOTTOMLEFT",
+                        },
+                    })
+                })
+                .collect(),
+        ))
     }
 
     /// Adopt a node's own location field (tables, formulas, list items carry
@@ -292,6 +325,15 @@ impl Builder {
                 self.pending_loc = None;
                 r
             }
+            // Per-cell text provenance for the wrapped item's `words` array.
+            Node::Spanned { spans, inner } => {
+                if self.cur_page > 0 {
+                    self.pending_spans = Some(spans.clone());
+                }
+                let r = self.add_node(inner, parent);
+                self.pending_spans = None;
+                r
+            }
             // Page breaks are DocLang-only; docling omits them from the JSON body.
             Node::PageBreak => None,
             // The page marker: record the page's number and size for the
@@ -366,6 +408,7 @@ impl Builder {
         let self_ref = format!("#/texts/{}", self.texts.len());
         let raw = unescape_text(text);
         let prov = self.take_prov(raw.chars().count());
+        let words = self.take_words();
         let mut item = json!({
             "self_ref": self_ref,
             "parent": { "$ref": parent },
@@ -376,6 +419,9 @@ impl Builder {
             "orig": raw,
             "text": raw,
         });
+        if let Some(words) = words {
+            item["words"] = words;
+        }
         merge(&mut item, extra);
         self.texts.push(item);
         self_ref
