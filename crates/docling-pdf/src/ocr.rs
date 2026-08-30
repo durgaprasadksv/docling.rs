@@ -880,6 +880,20 @@ fn recognize_batch(
 /// trailing edge uses `last + 1` because a timestep covers a column, not a
 /// point. A line whose decode holds no space yields no words and keeps its
 /// line box; so does one whose timestep list does not index its text.
+///
+/// Each box is extended [`LEAD`] columns back from the first character's
+/// timestep and [`TRAIL`] forward from the last: CTC is peaky — the model
+/// commits a character in one sharp spike, typically near the *end* of that
+/// glyph's visual evidence rather than its centre — so the raw timesteps mark
+/// where it fired, not the glyph's extent. Measured against an independent
+/// OCR engine (Google ML Kit) on a 200 dpi scan, 277 matched words: the
+/// horizontal scale was right (per-line span ratio 1.0005, sd 0.0047) but
+/// every box was inset, left edge +2.3 pt inside the glyph, right edge
+/// -1.0 pt, a deficit constant across word length; single-character words
+/// were one timestep wide, ~24 % of the glyph. In columns rather than points
+/// so the correction scales with font size and render scale (one column was
+/// ~2.3 pt on that scan). Single-character boxes went from 2.25 to 5.63 pt
+/// median against ML Kit's 5.4–9.7 for the same glyphs.
 fn line_words(
     text: &str,
     at: &[usize],
@@ -891,9 +905,11 @@ fn line_words(
     if t_len == 0 || line_w == 0 || at.len() != text.chars().count() || !text.contains(' ') {
         return Vec::new();
     }
+    const LEAD: f32 = 1.0;
+    const TRAIL: f32 = 1.5;
     let span = r - l;
-    let frac = |step: usize| -> f32 {
-        ((step as f32 / t_len as f32) * padded_w as f32 / line_w as f32).clamp(0.0, 1.0)
+    let frac = |step: f32| -> f32 {
+        ((step / t_len as f32) * padded_w as f32 / line_w as f32).clamp(0.0, 1.0)
     };
     let mut out = Vec::new();
     let mut word = String::new();
@@ -905,9 +921,9 @@ fn line_words(
             if !w.is_empty() {
                 out.push(TextCell {
                     text: w.to_string(),
-                    l: l + frac(f) * span,
+                    l: l + frac(f as f32 - LEAD) * span,
                     t,
-                    r: l + frac(last + 1) * span,
+                    r: l + frac(last as f32 + TRAIL) * span,
                     b,
                 });
             }
@@ -937,7 +953,8 @@ mod tests {
     fn line_words_map_timesteps_onto_the_line_box() {
         // "ab cd" over 8 timesteps of a crop padded to twice its width: the
         // letters sit at steps 0,1 and 3,4 — i.e. the first half of the
-        // padded run, which is the whole true crop.
+        // padded run, which is the whole true crop. Boxes reach one column
+        // back and 1.5 forward (LEAD/TRAIL), clamped to the line.
         let words = line_words(
             "ab cd",
             &[0, 1, 2, 3, 4],
@@ -948,9 +965,9 @@ mod tests {
         );
         assert_eq!(words.len(), 2);
         assert_eq!(words[0].text, "ab");
-        assert!((words[0].l - 10.0).abs() < 1e-3 && (words[0].r - 60.0).abs() < 1e-3);
+        assert!((words[0].l - 10.0).abs() < 1e-3 && (words[0].r - 72.5).abs() < 1e-3);
         assert_eq!(words[1].text, "cd");
-        assert!((words[1].l - 85.0).abs() < 1e-3 && (words[1].r - 110.0).abs() < 1e-3);
+        assert!((words[1].l - 60.0).abs() < 1e-3 && (words[1].r - 110.0).abs() < 1e-3);
         // No space, or a timestep list that does not index the text: no words.
         assert!(line_words("abcd", &[0, 1, 2, 3], 8, 200, 100, (0.0, 0.0, 1.0, 1.0)).is_empty());
         assert!(line_words("ab cd", &[0, 1], 8, 200, 100, (0.0, 0.0, 1.0, 1.0)).is_empty());

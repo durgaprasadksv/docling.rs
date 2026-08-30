@@ -2507,7 +2507,7 @@ impl Builder {
         if self.note_keys && !anchors.is_empty() {
             merge(item.value_mut(index), json!({ "_anchors": anchors }));
         }
-        if let Some(words) = self.take_words() {
+        if let Some(words) = self.take_words(&unescape_text(text)) {
             merge(item.value_mut(index), json!({ "words": words }));
         }
         self.texts.push(item);
@@ -2520,18 +2520,28 @@ impl Builder {
     /// (`DOCLING_RS_WORD_PROV`) — the array is additive, so with the flag off
     /// the JSON is byte-identical and `prov[0]` stays the only geometry any
     /// existing consumer sees.
-    fn take_words(&mut self) -> Option<Value> {
+    fn take_words(&mut self, text: &str) -> Option<Value> {
         let spans = self.pending_spans.take()?;
         if spans.is_empty() || self.cur_page == 0 || !crate::env::flag("DOCLING_RS_WORD_PROV") {
             return None;
         }
+        // The substring each span covers, so the array can be read (and
+        // checked) without slicing `text` by character index by hand.
+        // Redundant with `charspan` by construction — a mismatch means the
+        // offsets are wrong.
+        let chars: Vec<char> = text.chars().collect();
         let r2 = round2;
         Some(Value::Array(
             spans
                 .iter()
                 .map(|s| {
+                    let word: String = chars
+                        .get(s.char_start as usize..s.char_end as usize)
+                        .map(|c| c.iter().collect())
+                        .unwrap_or_default();
                     json!({
                         "charspan": [s.char_start, s.char_end],
+                        "text": word,
                         "bbox": {
                             "l": r2(s.l as f64),
                             "t": r2(self.cur_h - s.t as f64),
