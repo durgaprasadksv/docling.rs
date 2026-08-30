@@ -428,6 +428,24 @@ mod tests {
     }
 }
 
+/// Columns to extend a word's box back from its first character's timestep, and
+/// forward from its last.
+///
+/// CTC is peaky: the model commits a character in one sharp spike, typically
+/// near the *end* of that glyph's visual evidence rather than its centre. Taking
+/// the raw timesteps therefore produces boxes inset on both sides — measured
+/// against an independent OCR engine on a 200 dpi scan, the left edge sat
+/// +2.3 pt inside the glyph and the right edge -1.0 pt, a deficit that stayed
+/// constant across word length (so a fixed inset, not a scale error). A
+/// single-character word degenerated worst of all: one timestep wide, ~24 % of
+/// its glyph.
+///
+/// Expressed in columns rather than points so the correction scales with font
+/// size and render scale instead of being tuned to one document. One column is
+/// ~2.3 pt on that scan, which is what makes these values ~1.0 and ~1.5.
+const LEAD: f32 = 1.0;
+const TRAIL: f32 = 1.5;
+
 /// Split one line's decode at its space characters and map each word's span of
 /// CTC timesteps onto a box inside the line's page-point rect.
 ///
@@ -446,8 +464,8 @@ fn line_words(
         return Vec::new();
     }
     let span = r - l;
-    let frac = |step: usize| -> f32 {
-        ((step as f32 / t_len as f32) * padded_w as f32 / line_w as f32).clamp(0.0, 1.0)
+    let frac = |step: f32| -> f32 {
+        ((step / t_len as f32) * padded_w as f32 / line_w as f32).clamp(0.0, 1.0)
     };
     let mut out = Vec::new();
     let mut word = String::new();
@@ -459,11 +477,9 @@ fn line_words(
             if !w.is_empty() {
                 out.push(TextCell {
                     text: w.to_string(),
-                    l: l + frac(f) * span,
+                    l: l + frac(f as f32 - LEAD) * span,
                     t,
-                    // `last + 1`: a timestep covers a column, so the word ends at
-                    // the far edge of the one that emitted its final character.
-                    r: l + frac(last + 1) * span,
+                    r: l + frac(last as f32 + TRAIL) * span,
                     b,
                 });
             }

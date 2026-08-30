@@ -205,17 +205,26 @@ impl Builder {
     /// BOTTOMLEFT like every other bbox the export writes. Opt-in — the array is
     /// additive, so with the flag off the JSON is byte-identical and `prov[0]`
     /// stays the only geometry any existing consumer sees.
-    fn take_words(&mut self) -> Option<Value> {
+    fn take_words(&mut self, text: &str) -> Option<Value> {
         let spans = self.pending_spans.take()?;
         if spans.is_empty() || self.cur_page == 0 || !crate::env::flag("DOCLING_RS_WORD_PROV") {
             return None;
         }
         let r2 = |v: f64| (v * 100.0).round() / 100.0;
+        // The substring each span covers, so the array can be read (and checked)
+        // without slicing `text` by character index by hand. Redundant with
+        // `charspan` by construction — a mismatch means the offsets are wrong.
+        let chars: Vec<char> = text.chars().collect();
         Some(Value::Array(
             spans
                 .iter()
                 .map(|s| {
+                    let word: String = chars
+                        .get(s.char_start as usize..s.char_end as usize)
+                        .map(|c| c.iter().collect())
+                        .unwrap_or_default();
                     json!({
+                        "text": word,
                         "charspan": [s.char_start, s.char_end],
                         "bbox": {
                             "l": r2(s.l as f64),
@@ -408,7 +417,7 @@ impl Builder {
         let self_ref = format!("#/texts/{}", self.texts.len());
         let raw = unescape_text(text);
         let prov = self.take_prov(raw.chars().count());
-        let words = self.take_words();
+        let words = self.take_words(&raw);
         let mut item = json!({
             "self_ref": self_ref,
             "parent": { "$ref": parent },
