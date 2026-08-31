@@ -408,8 +408,10 @@ fn render_one(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
         }
         // An empty body paragraph (docling's blank-line text item) contributes
         // nothing to Markdown — only DocLang/JSON keep it.
-        Node::Paragraph { text } if text.is_empty() => {}
-        Node::Paragraph { text } => blocks.push(strict_text(text, ctx.strict)),
+        Node::Paragraph { text } | Node::Footnote { text } if text.is_empty() => {}
+        Node::Paragraph { text } | Node::Footnote { text } => {
+            blocks.push(strict_text(text, ctx.strict))
+        }
         Node::CheckboxItem { checked, text } => {
             let mark = if *checked { "- [x] " } else { "- [ ] " };
             blocks.push(strict_text(&format!("{mark}{text}"), ctx.strict));

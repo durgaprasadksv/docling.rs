@@ -2473,7 +2473,14 @@ pub fn assemble_page(
                     }
                     None => escaped,
                 };
-                nodes.push(located(loc, Node::Paragraph { text }))
+                nodes.push(located(
+                    loc,
+                    if region.label == "footnote" {
+                        Node::Footnote { text }
+                    } else {
+                        Node::Paragraph { text }
+                    },
+                ))
             }
         }
         // Attach the region's per-cell provenance to whatever it produced. The
@@ -2605,9 +2612,9 @@ fn paragraph_is_open(text: &str) -> bool {
 /// `<location>`). Returns `None` for non-paragraph nodes.
 fn as_paragraph(n: &Node) -> Option<&str> {
     match n {
-        Node::Paragraph { text } => Some(text),
+        Node::Paragraph { text } | Node::Footnote { text } => Some(text),
         Node::Located { inner, .. } => match inner.as_ref() {
-            Node::Paragraph { text } => Some(text),
+            Node::Paragraph { text } | Node::Footnote { text } => Some(text),
             _ => None,
         },
         _ => None,

@@ -457,7 +457,7 @@ impl Walker<'_> {
                     );
                 }
             }
-            Node::Paragraph { text } => {
+            Node::Paragraph { text } | Node::Footnote { text } => {
                 let t = text.trim();
                 let self_ref = self.alloc.text();
                 // A whole-paragraph display equation is a formula item; docling's

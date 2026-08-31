@@ -334,6 +334,7 @@ impl Builder {
             // but only on pages the PDF paths described with a PageInfo marker
             // (other geometry-bearing backends, e.g. PPTX shapes, keep their
             // pre-#171 provenance-less JSON until they emit markers too).
+            Node::Footnote { text } => Some(self.add_text("footnote", text, parent, json!({}))),
             Node::Located { location, inner } => {
                 if self.cur_page > 0 {
                     self.pending_loc = Some(*location);

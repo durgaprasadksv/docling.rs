@@ -59,6 +59,13 @@ pub enum Node {
     Heading { level: u8, text: String },
     /// A run of body text.
     Paragraph { text: String },
+    /// A page footnote. Renders exactly as a [`Node::Paragraph`] in Markdown,
+    /// DocLang, DocTags and the chunkers — docling emits footnote text inline
+    /// there too — and differs only in docling-JSON, which labels it `footnote`.
+    /// Kept distinct because that label is the only thing telling a consumer the
+    /// text is an aside rather than body prose: a read-aloud client wants it
+    /// deferred or skipped, not narrated mid-paragraph.
+    Footnote { text: String },
     /// A form checkbox (docling's `checkbox_selected`/`checkbox_unselected`): its
     /// clean label `text` with the checked state. DocLang emits a `<checkbox>`
     /// element head; Markdown/JSON render the task-list form (`- [x] `/`- [ ] `).

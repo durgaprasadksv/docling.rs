@@ -793,6 +793,11 @@ fn emit_nodes(out: &mut Out, depth: i32, nodes: &[Node], i: &mut usize, level: u
                 emit_text_element(out, depth, &open, "heading", text, None);
                 *i += 1;
             }
+            // A footnote is a paragraph everywhere but docling-JSON.
+            Node::Footnote { text } => {
+                emit_text_element(out, depth, "text", "text", text, None);
+                *i += 1;
+            }
             Node::Paragraph { text } => {
                 // A standalone display equation (docling's block `FormulaItem`) is
                 // stored as a `$$…$$` paragraph so Markdown/JSON render the fenced
