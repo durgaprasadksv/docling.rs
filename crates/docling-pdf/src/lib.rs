@@ -506,6 +506,49 @@ pub(crate) fn prefer_fp32() -> bool {
 /// Resolve a default (CWD-relative) asset path — the shared chain in
 /// [`docling_core::assets`]: CWD, then next to the executable and one level
 /// above it (the `scripts/install/install.sh` layout).
+/// Decode a formula crop, splitting it into lines first when it holds more than
+/// one.
+///
+/// Returns the joined LaTeX (`\\` between lines, docling's own display-block
+/// separator). Falls back to decoding the crop whole when segmentation finds one
+/// line or none, which is the common single-equation case and the shape the
+/// model expects.
+#[cfg(feature = "ocr-prep")]
+fn predict_formula_lines(
+    model: &mut enrich::CodeFormula,
+    crop: &image::RgbImage,
+) -> Result<String, String> {
+    use crate::ocr_prep::segment_lines;
+    let kind = enrich::CodeFormulaKind::Formula;
+    let lines = segment_lines(crop);
+    if lines.len() < 2 {
+        return model.predict(crop, kind);
+    }
+    // Pad each band slightly: the projection cuts at the ink, and a formula's
+    // superscripts and fraction bars sit at the very edge of it.
+    let (cw, ch) = crop.dimensions();
+    let pad = 2;
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    for (l, t, r, b) in lines {
+        let (x0, y0) = (l.saturating_sub(pad), t.saturating_sub(pad));
+        let (x1, y1) = ((r + pad).min(cw), (b + pad).min(ch));
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        let band = image::imageops::crop_imm(crop, x0, y0, x1 - x0, y1 - y0).to_image();
+        match model.predict(&band, kind) {
+            Ok(t) if !t.trim().is_empty() => out.push(t.trim().to_string()),
+            // One unreadable line must not lose the rest of the block.
+            Ok(_) => {}
+            Err(e) => docling_core::debug_log!("code_formula: line: {e}"),
+        }
+    }
+    if out.is_empty() {
+        return model.predict(crop, kind);
+    }
+    Ok(out.join(" \\\\ "))
+}
+
 pub(crate) fn resolve_asset(rel: &str) -> String {
     docling_core::assets::resolve(rel)
 }
@@ -2501,7 +2544,29 @@ impl Worker {
                             } else {
                                 enrich::CodeFormulaKind::Formula
                             };
-                            match model.predict(&crop, kind) {
+                            // A `formula` cluster is often a *block* over a run
+                            // of display equations rather than one equation: the
+                            // layout model emits both the block and a region per
+                            // line, and upstream's overlap resolution keeps the
+                            // larger. But CodeFormulaV2 is trained on one equation
+                            // per crop — handed a six-equation block it does not
+                            // degrade, it hallucinates (a scanned textbook page
+                            // produced "for the authors of the article in 1, 2,
+                            // 3, …" while every line inside it decoded correctly).
+                            //
+                            // So split a tall formula crop back into lines with
+                            // the same ink-projection segmentation the OCR path
+                            // uses and decode each, joining with the LaTeX line
+                            // break. Purely a decode-time concern: the document's
+                            // regions are untouched, so structure and conformance
+                            // are unaffected.
+                            let predicted = match kind {
+                                enrich::CodeFormulaKind::Formula => {
+                                    predict_formula_lines(model, &crop)
+                                }
+                                enrich::CodeFormulaKind::Code => model.predict(&crop, kind),
+                            };
+                            match predicted {
                                 Ok(text) => {
                                     enrich_out[i] = Some(match kind {
                                         enrich::CodeFormulaKind::Code => {
