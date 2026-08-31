@@ -506,47 +506,37 @@ pub(crate) fn prefer_fp32() -> bool {
 /// Resolve a default (CWD-relative) asset path — the shared chain in
 /// [`docling_core::assets`]: CWD, then next to the executable and one level
 /// above it (the `scripts/install/install.sh` layout).
-/// Decode a formula crop, splitting it into lines first when it holds more than
-/// one.
+/// The formula regions wholly inside `owner`, in reading order.
 ///
-/// Returns the joined LaTeX (`\\` between lines, docling's own display-block
-/// separator). Falls back to decoding the crop whole when segmentation finds one
-/// line or none, which is the common single-equation case and the shape the
-/// model expects.
+/// A `formula` cluster is often a coarse block over a run of display equations
+/// *and* the model also emits one region per equation inside it; upstream's
+/// overlap resolution keeps the larger, so the block is what reaches the
+/// recognizer. CodeFormulaV2 is trained on one equation per crop and, handed a
+/// six-equation block, hallucinates outright — a scanned textbook page decoded
+/// to "for the authors of the article in 1, 2, 3, ...".
+///
+/// The model's own finer detections are the right split points. An earlier
+/// attempt segmented the crop by ink projection instead, which reads a stacked
+/// fraction as separate lines and tore `a_c = v^2/r` into `v^2`, `a_c = -` and
+/// `r`; equation boundaries are a layout question, not an ink question.
 #[cfg(feature = "ocr-prep")]
-fn predict_formula_lines(
-    model: &mut enrich::CodeFormula,
-    crop: &image::RgbImage,
-) -> Result<String, String> {
-    use crate::ocr_prep::segment_lines;
-    let kind = enrich::CodeFormulaKind::Formula;
-    let lines = segment_lines(crop);
-    if lines.len() < 2 {
-        return model.predict(crop, kind);
-    }
-    // Pad each band slightly: the projection cuts at the ink, and a formula's
-    // superscripts and fraction bars sit at the very edge of it.
-    let (cw, ch) = crop.dimensions();
-    let pad = 2;
-    let mut out: Vec<String> = Vec::with_capacity(lines.len());
-    for (l, t, r, b) in lines {
-        let (x0, y0) = (l.saturating_sub(pad), t.saturating_sub(pad));
-        let (x1, y1) = ((r + pad).min(cw), (b + pad).min(ch));
-        if x1 <= x0 || y1 <= y0 {
-            continue;
-        }
-        let band = image::imageops::crop_imm(crop, x0, y0, x1 - x0, y1 - y0).to_image();
-        match model.predict(&band, kind) {
-            Ok(t) if !t.trim().is_empty() => out.push(t.trim().to_string()),
-            // One unreadable line must not lose the rest of the block.
-            Ok(_) => {}
-            Err(e) => docling_core::debug_log!("code_formula: line: {e}"),
-        }
-    }
-    if out.is_empty() {
-        return model.predict(crop, kind);
-    }
-    Ok(out.join(" \\\\ "))
+fn contained_formulas(owner: &layout::Region, regions: &[layout::Region]) -> Vec<layout::Region> {
+    let area = |r: &layout::Region| ((r.r - r.l) * (r.b - r.t)).max(1.0);
+    let mut inside: Vec<layout::Region> = regions
+        .iter()
+        .filter(|c| {
+            if c.label != "formula" || std::ptr::eq(*c, owner) {
+                return false;
+            }
+            let ix = (c.r.min(owner.r) - c.l.max(owner.l)).max(0.0);
+            let iy = (c.b.min(owner.b) - c.t.max(owner.t)).max(0.0);
+            // Strictly smaller, and essentially contained.
+            ix * iy / area(c) > 0.8 && area(c) < area(owner) * 0.9
+        })
+        .cloned()
+        .collect();
+    inside.sort_by(|a, b| a.t.total_cmp(&b.t).then(a.l.total_cmp(&b.l)));
+    inside
 }
 
 pub(crate) fn resolve_asset(rel: &str) -> String {
@@ -2523,12 +2513,35 @@ impl Worker {
                             if !wants(r.label) {
                                 continue;
                             }
+                            let subs = if r.label == "formula" {
+                                contained_formulas(r, &regions)
+                            } else {
+                                Vec::new()
+                            };
                             // docling crops the postprocessed cluster box — the
                             // union of the region's text cells, not the raw
                             // detector box — expanded by 18% per side, at
                             // ~120 dpi.
-                            let [bl, bt, br, bb] = assemble::region_cell_bbox(r, &page.cells)
-                                .unwrap_or([r.l, r.t, r.r, r.b]);
+                            // docling crops the postprocessed cluster box — the
+                            // union of the region's text cells — but for a
+                            // formula that union can be a small fraction of what
+                            // has to be read. A typeset equation is often drawn
+                            // as vector paths with no glyphs while its *number*
+                            // is ordinary text, so the cell union collapses to
+                            // the number: every formula on 16 pages of OpenStax
+                            // University Physics decoded to "4 . 2 5", "4 . 2 6",
+                            // "( a )" — the equation itself never entered the
+                            // crop. Union with the detector box, which bounds the
+                            // drawn equation, and keep the cells' contribution
+                            // for the ordinary case where they are the content.
+                            let [bl, bt, br, bb] = match assemble::region_cell_bbox(r, &page.cells)
+                            {
+                                Some([cl, ct, cr, cb]) if r.label == "formula" => {
+                                    [cl.min(r.l), ct.min(r.t), cr.max(r.r), cb.max(r.b)]
+                                }
+                                Some(cells) => cells,
+                                None => [r.l, r.t, r.r, r.b],
+                            };
                             let (w, h) = (br - bl, bb - bt);
                             let ex = enrich::CODE_FORMULA_EXPANSION;
                             let bbox = [bl - w * ex, bt - h * ex, br + w * ex, bb + h * ex];
@@ -2561,10 +2574,47 @@ impl Worker {
                             // regions are untouched, so structure and conformance
                             // are unaffected.
                             let predicted = match kind {
-                                enrich::CodeFormulaKind::Formula => {
-                                    predict_formula_lines(model, &crop)
+                                // Several equations detected inside this one:
+                                // decode each on its own and join with the LaTeX
+                                // line break, since the model reads one equation
+                                // at a time (see `contained_formulas`).
+                                enrich::CodeFormulaKind::Formula if subs.len() > 1 => {
+                                    let mut out: Vec<String> = Vec::with_capacity(subs.len());
+                                    for sub in &subs {
+                                        let (w, h) = (sub.r - sub.l, sub.b - sub.t);
+                                        let ex = enrich::CODE_FORMULA_EXPANSION;
+                                        let bx = [
+                                            sub.l - w * ex,
+                                            sub.t - h * ex,
+                                            sub.r + w * ex,
+                                            sub.b + h * ex,
+                                        ];
+                                        let Some(c) = assemble::crop_region_scaled(
+                                            page,
+                                            bx,
+                                            enrich::CODE_FORMULA_SCALE,
+                                        ) else {
+                                            continue;
+                                        };
+                                        match model.predict(&c, kind) {
+                                            Ok(t) if !t.trim().is_empty() => {
+                                                out.push(t.trim().to_string())
+                                            }
+                                            // One unreadable equation must not
+                                            // lose the rest of the block.
+                                            Ok(_) => {}
+                                            Err(e) => {
+                                                docling_core::debug_log!("code_formula: {e}")
+                                            }
+                                        }
+                                    }
+                                    if out.is_empty() {
+                                        model.predict(&crop, kind)
+                                    } else {
+                                        Ok(out.join(" \\\\ "))
+                                    }
                                 }
-                                enrich::CodeFormulaKind::Code => model.predict(&crop, kind),
+                                _ => model.predict(&crop, kind),
                             };
                             match predicted {
                                 Ok(text) => {
@@ -4648,5 +4698,73 @@ mod text_layer_auto_tests {
             nodes
         };
         assert_eq!(streamed(&mut only), streamed(&mut auto));
+    }
+}
+
+#[cfg(all(test, feature = "ocr-prep"))]
+mod formula_split_tests {
+    use super::contained_formulas;
+    use crate::layout::Region;
+
+    fn f(l: f32, t: f32, r: f32, b: f32) -> Region {
+        Region {
+            label: "formula",
+            score: 0.9,
+            l,
+            t,
+            r,
+            b,
+        }
+    }
+
+    /// The case this exists for: a coarse block over a run of display equations,
+    /// with the model's own finer regions inside it. Those are the split points.
+    #[test]
+    fn a_block_yields_its_equations_in_reading_order() {
+        let block = f(43.0, 121.0, 276.0, 290.0);
+        let regions = vec![
+            f(47.0, 268.0, 256.0, 290.0), // deliberately out of order
+            f(47.0, 122.0, 215.0, 144.0),
+            block.clone(),
+            f(46.0, 146.0, 195.0, 168.0),
+        ];
+        let got = contained_formulas(&block, &regions);
+        assert_eq!(got.len(), 3, "the block itself is never its own child");
+        let tops: Vec<f32> = got.iter().map(|r| r.t).collect();
+        assert_eq!(tops, vec![122.0, 146.0, 268.0], "top-to-bottom");
+    }
+
+    /// A lone equation has nothing inside it, so the caller decodes it whole.
+    /// This is what keeps a stacked fraction intact: splitting it by ink turned
+    /// `a_c = v^2/r` into `v^2`, `a_c = -` and `r`.
+    #[test]
+    fn a_single_equation_is_not_split() {
+        let eq = f(46.0, 171.0, 226.0, 193.0);
+        assert!(contained_formulas(&eq, std::slice::from_ref(&eq)).is_empty());
+        let neighbour = f(46.0, 220.0, 275.0, 244.0);
+        assert!(contained_formulas(&eq, &[eq.clone(), neighbour]).is_empty());
+    }
+
+    /// Near-duplicate detections of the *same* equation (the layout model emits
+    /// them routinely) must not be treated as contained children — splitting on
+    /// them would decode the same equation twice.
+    #[test]
+    fn a_near_duplicate_is_not_a_child() {
+        let a = f(46.0, 224.0, 240.0, 235.0);
+        let b = f(46.3, 224.3, 240.2, 235.3);
+        assert!(
+            contained_formulas(&a, &[a.clone(), b]).is_empty(),
+            "same-size overlap is a duplicate, not a sub-equation"
+        );
+    }
+
+    /// Only formulas count: a text or caption region inside the block is not an
+    /// equation to decode.
+    #[test]
+    fn other_labels_are_ignored() {
+        let block = f(43.0, 121.0, 276.0, 290.0);
+        let mut text = f(47.0, 122.0, 215.0, 144.0);
+        text.label = "text";
+        assert!(contained_formulas(&block, &[block.clone(), text]).is_empty());
     }
 }
