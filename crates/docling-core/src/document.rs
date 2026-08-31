@@ -207,6 +207,21 @@ pub enum Node {
         spans: Vec<CellSpan>,
         inner: Box<Node>,
     },
+    /// A picture or table together with the text the layout model found *inside*
+    /// its box — docling's `children` on a `PictureItem`/`TableItem`.
+    ///
+    /// Only the PDF pipeline produces these: the declarative backends leave a
+    /// captioned picture's `children` empty (their groundtruth JSON does too),
+    /// while docling's PDF path nests the caption and every text cluster that
+    /// falls inside the figure under the picture item. Nowhere but the JSON
+    /// export sees them — Markdown, DocLang, DocTags and DCLX all render the
+    /// wrapped node alone, exactly as docling's serializers do (a picture's
+    /// children never reach its `MarkdownPictureSerializer` output), so those
+    /// formats stay byte-identical.
+    Nested {
+        children: Vec<Node>,
+        inner: Box<Node>,
+    },
     /// A node carrying layout provenance — the four DocLang `<location>` values
     /// (`x0,y0,x1,y1`, normalized to 0–511) docling attaches to elements from
     /// backends with real geometry (e.g. the slide shapes in PPTX). Markdown and
@@ -714,7 +729,9 @@ impl DoclingDocument {
         fn unwrap_table(n: &Node) -> Option<&Table> {
             match n {
                 Node::Table(t) => Some(t),
-                Node::Located { inner, .. } | Node::Spanned { inner, .. } => unwrap_table(inner),
+                Node::Located { inner, .. }
+                | Node::Spanned { inner, .. }
+                | Node::Nested { inner, .. } => unwrap_table(inner),
                 _ => None,
             }
         }
@@ -729,7 +746,9 @@ impl DoclingDocument {
         fn unwrap_table(n: &mut Node) -> Option<&mut Table> {
             match n {
                 Node::Table(t) => Some(t),
-                Node::Located { inner, .. } | Node::Spanned { inner, .. } => unwrap_table(inner),
+                Node::Located { inner, .. }
+                | Node::Spanned { inner, .. }
+                | Node::Nested { inner, .. } => unwrap_table(inner),
                 _ => None,
             }
         }

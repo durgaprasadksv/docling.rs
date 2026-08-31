@@ -907,9 +907,11 @@ impl Worker {
         // Drop phantom empty low-confidence picture boxes (docling parity).
         assemble::drop_false_pictures(&mut regions, &page.cells, page.width, page.height);
         // A regular region fully inside a surviving table/index/picture is that
-        // special's child (a cell / in-figure label), not a separate block —
-        // remove it so it isn't emitted twice (docling parity).
-        assemble::drop_contained_regulars(&mut regions);
+        // special's child (a cell / in-figure label), not a separate block. It
+        // is *kept* and nested under the special by the assembler
+        // (`contained_specials`), which consumes it so it is never emitted
+        // twice — docling's PDF path carries exactly these as the item's
+        // `children` in its JSON export.
         // No text layer → recognise text from the page image via OCR.
         let ocred = page.cells.is_empty();
         if ocred {
@@ -1053,7 +1055,6 @@ impl Worker {
             // Pictures (and wrappers) no longer count as claimers (#165), so
             // the plain orphan pass places the recognized lines directly.
             assemble::add_orphan_regions(&mut regions, &pic_cells);
-            assemble::drop_contained_regulars(&mut regions);
         } else if !ocred && !pic_cells.is_empty() {
             // Digital page, picture kept: its speculative OCR cells must not
             // linger in the text-cell set (they were appended at the tail).

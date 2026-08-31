@@ -376,6 +376,11 @@ fn nodes_have_text(nodes: &[docling_core::Node]) -> bool {
     use docling_core::Node;
     nodes.iter().any(|n| match n {
         Node::Located { inner, .. } => nodes_have_text(std::slice::from_ref(inner)),
+        // A nested picture carries text only through the children the layout
+        // model found inside it.
+        Node::Nested { children, inner } => {
+            nodes_have_text(std::slice::from_ref(inner)) || nodes_have_text(children)
+        }
         Node::Picture { .. } | Node::PageBreak | Node::PageInfo { .. } => false,
         _ => true,
     })

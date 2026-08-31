@@ -279,6 +279,41 @@ pub fn drop_contained_regulars(regions: &mut Vec<Region>) {
     });
 }
 
+/// For each region, the picture/table that *contains* it — the one claiming more
+/// than 80% of the region's own area, strongest claim wins.
+///
+/// This is the same claim [`drop_contained_regulars`] deletes on, computed
+/// instead of destroyed: docling's PDF path keeps that text and nests it under
+/// the figure as its `children`, which is the only place the JSON export can
+/// get a figure's inner labels (axis ticks, legend entries, the text of a
+/// scanned page reproduced as an illustration). Every other export drops them,
+/// so nothing but the JSON changes.
+pub fn contained_specials(regions: &[Region]) -> Vec<Option<usize>> {
+    let mut out = vec![None; regions.len()];
+    let specials: Vec<usize> = (0..regions.len())
+        .filter(|&i| regions[i].label == "picture" || is_table_like(regions[i].label))
+        .collect();
+    if specials.is_empty() {
+        return out;
+    }
+    for (i, r) in regions.iter().enumerate() {
+        if r.label == "picture" || is_wrapper(r.label) {
+            continue;
+        }
+        let ra = area(r.l, r.t, r.r, r.b).max(1.0);
+        let mut best = 0.8;
+        for &s in &specials {
+            let (l, t, rr, b) = (regions[s].l, regions[s].t, regions[s].r, regions[s].b);
+            let claim = inter(r, l, t, rr, b) / ra;
+            if claim > best {
+                best = claim;
+                out[i] = Some(s);
+            }
+        }
+    }
+    out
+}
+
 /// True for a bare, single-token source-code language label (`XML`, `C#`, `JSON`,
 /// `bash`, …) — the little header the docs render above a code block. Matched
 /// case-insensitively; anything with whitespace or longer than a token is out.
@@ -1947,7 +1982,11 @@ fn pair_code_captions(regions: &[Region]) -> Vec<Option<usize>> {
 /// stays claimed. docling attaches these as `TableItem.captions` refs; the
 /// paired caption is consumed from its own reading-order slot and rides on the
 /// table node instead.
-fn pair_table_captions(regions: &[Region], taken: &mut [bool]) -> Vec<Option<usize>> {
+fn pair_table_captions(
+    regions: &[Region],
+    taken: &mut [bool],
+    contained: &[Option<usize>],
+) -> Vec<Option<usize>> {
     let is_media = |label: &str| is_table_like(label) || matches!(label, "picture" | "code");
     let mut pairs: Vec<Option<usize>> = vec![None; regions.len()];
     for ci in 0..regions.len() {
@@ -1956,11 +1995,11 @@ fn pair_table_captions(regions: &[Region], taken: &mut [bool]) -> Vec<Option<usi
         }
         // Furniture (headers/footers, form chrome) is not part of docling's
         // body-element sequence, so it neither bonds nor blocks.
-        let prev = regions[..ci].iter().rposition(|r| !is_skipped(r.label));
-        let next = regions[ci + 1..]
-            .iter()
-            .position(|r| !is_skipped(r.label))
-            .map(|off| ci + 1 + off);
+        // A region nested inside a picture/table is not a body element either,
+        // so it neither bonds nor blocks (see `contained_specials`).
+        let is_body = |j: usize| !is_skipped(regions[j].label) && contained[j].is_none();
+        let prev = (0..ci).rev().find(|&j| is_body(j));
+        let next = (ci + 1..regions.len()).find(|&j| is_body(j));
         let prev_media = prev.is_some_and(|j| is_media(regions[j].label));
         let next_media = next.is_some_and(|j| is_media(regions[j].label));
         let target = match (prev_media, next_media) {
@@ -2117,6 +2156,13 @@ pub fn assemble_page(
     let table_rows: Vec<Option<TableGrid>> = items.iter().map(|(_, t, _)| t.clone()).collect();
     let enrichments: Vec<Option<Enrichment>> = items.iter().map(|(_, _, e)| e.clone()).collect();
     let regions: Vec<Region> = items.into_iter().map(|(r, _, _)| r).collect();
+    // Text the layout model found *inside* a picture or table becomes that
+    // item's `children` rather than a body block. Computed before the caption
+    // pairings because a contained region is not part of docling's body element
+    // sequence: `pair_table_captions` walks that sequence by adjacency, and an
+    // in-table line standing between a table and its caption would break the
+    // pairing (upstream never sees those regions here — it removes them first).
+    let contained_in = contained_specials(&regions);
     // docling emits a figure's caption *before* the image marker. Pair each
     // picture with the caption region nearest below it and consume that caption,
     // so it isn't also emitted in its own (lower) reading-order position.
@@ -2131,7 +2177,7 @@ pub fn assemble_page(
     }
     // Table captions (#265) claim from what the picture/code pairings left.
     let mut caption_taken = consumed.clone();
-    let table_caption_for = pair_table_captions(&regions, &mut caption_taken);
+    let table_caption_for = pair_table_captions(&regions, &mut caption_taken, &contained_in);
     for ci in table_caption_for.iter().flatten() {
         consumed[*ci] = true;
     }
@@ -2142,6 +2188,12 @@ pub fn assemble_page(
         .enumerate()
     {
         if is_label {
+            consumed[i] = true;
+        }
+    }
+
+    for (i, owner) in contained_in.iter().enumerate() {
+        if owner.is_some() {
             consumed[i] = true;
         }
     }
@@ -2247,14 +2299,25 @@ pub fn assemble_page(
             let image = crate::timing::timed("crop_region", || crop_region(page, region));
             #[cfg(not(feature = "ocr-prep"))]
             let image: Option<PictureImage> = None;
-            nodes.push(located(
-                loc,
-                Node::Picture {
-                    caption,
-                    image,
-                    classification,
-                },
-            ));
+            nodes.push(Node::Nested {
+                children: nested_children(
+                    i,
+                    &contained_in,
+                    &regions,
+                    &region_texts,
+                    &region_spans,
+                    page.width,
+                    page_h,
+                ),
+                inner: Box::new(located(
+                    loc,
+                    Node::Picture {
+                        caption,
+                        image,
+                        classification,
+                    },
+                )),
+            });
             continue;
         }
         let mut text = region_texts[i].clone();
@@ -2357,17 +2420,26 @@ pub fn assemble_page(
                 let caption = table_caption_for[i]
                     .map(|ci| md_escape(&region_texts[ci]))
                     .filter(|t| !t.is_empty());
-                nodes.push(located(
-                    loc,
-                    Node::Table(Table {
-                        rows,
-                        location: None,
-                        structure,
-                        cell_blocks: None,
-                        cells,
-                        caption,
-                    }),
-                ));
+                // A table nests only its caption: its cell text reaches the
+                // export through the reconstructed grid, so docling leaves the
+                // contained regions out of `children` (they are still consumed
+                // above, so they never reach `body` either). The wrapper is
+                // what puts the caption ref in `children`, which the PDF
+                // groundtruth has and the declarative backends do not.
+                nodes.push(Node::Nested {
+                    children: Vec::new(),
+                    inner: Box::new(located(
+                        loc,
+                        Node::Table(Table {
+                            rows,
+                            location: None,
+                            structure,
+                            cell_blocks: None,
+                            cells,
+                            caption,
+                        }),
+                    )),
+                });
             }
             // With formula enrichment the CodeFormula model decodes the region
             // to LaTeX; otherwise docling emits a placeholder comment rather
@@ -2546,7 +2618,15 @@ fn rotate_nodes_to_display(nodes: &mut [Node], rot: u16) {
                 rot_loc(location);
                 walk(inner, rot_loc, swap_dims);
             }
-            Node::Furniture { inner, .. } => walk(inner, rot_loc, swap_dims),
+            Node::Furniture { inner, .. } | Node::Spanned { inner, .. } => {
+                walk(inner, rot_loc, swap_dims)
+            }
+            Node::Nested { children, inner } => {
+                walk(inner, rot_loc, swap_dims);
+                for c in children {
+                    walk(c, rot_loc, swap_dims);
+                }
+            }
             Node::Group { children, .. } => {
                 for c in children {
                     walk(c, rot_loc, swap_dims);
@@ -2621,11 +2701,94 @@ fn as_paragraph(n: &Node) -> Option<&str> {
     }
 }
 
-/// Whether a node is a picture, looking through a [`Node::Located`] wrapper.
+/// The child nodes of one picture/table: every region [`contained_specials`]
+/// assigned to it, as plain text items in page reading order (the region list is
+/// already ordered, so index order is reading order). Each keeps its own
+/// location and per-cell provenance, so a word box inside a figure survives.
+#[allow(clippy::too_many_arguments)]
+fn nested_children(
+    owner: usize,
+    contained_in: &[Option<usize>],
+    regions: &[Region],
+    texts: &[String],
+    spans: &[Option<Vec<CellSpan>>],
+    page_w: f32,
+    page_h: f32,
+) -> Vec<Node> {
+    // Ordered *within the figure*, not by the page's global reading order: a
+    // figure that reproduces several document pages side by side (2206.01062's
+    // Figure 1) has its own columns, and sorting its labels by page y
+    // interleaves them across sub-panels. Running the same rule-based predictor
+    // over the figure's box alone recovers each panel's own top-to-bottom run.
+    let mut inside: Vec<usize> = contained_in
+        .iter()
+        .enumerate()
+        .filter(|&(_, owned_by)| *owned_by == Some(owner))
+        .map(|(j, _)| j)
+        .collect();
+    let fig = &regions[owner];
+    let (fw, fh) = ((fig.r - fig.l).max(1.0), (fig.b - fig.t).max(1.0));
+    let boxes: Vec<(f32, f32, f32, f32)> = inside
+        .iter()
+        .map(|&j| {
+            let r = &regions[j];
+            (r.l - fig.l, r.t - fig.t, r.r - fig.l, r.b - fig.t)
+        })
+        .collect();
+    let flags = vec![false; boxes.len()];
+    let order = crate::reading_order::order_page(&boxes, &flags, &flags, fw, fh);
+    inside = order.into_iter().map(|k| inside[k]).collect();
+
+    inside
+        .into_iter()
+        .filter_map(|j| {
+            if texts[j].trim().is_empty() {
+                return None;
+            }
+            // Escaped like any other paragraph — the JSON export unescapes back
+            // to the raw text, and the spans index that same escaped string.
+            let node = located(
+                norm_loc(&regions[j], page_w, page_h),
+                Node::Paragraph {
+                    text: md_escape(&texts[j]),
+                },
+            );
+            Some(match &spans[j] {
+                Some(s) if !s.is_empty() => Node::Spanned {
+                    spans: s.clone(),
+                    inner: Box::new(node),
+                },
+                _ => node,
+            })
+        })
+        .collect()
+}
+
+/// The cropped pixels of a picture node, looking through its wrappers.
+#[cfg(test)]
+fn picture_image(n: &Node) -> Option<&PictureImage> {
+    match n {
+        Node::Picture { image, .. } => image.as_ref(),
+        Node::Located { inner, .. } | Node::Nested { inner, .. } => picture_image(inner),
+        _ => None,
+    }
+}
+
+/// Whether a node is a table, looking through the same wrappers.
+fn is_table_node(n: &Node) -> bool {
+    match n {
+        Node::Table(_) => true,
+        Node::Located { inner, .. } | Node::Nested { inner, .. } => is_table_node(inner),
+        _ => false,
+    }
+}
+
+/// Whether a node is a picture, looking through the [`Node::Located`] and
+/// [`Node::Nested`] wrappers a layout-derived picture arrives in.
 fn is_picture_node(n: &Node) -> bool {
     match n {
         Node::Picture { .. } => true,
-        Node::Located { inner, .. } => matches!(inner.as_ref(), Node::Picture { .. }),
+        Node::Located { inner, .. } | Node::Nested { inner, .. } => is_picture_node(inner),
         _ => false,
     }
 }
@@ -2641,7 +2804,7 @@ fn is_merge_trailer(n: &Node) -> bool {
             n,
             Node::PageFurniture { .. } | Node::PageInfo { .. } | Node::Table(_)
         )
-        || matches!(n, Node::Located { inner, .. } if matches!(inner.as_ref(), Node::Table(_)))
+        || matches!(n, Node::Located { inner, .. } | Node::Nested { inner, .. } if is_table_node(inner))
         || as_paragraph(n).is_some_and(looks_like_caption)
 }
 
@@ -2918,7 +3081,8 @@ mod tests {
             region("table", 0.9, 0.0, 212.0, 100.0, 240.0), // 10 unpaired
         ];
         let mut taken = vec![false; regions.len()];
-        let pairs = super::pair_table_captions(&regions, &mut taken);
+        let contained = super::contained_specials(&regions);
+        let pairs = super::pair_table_captions(&regions, &mut taken, &contained);
         assert_eq!(pairs[2], Some(1), "caption directly above its table pairs");
         assert_eq!(pairs[3], Some(4), "caption directly below its table pairs");
         assert_eq!(
@@ -3187,14 +3351,7 @@ mod tests {
         // Layout-derived nodes carry provenance, so the picture arrives wrapped.
         let image = nodes
             .iter()
-            .find_map(|n| match n {
-                Node::Located { inner, .. } => match &**inner {
-                    Node::Picture { image, .. } => image.as_ref(),
-                    _ => None,
-                },
-                Node::Picture { image, .. } => image.as_ref(),
-                _ => None,
-            })
+            .find_map(super::picture_image)
             .expect("a picture node with cropped pixels");
         assert_eq!(image.mimetype, "image/png");
         assert_eq!((image.width, image.height), (100, 60), "region × scale");

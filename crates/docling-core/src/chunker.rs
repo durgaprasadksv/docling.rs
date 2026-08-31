@@ -634,7 +634,9 @@ impl Walker<'_> {
                 );
             }
             // Layout provenance is transparent.
-            Node::Located { inner, .. } | Node::Spanned { inner, .. } => self.one(inner),
+            Node::Located { inner, .. }
+            | Node::Spanned { inner, .. }
+            | Node::Nested { inner, .. } => self.one(inner),
             // Non-body layers and doclang-only nodes don't reach the chunker
             // (nor the JSON body).
             Node::Furniture { .. }
@@ -1145,7 +1147,9 @@ fn block_chunk_text(node: &Node) -> String {
             format!("{mark}{}", unescape_text(text))
         }
         Node::Heading { text, .. } => unescape_text(text),
-        Node::Located { inner, .. } | Node::Spanned { inner, .. } => block_chunk_text(inner),
+        Node::Located { inner, .. } | Node::Spanned { inner, .. } | Node::Nested { inner, .. } => {
+            block_chunk_text(inner)
+        }
         Node::Group { children, .. } => children
             .iter()
             .map(block_chunk_text)

@@ -923,7 +923,7 @@ fn emit_nodes(out: &mut Out, depth: i32, nodes: &[Node], i: &mut usize, level: u
             }
             // A span wrapper is JSON-only provenance; DocLang renders the inner
             // element unchanged.
-            Node::Spanned { inner, .. } => {
+            Node::Spanned { inner, .. } | Node::Nested { inner, .. } => {
                 emit_nodes(
                     out,
                     depth,

@@ -174,6 +174,12 @@ struct Builder {
     /// The enclosing [`Node::Spanned`] wrapper's per-cell text provenance,
     /// waiting to be consumed as the next item's `words` array.
     pending_spans: Option<Vec<crate::document::CellSpan>>,
+    /// Set while a [`Node::Nested`] wrapper's inner picture/table is being
+    /// built: docling's PDF path lists a nested item's caption in its
+    /// `children` as well as its `captions`, where the declarative backends
+    /// leave `children` empty. Nothing else changes, so a wrapper-free
+    /// document's JSON is untouched.
+    nesting: bool,
 }
 
 impl Builder {
@@ -237,6 +243,18 @@ impl Builder {
                 })
                 .collect(),
         ))
+    }
+
+    /// The item a `#/<collection>/<index>` self-ref names, for patching an
+    /// already-emitted picture/table (only its `children` is ever patched).
+    fn item_mut(&mut self, self_ref: &str) -> Option<&mut Value> {
+        let (kind, idx) = self_ref.strip_prefix("#/")?.split_once('/')?;
+        let idx: usize = idx.parse().ok()?;
+        match kind {
+            "pictures" => self.pictures.get_mut(idx),
+            "tables" => self.tables.get_mut(idx),
+            _ => None,
+        }
     }
 
     /// Adopt a node's own location field (tables, formulas, list items carry
@@ -355,6 +373,26 @@ impl Builder {
                 let r = self.add_node(inner, parent);
                 self.pending_spans = None;
                 r
+            }
+            // A picture/table with the text found inside it. The wrapped item is
+            // built first so its `self_ref` can parent the nested children, then
+            // the children are walked into it — docling's PDF path emits them
+            // as ordinary text items whose `parent` is the figure, listed in
+            // its `children` after the caption. They never reach `body`.
+            Node::Nested { children, inner } => {
+                self.nesting = true;
+                let item_ref = self.add_node(inner, parent);
+                self.nesting = false;
+                let item_ref = item_ref?;
+                let refs = self.walk_into(children, &item_ref);
+                if !refs.is_empty() {
+                    if let Some(item) = self.item_mut(&item_ref) {
+                        if let Some(arr) = item["children"].as_array_mut() {
+                            arr.extend(refs);
+                        }
+                    }
+                }
+                Some(item_ref)
             }
             // Page breaks are DocLang-only; docling omits them from the JSON body.
             Node::PageBreak => None,
@@ -627,9 +665,13 @@ impl Builder {
         // `TableItem.captions`), added before the grid so its box isn't
         // inherited by a later item.
         let mut captions = Vec::new();
+        let mut children = Vec::new();
         if let Some(cap) = t.caption.as_deref().filter(|c| !c.is_empty()) {
             let cap_ref = self.add_text("caption", cap, &self_ref, json!({}));
-            captions.push(json!({ "$ref": cap_ref }));
+            captions.push(json!({ "$ref": cap_ref.clone() }));
+            if self.nesting {
+                children.push(json!({ "$ref": cap_ref }));
+            }
         }
         let num_rows = t.rows.len();
         let num_cols = t.rows.iter().map(Vec::len).max().unwrap_or(0);
@@ -724,7 +766,7 @@ impl Builder {
         self.tables.push(json!({
             "self_ref": self_ref,
             "parent": { "$ref": parent },
-            "children": [],
+            "children": children,
             "content_layer": "body",
             "label": "table",
             "prov": prov,
@@ -754,10 +796,14 @@ impl Builder {
         // the caption is a separate item and must not inherit the crop's box.
         let prov = self.take_prov(0);
         let mut captions = Vec::new();
+        let mut children = Vec::new();
         if let Some(cap) = caption.filter(|c| !c.is_empty()) {
             // Emit the caption as a text item that the picture references.
             let cap_ref = self.add_text("caption", cap, &self_ref, json!({}));
-            captions.push(json!({ "$ref": cap_ref }));
+            captions.push(json!({ "$ref": cap_ref.clone() }));
+            if self.nesting {
+                children.push(json!({ "$ref": cap_ref }));
+            }
         }
         // DocumentPictureClassifier predictions land twice, exactly like
         // docling 2.x writes them: the (deprecated but still emitted)
@@ -782,7 +828,7 @@ impl Builder {
             Some(classes) => json!({
                 "self_ref": self_ref,
                 "parent": { "$ref": parent },
-                "children": [],
+                "children": children,
                 "content_layer": "body",
                 "meta": {
                     "classification": {
@@ -803,7 +849,7 @@ impl Builder {
             None => json!({
                 "self_ref": self_ref,
                 "parent": { "$ref": parent },
-                "children": [],
+                "children": children,
                 "content_layer": "body",
                 "label": "picture",
                 "prov": prov,
@@ -1328,5 +1374,62 @@ mod tests {
         // 792pt page, span top 100 -> 692 in BOTTOMLEFT
         assert_eq!(words[0]["bbox"]["t"], 692.0);
         std::env::remove_var("DOCLING_RS_WORD_PROV");
+    }
+
+    /// A `Node::Nested` picture carries the text found inside it as `children`
+    /// (docling's PDF shape), and lists its caption there too — while the
+    /// declarative backends, which never emit the wrapper, keep `children`
+    /// empty with the caption referenced only from `captions`. The children are
+    /// ordinary text items parented to the picture, never to `body`.
+    #[test]
+    fn nested_picture_carries_its_inside_text_as_children() {
+        let inside = |t: &str| Node::Located {
+            location: [10, 10, 100, 30],
+            inner: Box::new(Node::Paragraph { text: t.into() }),
+        };
+        let v = page_doc(vec![Node::Nested {
+            children: vec![inside("axis label"), inside("legend entry")],
+            inner: Box::new(Node::Located {
+                location: [0, 0, 400, 300],
+                inner: Box::new(Node::Picture {
+                    caption: Some("Figure 1: a chart".into()),
+                    image: None,
+                    classification: None,
+                }),
+            }),
+        }]);
+        let pic = &v["pictures"][0];
+        let kids: Vec<&str> = pic["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["$ref"].as_str().unwrap())
+            .collect();
+        assert_eq!(kids.len(), 3, "caption + two inside-texts");
+        assert_eq!(pic["captions"][0]["$ref"], kids[0], "caption comes first");
+        // Every child is parented to the picture and stays out of the body.
+        for r in &kids {
+            let i: usize = r.rsplit('/').next().unwrap().parse().unwrap();
+            assert_eq!(v["texts"][i]["parent"]["$ref"], "#/pictures/0");
+        }
+        assert_eq!(v["body"]["children"].as_array().unwrap().len(), 1);
+        assert_eq!(v["texts"][1]["text"], "axis label");
+        assert_eq!(v["texts"][1]["label"], "text");
+        // The children keep their own provenance rather than the figure's box.
+        assert_eq!(v["texts"][1]["prov"][0]["page_no"], 1);
+        assert_ne!(v["texts"][1]["prov"][0]["bbox"], pic["prov"][0]["bbox"]);
+    }
+
+    /// Without the wrapper — every declarative backend — a captioned picture's
+    /// `children` stays empty, matching their committed groundtruth JSON.
+    #[test]
+    fn unwrapped_picture_keeps_children_empty() {
+        let v = page_doc(vec![Node::Picture {
+            caption: Some("Figure 1: a chart".into()),
+            image: None,
+            classification: None,
+        }]);
+        assert!(v["pictures"][0]["children"].as_array().unwrap().is_empty());
+        assert_eq!(v["pictures"][0]["captions"].as_array().unwrap().len(), 1);
     }
 }
