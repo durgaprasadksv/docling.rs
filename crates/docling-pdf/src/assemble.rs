@@ -2482,6 +2482,15 @@ pub fn assemble_page(
         if let Some(spans) = &region_spans[i] {
             if !spans.is_empty() {
                 for node in nodes.iter_mut().skip(spans_mark) {
+                    // List items are exempt, for the same reason they carry their
+                    // own `location` instead of a `Node::Located` wrapper: the
+                    // serializers batch a consecutive *run* of bare `ListItem`s
+                    // into one list group, and any wrapper breaks that match, so
+                    // the items silently stop being lists in JSON/DCLX while
+                    // Markdown (which renders through wrappers) still looks right.
+                    if matches!(node, Node::ListItem { .. }) {
+                        continue;
+                    }
                     let inner = std::mem::replace(node, Node::PageBreak);
                     *node = Node::Spanned {
                         spans: spans.clone(),

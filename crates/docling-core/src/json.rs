@@ -321,7 +321,15 @@ impl Builder {
             Node::TextDump(text) => Some(self.add_text("text", text, parent, json!({}))),
             // Furniture is not emitted into the body/JSON (DocLang-only layer).
             Node::Furniture { .. } => None,
-            Node::PageFurniture { .. } => None,
+            Node::PageFurniture {
+                footer,
+                location,
+                text,
+            } => {
+                self.adopt_loc(Some(*location));
+                let label = if *footer { "page_footer" } else { "page_header" };
+                Some(self.add_text_layered(label, text, parent, json!({}), "furniture"))
+            }
             // A location wrapper turns into the wrapped item's `prov` entry —
             // but only on pages the PDF paths described with a PageInfo marker
             // (other geometry-bearing backends, e.g. PPTX shapes, keep their
@@ -414,6 +422,22 @@ impl Builder {
     }
 
     fn add_text(&mut self, label: &str, text: &str, parent: &str, extra: Value) -> String {
+        self.add_text_layered(label, text, parent, extra, "body")
+    }
+
+    /// [`Self::add_text`] with an explicit content layer. docling keeps page
+    /// headers and footers in `texts` and in `body.children` like any other item,
+    /// marked `content_layer: "furniture"`; Markdown and DocLang then skip them
+    /// *by layer* rather than by absence. Dropping them from the JSON entirely
+    /// loses the only signal a consumer has for "do not read this aloud".
+    fn add_text_layered(
+        &mut self,
+        label: &str,
+        text: &str,
+        parent: &str,
+        extra: Value,
+        layer: &str,
+    ) -> String {
         let self_ref = format!("#/texts/{}", self.texts.len());
         let raw = unescape_text(text);
         let prov = self.take_prov(raw.chars().count());
@@ -422,7 +446,7 @@ impl Builder {
             "self_ref": self_ref,
             "parent": { "$ref": parent },
             "children": [],
-            "content_layer": "body",
+            "content_layer": layer,
             "label": label,
             "prov": prov,
             "orig": raw,
