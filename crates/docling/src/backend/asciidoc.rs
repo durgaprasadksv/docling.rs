@@ -241,6 +241,7 @@ impl Parser {
                 cell_blocks: None,
                 cells: None,
                 caption: None,
+                document_index: false,
             }));
         }
         self.in_table = false;

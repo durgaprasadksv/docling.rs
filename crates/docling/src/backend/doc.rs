@@ -1184,6 +1184,7 @@ impl NodeBuilder {
             cell_blocks: None,
             cells: None,
             caption: None,
+            document_index: false,
         }));
         self.last_ilfo = None;
         self.run_base = None;

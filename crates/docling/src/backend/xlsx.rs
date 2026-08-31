@@ -795,6 +795,7 @@ pub(crate) fn find_tables(
                     cell_blocks: None,
                     cells: None,
                     caption: None,
+                    document_index: false,
                 },
                 label,
                 min_r,

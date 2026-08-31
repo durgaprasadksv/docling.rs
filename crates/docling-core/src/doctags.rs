@@ -581,6 +581,7 @@ fn parse_otsl(toks: &[Tok], i: &mut usize, out: &mut Vec<Node>) {
         cell_blocks: None,
         cells: None,
         caption: None,
+        document_index: false,
     }));
 }
 

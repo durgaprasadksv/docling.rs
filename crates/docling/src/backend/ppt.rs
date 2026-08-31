@@ -572,6 +572,7 @@ fn grid_table(cells: &[(Anchor, ShapeText)]) -> Option<Table> {
         cell_blocks: None,
         cells: None,
         caption: None,
+        document_index: false,
     })
 }
 

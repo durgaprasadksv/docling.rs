@@ -279,6 +279,7 @@ pub fn chart_table_from_columns(
         cell_blocks: None,
         cells: None,
         caption: None,
+        document_index: false,
     })
 }
 

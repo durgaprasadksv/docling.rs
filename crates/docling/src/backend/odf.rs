@@ -1074,6 +1074,7 @@ fn parse_table(table: XmlNode, styles: &Styles) -> Option<Table> {
         cell_blocks,
         caption: None,
         cells: None,
+        document_index: false,
     })
 }
 
@@ -1356,6 +1357,7 @@ pub(crate) fn emit_sheet_regions(
                 cell_blocks: None,
                 cells: None,
                 caption: None,
+                document_index: false,
             }));
         }
     }

@@ -254,6 +254,7 @@ fn table_item(item: &Value, root: &Value, doc: &mut DoclingDocument) {
             cell_blocks: None,
             cells: None,
             caption: None,
+            document_index: false,
         }));
     }
     push_captions(item, root, doc);

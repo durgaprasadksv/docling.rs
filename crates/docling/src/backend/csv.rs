@@ -45,6 +45,7 @@ impl DeclarativeBackend for CsvBackend {
                 cell_blocks: None,
                 cells: None,
                 caption: None,
+                document_index: false,
             }));
         }
         Ok(doc)

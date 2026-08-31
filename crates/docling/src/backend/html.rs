@@ -1433,6 +1433,7 @@ fn parse_table_cells(
         cell_blocks: None,
         cells: None,
         caption: None,
+        document_index: false,
     })
 }
 

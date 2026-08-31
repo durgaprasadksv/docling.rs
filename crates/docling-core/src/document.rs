@@ -467,6 +467,13 @@ pub struct Table {
     /// and render `rows`, so their output is unchanged. `None` (or an empty
     /// `Vec` for a given cell) → the flat text is used everywhere.
     pub cell_blocks: Option<Vec<Vec<Vec<Node>>>>,
+    /// docling's `document_index` label: a table of contents. The layout model
+    /// gives a TOC its own cluster class and docling keeps that label on the
+    /// item — in the `tables` collection like any other table, but labelled
+    /// `document_index`, so a consumer can skip a TOC without skipping every
+    /// table. JSON-only: DocTags and DCLX carry no such distinction. `false`
+    /// (the default) is an ordinary table.
+    pub document_index: bool,
     /// Optional caption (docling's `TableItem.captions`): the JATS
     /// `<table-wrap>` label+caption, an HTML `<caption>`, etc. Markdown renders
     /// it as a text line *before* the grid; JSON emits a caption text item the

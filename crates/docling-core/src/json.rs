@@ -773,7 +773,7 @@ impl Builder {
             "parent": { "$ref": parent },
             "children": children,
             "content_layer": "body",
-            "label": "table",
+            "label": if t.document_index { "document_index" } else { "table" },
             "prov": prov,
             "captions": captions,
             "references": [],
@@ -1168,6 +1168,7 @@ mod tests {
             cell_blocks: None,
             cells: None,
             caption: None,
+            document_index: false,
         }));
 
         let v: Value = serde_json::from_str(&doc.export_to_json()).unwrap();

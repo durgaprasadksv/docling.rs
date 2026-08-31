@@ -291,7 +291,7 @@ pub fn drop_contained_regulars(regions: &mut Vec<Region>) {
 pub fn contained_specials(regions: &[Region]) -> Vec<Option<usize>> {
     let mut out = vec![None; regions.len()];
     let specials: Vec<usize> = (0..regions.len())
-        .filter(|&i| regions[i].label == "picture" || is_table_like(regions[i].label))
+        .filter(|&i| regions[i].label == "picture" || is_wrapper(regions[i].label))
         .collect();
     if specials.is_empty() {
         return out;
@@ -2277,6 +2277,32 @@ pub fn assemble_page(
             }
             continue;
         }
+        // docling wraps a form's / key-value region's contents in a group
+        // labelled `form_area` / `key_value_area`, so a consumer can treat the
+        // whole block as one unit rather than as loose paragraphs. The region
+        // itself carries no text — its children are what was inside its box.
+        if matches!(region.label, "form" | "key_value_region") {
+            let children = nested_children(
+                i,
+                &contained_in,
+                &regions,
+                &region_texts,
+                &region_spans,
+                page.width,
+                page_h,
+            );
+            if !children.is_empty() {
+                nodes.push(Node::Group {
+                    label: if region.label == "form" {
+                        "form_area".into()
+                    } else {
+                        "key_value_area".into()
+                    },
+                    children,
+                });
+            }
+            continue;
+        }
         if is_skipped(region.label) {
             continue;
         }
@@ -2437,6 +2463,8 @@ pub fn assemble_page(
                             cell_blocks: None,
                             cells,
                             caption,
+                            // A table of contents keeps its own docling label.
+                            document_index: region.label == "document_index",
                         }),
                     )),
                 });
@@ -2754,12 +2782,20 @@ fn nested_children(
             }
             // Escaped like any other paragraph — the JSON export unescapes back
             // to the raw text, and the spans index that same escaped string.
-            let node = located(
-                norm_loc(&regions[j], page_w, page_h),
-                Node::Paragraph {
-                    text: md_escape(&texts[j]),
+            // Labels that carry meaning of their own survive the nesting: a
+            // checkbox inside a form area is still a checkbox (docling's
+            // `form_area` children keep their `checkbox_*` labels).
+            let text = md_escape(&texts[j]);
+            let inner = match regions[j].label {
+                "checkbox_selected" | "checkbox_unselected" => Node::CheckboxItem {
+                    checked: regions[j].label == "checkbox_selected",
+                    text,
                 },
-            );
+                "section_header" | "title" => Node::Heading { level: 2, text },
+                "footnote" => Node::Footnote { text },
+                _ => Node::Paragraph { text },
+            };
+            let node = located(norm_loc(&regions[j], page_w, page_h), inner);
             Some(match &spans[j] {
                 Some(s) if !s.is_empty() => Node::Spanned {
                     spans: s.clone(),

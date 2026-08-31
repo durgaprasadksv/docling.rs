@@ -251,6 +251,7 @@ impl DeclarativeBackend for EbcdicBackend {
                 cell_blocks: None,
                 cells: None,
                 caption: None,
+                document_index: false,
             }));
         }
         Ok(doc)

@@ -337,6 +337,7 @@ fn render_page(
             cell_blocks: None,
             cells: None,
             caption: None,
+            document_index: false,
         }));
     }
     true
@@ -672,6 +673,7 @@ mod tests {
                     cell_blocks: None,
                     cells: None,
                     caption: None,
+                    document_index: false,
                 }),
             ]
         );
