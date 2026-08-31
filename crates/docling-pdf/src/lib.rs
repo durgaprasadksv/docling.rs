@@ -944,7 +944,9 @@ impl Worker {
                     ocr_confs.extend(words.iter().map(|(_, conf)| conf));
                     let words: Vec<_> = words.into_iter().map(|(cell, _)| cell).collect();
                     page.cells.extend(words.iter().cloned());
-                    page.word_cells = words;
+                    // Extend, never assign: the body's CTC-recovered word boxes
+                    // were set above and a page with a table has both.
+                    page.word_cells.extend(words);
                 }
             }
         }

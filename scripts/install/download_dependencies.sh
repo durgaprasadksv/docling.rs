@@ -21,6 +21,12 @@
 # models-v1 by default — override the base with $DOCLING_RS_MODELS_URL):
 #   .pdfium/lib/libpdfium.so (libpdfium.dylib on macOS)
 #   .models/layout_heron.onnx
+#   .models/ocr_det_en.onnx                        (PP-OCRv3 DBNet text detector,
+#     ~2.4 MB — used only for crops the layout model failed on, where ink
+#     projection cannot separate lines; absent, that path degrades to projection)
+#   .models/ocr_rec_v6.onnx + .models/v6_dict.txt   (PP-OCRv6 small recognition,
+#     ~21 MB — preferred over the en_ pair when present; its dictionary is
+#     extracted from the model's own inference.yml, see scripts/install/)
 #   .models/ocr_rec_en.onnx + .models/en_dict.txt   (English PP-OCRv3
 #     recognition — the runtime default; from upstream PP-OCRv3 hosting)
 #   .models/ocr_rec.onnx + .models/ppocr_keys_v1.txt (multilingual ch_ pair —

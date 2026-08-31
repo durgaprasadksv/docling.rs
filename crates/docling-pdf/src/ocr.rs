@@ -162,8 +162,31 @@ pub fn scale_from_env() -> Option<f32> {
 pub(crate) fn resolve_rec_pair(lang: OcrLang) -> (String, String) {
     const CH: (&str, &str) = (".models/ocr_rec.onnx", ".models/ppocr_keys_v1.txt");
     const EN: (&str, &str) = (".models/ocr_rec_en.onnx", ".models/en_dict.txt");
+    // PP-OCRv6 small, preferred for the non-`ch` selection when installed. Its
+    // ~18.7k-character vocabulary makes it multilingual rather than English-only,
+    // so it supersedes the `en_` pair rather than sitting beside it; the older
+    // model stays the fallback so existing `.models/` trees keep working.
+    //
+    // Measured against an independent engine over 18 pages of a scanned book it
+    // is a wash on prose and *behind* the v3 English pair on symbol-dense text,
+    // where it abstains on glyphs it cannot identify instead of guessing. It wins
+    // decisively on display type — covers and plates, the pages the detector path
+    // exists for — reads word spacing far more reliably, and is faster despite
+    // being larger (most of its size is the output projection for that
+    // vocabulary, one wide matmul, not deeper computation).
+    const V6: (&str, &str) = (".models/ocr_rec_v6.onnx", ".models/v6_dict.txt");
     let want_ch = lang == OcrLang::Ch;
-    let pick = if want_ch { CH } else { EN };
+    let have = |p: &(&str, &str)| {
+        std::path::Path::new(&crate::resolve_asset(p.0)).exists()
+            && std::path::Path::new(&crate::resolve_asset(p.1)).exists()
+    };
+    let pick = if want_ch {
+        CH
+    } else if have(&V6) {
+        V6
+    } else {
+        EN
+    };
     let (mut rec, mut dict) = (crate::resolve_asset(pick.0), crate::resolve_asset(pick.1));
     if !want_ch && (!std::path::Path::new(&rec).exists() || !std::path::Path::new(&dict).exists()) {
         let (ch_rec, ch_dict) = (crate::resolve_asset(CH.0), crate::resolve_asset(CH.1));
