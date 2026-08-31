@@ -572,6 +572,19 @@ pub fn recover_text_panels(regions: &mut Vec<Region>, cells: &[TextCell]) {
                 })
         })
         .collect();
+    // Opt-in (`DOCLING_RS_READ_PICTURE_TEXT`): on a page whose layout produced no
+    // text region at all, demote a picture on line count alone.
+    //
+    // No geometric rule separates a book cover from a full-page chart — both are
+    // a picture holding a few ragged-height lines — so this is a consumer policy,
+    // not a heuristic. docling's default is right for a document converter: a
+    // chart's axis labels are not prose, and `dense_titled_chart_keeps_its_crop`
+    // pins that. A read-aloud client wants the opposite for a cover or plate,
+    // where the alternative is skipping the page in silence.
+    let page_has_text = !docling_core::env::flag("DOCLING_RS_READ_PICTURE_TEXT")
+        || regions
+            .iter()
+            .any(|r| crate::ocr_prep::is_text_label(r.label));
     let mut out: Vec<Region> = Vec::with_capacity(regions.len());
     // Synthesized paragraphs and the demoted panels' boxes are kept separate
     // from `out` until the end: the dedup filter below must not confuse a
@@ -632,7 +645,8 @@ pub fn recover_text_panels(regions: &mut Vec<Region>, cells: &[TextCell]) {
         let mut devs: Vec<f32> = heights.iter().map(|h| (h - h_med).abs()).collect();
         devs.sort_by(f32::total_cmp);
         let uniform = devs[devs.len() / 2] <= 0.35 * h_med;
-        let text_panel = coverage >= 0.2 && widths[widths.len() / 2] >= 0.45 * panel_w && uniform;
+        let text_panel = (coverage >= 0.2 && widths[widths.len() / 2] >= 0.45 * panel_w && uniform)
+            || !page_has_text;
         if !text_panel {
             out.push(r);
             continue;

@@ -20,6 +20,8 @@
 pub mod assemble;
 #[cfg(not(feature = "ocr-prep"))]
 mod assemble;
+#[cfg(feature = "ml")]
+mod det;
 mod dp_lines;
 #[cfg(feature = "ml")]
 pub mod enrich;
@@ -992,8 +994,21 @@ impl Worker {
             // pictures simply stay pictures.
             if let (false, Some(ocr)) = (bare.is_empty(), self.ocr_model()?) {
                 let (img, scl) = ocr_input(&mut ocr_view, &page.image, page.scale, ocr_scale);
-                let scored = timing::timed("ocr.pictures", || ocr.ocr_page(img, &bare, scl))
-                    .map_err(|e| PdfError::Ocr(format!("page {}: {e}", n + 1)))?;
+                // Detected line boxes where a detector is available: these crops
+                // are the ones layout failed on — a whole page boxed as a picture
+                // — and ink projection assumes its input is one isolated block of
+                // prose, so on artwork it profiles the picture instead of the
+                // lettering. Falls back to the projection path when the optional
+                // detector asset is absent.
+                let detected = timing::timed("ocr.pictures.det", || {
+                    ocr.ocr_regions_detected(img, &bare, scl)
+                })
+                .map_err(|e| PdfError::Ocr(format!("page {}: {e}", n + 1)))?;
+                let scored = match detected {
+                    Some(cells) => cells,
+                    None => timing::timed("ocr.pictures", || ocr.ocr_page(img, &bare, scl))
+                        .map_err(|e| PdfError::Ocr(format!("page {}: {e}", n + 1)))?,
+                };
                 // Speculative in-picture OCR counts toward ocr_score only on
                 // OCR'd pages, where the recognized lines actually join the
                 // output; on a digital page they may be discarded below.

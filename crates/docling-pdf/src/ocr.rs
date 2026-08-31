@@ -20,6 +20,10 @@ use crate::pdfium_backend::TextCell;
 
 pub struct OcrModel {
     rec: Session,
+    /// DBNet text detector, loaded on first use — only the fallback path needs
+    /// it, and a build without the asset must still convert.
+    det: Option<Session>,
+    det_tried: bool,
     /// CTC classes: index 0 = blank, 1..=6623 = dictionary, 6624 = space.
     chars: Vec<String>,
 }
@@ -201,6 +205,8 @@ impl OcrModel {
             .map_err(|e| format!("ocr: read dict {dict_path}: {e}"))?;
         Ok(Self {
             rec,
+            det: None,
+            det_tried: false,
             chars: dict_chars(&dict),
         })
     }
@@ -299,6 +305,109 @@ impl OcrModel {
     /// the text regions, each paired with its recognition confidence (mean
     /// emitted-character probability — feeds the page `ocr_score`, #183).
     /// `scale` is image-px per page-point.
+    /// The DBNet session, loaded once on first use. `None` when the asset is
+    /// absent — a missing optional model degrades (the caller falls back to ink
+    /// projection) rather than failing the conversion.
+    fn det_session(&mut self) -> Option<&mut Session> {
+        if !self.det_tried {
+            self.det_tried = true;
+            let path = crate::resolve_asset(".models/ocr_det_en.onnx");
+            if std::path::Path::new(&path).exists() {
+                self.det = Session::builder()
+                    .ok()
+                    .and_then(|b| b.with_intra_threads(1).ok())
+                    .and_then(|b| docling_onnx::apply(b).ok())
+                    .and_then(|mut b| b.commit_from_file(&path).ok());
+                if self.det.is_none() {
+                    eprintln!("docling-pdf: text detector present but failed to load ({path})");
+                }
+            } else {
+                docling_core::debug_log!(
+                    "docling-pdf: no text detector at {path}; picture-interior OCR \
+                     falls back to ink projection"
+                );
+            }
+        }
+        self.det.as_mut()
+    }
+
+    /// Recognize `regions` using **detected** line boxes rather than ink
+    /// projection. `Ok(None)` when no detector is available, so the caller can
+    /// fall back.
+    ///
+    /// This is the path for crops the layout model failed on — a whole page
+    /// boxed as a picture. Ink projection assumes its input is one isolated
+    /// block of prose; on artwork it profiles the picture and loses the text.
+    pub fn ocr_regions_detected(
+        &mut self,
+        img: &RgbImage,
+        regions: &[Region],
+        scale: f32,
+    ) -> Result<Option<Vec<(TextCell, f32)>>, String> {
+        let (iw, ih) = img.dimensions();
+        let mut boxes: Vec<(u32, u32, u32, u32)> = Vec::new();
+        {
+            let Some(det) = self.det_session() else {
+                return Ok(None);
+            };
+            for region in regions {
+                let l = (region.l * scale).max(0.0) as u32;
+                let t = (region.t * scale).max(0.0) as u32;
+                let r = ((region.r * scale).max(0.0) as u32).min(iw);
+                let b = ((region.b * scale).max(0.0) as u32).min(ih);
+                if r <= l || b <= t {
+                    continue;
+                }
+                let crop = image::imageops::crop_imm(img, l, t, r - l, b - t).to_image();
+                // Detected boxes are crop-relative; lift them back to page pixels.
+                for (bl, bt, br, bb) in crate::det::detect(det, &crop)? {
+                    boxes.push((l + bl, t + bt, l + br, t + bb));
+                }
+            }
+        }
+        if boxes.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
+        // Top-to-bottom, then left-to-right, so cells reach the assembler in the
+        // same page order the projection path produced.
+        boxes.sort_by_key(|&(l, t, _, _)| (t, l));
+
+        let mut lines = Vec::with_capacity(boxes.len());
+        let mut kept = Vec::with_capacity(boxes.len());
+        for &(l, t, r, b) in &boxes {
+            let crop = image::imageops::crop_imm(img, l, t, r - l, b - t).to_image();
+            if let Some(pl) = crate::ocr_prep::prep_line(&crate::ocr_prep::normalize_polarity(crop))
+            {
+                lines.push(pl);
+                kept.push((l, t, r, b));
+            }
+        }
+        let mut texts = vec![(String::new(), 0.0f32); lines.len()];
+        for (w, chunk) in width_batches(&lines) {
+            for (&i, text) in chunk.iter().zip(self.recognize_batch(w, &chunk, &lines)?) {
+                texts[i] = text;
+            }
+        }
+        let mut cells = Vec::new();
+        for ((l, t, r, b), (text, conf)) in kept.into_iter().zip(texts) {
+            let text = text.trim().to_string();
+            if text.is_empty() {
+                continue;
+            }
+            cells.push((
+                TextCell {
+                    text,
+                    l: l as f32 / scale,
+                    t: t as f32 / scale,
+                    r: r as f32 / scale,
+                    b: b as f32 / scale,
+                },
+                conf,
+            ));
+        }
+        Ok(Some(cells))
+    }
+
     pub fn ocr_page(
         &mut self,
         img: &RgbImage,
