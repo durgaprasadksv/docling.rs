@@ -36,6 +36,8 @@ pub mod pdf_repair;
 mod pixel_digest;
 pub mod redact;
 mod revisions;
+/// Spoken-form rendering of formula items (LaTeX -> MathML -> English).
+pub mod speech;
 pub mod tree;
 mod vtt;
 

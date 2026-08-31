@@ -36,6 +36,9 @@ pdfium = ["docling/pdfium"]
 # ONNX Runtime loaded at run time instead of linked (#504) — the s390x build
 # and self-built runtimes; pass-through to docling.
 ort-load-dynamic = ["docling/ort-load-dynamic"]
+# Pass through to the library's formula verbalization, so
+# `cargo run -p docling-cli --features speech -- --speech …` voices formulas.
+speech = ["docling/speech"]
 # Pass through to the library's optional headless-browser HTML pre-render, so
 # `cargo run -p docling-cli --features web-browser -- --use-web-browser …`
 # activates it. Off by default (keeps the default binary browser-dependency-free).
