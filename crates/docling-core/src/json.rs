@@ -286,10 +286,15 @@ impl Builder {
                 }
             }
             Node::CheckboxItem { checked, text } => {
-                // JSON keeps the task-list form as a plain text item (the
-                // `checkbox_selected`/`checkbox_unselected` label is DocLang-only).
-                let mark = if *checked { "- [x] " } else { "- [ ] " };
-                Some(self.add_text("text", &format!("{mark}{text}"), parent, json!({})))
+                // docling labels the item and stores the bare option text; the
+                // `- [x] ` marker belongs to the Markdown serializer, not the
+                // item (its groundtruth JSON has `text: 'بلی'`, not `- [ ] بلی`).
+                let label = if *checked {
+                    "checkbox_selected"
+                } else {
+                    "checkbox_unselected"
+                };
+                Some(self.add_text(label, text, parent, json!({})))
             }
             Node::Code {
                 language,

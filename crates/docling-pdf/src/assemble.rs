@@ -2450,8 +2450,15 @@ pub fn assemble_page(
                     orig: text.clone(),
                     location: Some(loc),
                 }),
-                _ => nodes.push(Node::Paragraph {
-                    text: "<!-- formula-not-decoded -->".into(),
+                // No CodeFormula model: docling still emits a *formula* item,
+                // with empty text and the raw extraction in `orig` — the
+                // `<!-- formula-not-decoded -->` line is what its Markdown
+                // serializer renders for exactly that empty-text case, not a
+                // paragraph in the document.
+                _ => nodes.push(Node::Formula {
+                    latex: String::new(),
+                    orig: text.clone(),
+                    location: Some(loc),
                 }),
             },
             // Code blocks: use the space-glyph-only grouping (monospace keeps its

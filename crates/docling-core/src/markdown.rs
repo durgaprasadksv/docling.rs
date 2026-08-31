@@ -437,7 +437,13 @@ fn render_one(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
         }
         // A CodeFormula-decoded display formula renders as docling's `$$…$$`
         // (the un-enriched pipeline emits a placeholder paragraph instead).
-        Node::Formula { latex, .. } => blocks.push(format!("$${latex}$$")),
+        // An empty formula is one the CodeFormula model never decoded; docling
+        // renders it as a comment line rather than an empty `$$$$`.
+        Node::Formula { latex, .. } => blocks.push(if latex.is_empty() {
+            "<!-- formula-not-decoded -->".into()
+        } else {
+            format!("$${latex}$$")
+        }),
         Node::Table(table) => {
             // docling renders a table's caption as a text line before the grid.
             // `caption` is already escaped (backend convention), like a paragraph.

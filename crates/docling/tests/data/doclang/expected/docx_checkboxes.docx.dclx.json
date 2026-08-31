@@ -138,10 +138,10 @@
       },
       "children": [],
       "content_layer": "body",
-      "label": "text",
+      "label": "checkbox_selected",
       "prov": [],
-      "orig": "- [x] Design",
-      "text": "- [x] Design"
+      "orig": "Design",
+      "text": "Design"
     },
     {
       "self_ref": "#/texts/7",
@@ -150,10 +150,10 @@
       },
       "children": [],
       "content_layer": "body",
-      "label": "text",
+      "label": "checkbox_selected",
       "prov": [],
-      "orig": "- [x] Implementation",
-      "text": "- [x] Implementation"
+      "orig": "Implementation",
+      "text": "Implementation"
     },
     {
       "self_ref": "#/texts/8",
@@ -162,10 +162,10 @@
       },
       "children": [],
       "content_layer": "body",
-      "label": "text",
+      "label": "checkbox_unselected",
       "prov": [],
-      "orig": "- [ ] Documentation of the task with a very long text that goes beyond the maximum length of a single line.",
-      "text": "- [ ] Documentation of the task with a very long text that goes beyond the maximum length of a single line."
+      "orig": "Documentation of the task with a very long text that goes beyond the maximum length of a single line.",
+      "text": "Documentation of the task with a very long text that goes beyond the maximum length of a single line."
     },
     {
       "self_ref": "#/texts/9",

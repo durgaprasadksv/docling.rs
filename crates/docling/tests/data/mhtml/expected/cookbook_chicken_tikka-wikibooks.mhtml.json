@@ -1154,10 +1154,10 @@
       },
       "children": [],
       "content_layer": "body",
-      "label": "text",
+      "label": "checkbox_unselected",
       "prov": [],
-      "orig": "- [ ] 2 languages",
-      "text": "- [ ] 2 languages"
+      "orig": "2 languages",
+      "text": "2 languages"
     },
     {
       "self_ref": "#/texts/23",
@@ -1234,10 +1234,10 @@
       },
       "children": [],
       "content_layer": "body",
-      "label": "text",
+      "label": "checkbox_unselected",
       "prov": [],
-      "orig": "- [ ] English",
-      "text": "- [ ] English"
+      "orig": "English",
+      "text": "English"
     },
     {
       "self_ref": "#/texts/29",
@@ -1302,10 +1302,10 @@
       },
       "children": [],
       "content_layer": "body",
-      "label": "text",
+      "label": "checkbox_unselected",
       "prov": [],
-      "orig": "- [ ] Tools",
-      "text": "- [ ] Tools"
+      "orig": "Tools",
+      "text": "Tools"
     },
     {
       "self_ref": "#/texts/34",
