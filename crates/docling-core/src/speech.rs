@@ -55,6 +55,47 @@ pub fn normalize_latex(src: &str) -> String {
     out
 }
 
+/// Split a trailing prose annotation off a formula: `… \quad ( \text {balanced} )`
+/// becomes the equation and `"balanced"`.
+///
+/// Textbooks annotate display equations this way, and the annotation is content
+/// a reader should hear — but leaving it attached costs more than it gives.
+/// MathCAT decides whether an expression is *chemistry* from its shape, and the
+/// trailing group defeats that: `2H₂O ⟶ 2H₂ + O₂` speaks its arrow as "reacts
+/// to form", while the same equation with `(balanced)` appended degrades to
+/// "long rightwards arrow ... of, open paren balanced close paren".
+///
+/// So the equation is spoken as chemistry and the annotation appended as words.
+pub(crate) fn split_annotation(latex: &str) -> (&str, Option<&str>) {
+    let s = latex.trim_end();
+    let Some(body) = s.strip_suffix(')') else {
+        return (latex, None);
+    };
+    let Some(open) = body.rfind('(') else {
+        return (latex, None);
+    };
+    // The parenthesised group has to be exactly one `\text{…}` — anything else
+    // is part of the maths (`(a + b)`) and must stay.
+    let inner = body[open + 1..].trim();
+    let Some(rest) = inner.strip_prefix(r"\text") else {
+        return (latex, None);
+    };
+    let rest = rest.trim_start();
+    let Some(rest) = rest.strip_prefix('{').and_then(|r| r.strip_suffix('}')) else {
+        return (latex, None);
+    };
+    let note = rest.trim();
+    if note.is_empty() || note.contains('{') {
+        return (latex, None);
+    }
+    let head = body[..open].trim_end();
+    let head = head.strip_suffix(r"\quad").unwrap_or(head).trim_end();
+    if head.is_empty() {
+        return (latex, None);
+    }
+    (head, Some(note))
+}
+
 #[cfg(feature = "speech")]
 mod engine {
     use std::sync::Mutex;
@@ -136,10 +177,15 @@ pub fn speak_latex(latex: &str) -> Option<String> {
     if latex.is_empty() {
         return None;
     }
-    let normalized = normalize_latex(latex);
+    let (head, note) = split_annotation(latex);
+    let normalized = normalize_latex(head);
     let mathml =
         latex2mathml::latex_to_mathml(&normalized, latex2mathml::DisplayStyle::Block).ok()?;
-    engine::speak(mathml)
+    let spoken = engine::speak(mathml)?;
+    Some(match note {
+        Some(n) => format!("{spoken}, {n}"),
+        None => spoken,
+    })
 }
 
 /// Without the `speech` feature there is no spoken form, and the JSON export
@@ -196,6 +242,36 @@ mod tests {
     fn tight_latex_is_unchanged() {
         for s in [r"a^{2}+8=12", r"\frac{1}{2}", r"E=mc^{2}"] {
             assert_eq!(normalize_latex(s), s);
+        }
+    }
+
+    /// A textbook's `(balanced)` / `(unbalanced)` annotation comes off the
+    /// equation so the maths can be recognised as chemistry, and is spoken
+    /// after it rather than dropped.
+    #[test]
+    fn a_trailing_prose_annotation_is_split_off() {
+        let (head, note) = super::split_annotation(
+            r"2 H _ { 2 } O \longrightarrow 2 H _ { 2 } + O _ { 2 } \quad ( \text {balanced} )",
+        );
+        assert_eq!(
+            head,
+            r"2 H _ { 2 } O \longrightarrow 2 H _ { 2 } + O _ { 2 }"
+        );
+        assert_eq!(note, Some("balanced"));
+    }
+
+    /// Ordinary parenthesised maths is never mistaken for an annotation.
+    #[test]
+    fn real_parentheses_survive() {
+        for s in [
+            r"y = ( \tan \theta _ { 0 } ) x",
+            r"a = ( b + c )",
+            r"R = \frac { v ^ { 2 } } { g } ( 2 )",
+            r"x = 1",
+        ] {
+            let (head, note) = super::split_annotation(s);
+            assert_eq!(head, s, "unchanged: {s}");
+            assert_eq!(note, None);
         }
     }
 
