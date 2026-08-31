@@ -332,3 +332,148 @@ Branch `claude/word-provenance` off fresh `origin/master`, signed off. Not a
 - **Hybrid trigger and digital pages** — Phase 3. The trigger is already built and
   corpus-measured.
 - **Bbox quantization** — see objective 1.1.
+
+---
+
+# Phase 1 — formulas
+
+Phase 0 objectives 1 and 2 are done (word boxes; reading order and metadata,
+both measured against the Python groundtruth). Objective 3 is deferred until
+after Phase 3 by decision — the client merge is not on the critical path for
+getting formulas right.
+
+## What was already built
+
+`crates/docling-pdf/src/enrich.rs` carries a **complete CodeFormulaV2 port** —
+Idefics3 preprocessing (longest-edge 2048 → multiple-of-512 → 512×512 tiling
+plus a squashed global tile), the tiled `<image>` prompt, and greedy decode over
+three ONNX graphs, with the KV-cached decoder step verified argmax-identical to
+`transformers.generate`. It is wired to `--enrich-formula` and gated on
+`.models/code_formula/` (761 MB: vision 374, embed 231, int8 decoder 165,
+tokenizer 7).
+
+So Phase 1 is not "build formula recognition". It is **turn on what exists,
+measure it, and close the gaps around it.**
+
+## 1.1 What the measurements showed
+
+Detection is not the problem. On a genuine 1900s scanned arithmetic textbook,
+the layout model found **32 formula regions across 12 pages**, correctly placed
+on the worked equations. `formula` is class 2 of heron's 17, so detection costs
+nothing extra — it is the same pass that finds text and tables. There is no
+separate MFD stage as in pix2text.
+
+The gap is entirely in decoding, and it differs by document kind:
+
+| | `text` (LaTeX) | `orig` (fallback) |
+| --- | --- | --- |
+| digital PDF | empty without the flag | `'a 2 +8 = 12'` — a linearized glyph dump; the superscript is gone |
+| scanned, no text layer | empty | **empty** |
+| scanned, bad OCR layer | empty | `'Jl X ^ =: -·''^" * » 5X0-'` — worse than nothing |
+
+Three distinct failure modes, and the third is the dangerous one: a reader that
+speaks `orig` would narrate noise. **Digital degrades to wrong; scanned degrades
+to silent; a bad OCR layer degrades to gibberish.**
+
+Note also that a page with *any* text layer skips OCR entirely, so a bad
+embedded layer wins over our own recognizer. `--force-full-page-ocr` overrides
+it, but our OCR is a text recognizer and will not read math either. Only an MFR
+model closes this.
+
+Consequence for Phase 3: **a digital page containing a formula still needs
+server processing.** The text layer cannot be trusted for math, so the hybrid
+trigger cannot route such a page client-side merely because it has text.
+
+## 1.2 Decoding
+
+With `--enrich-formula`, the clean fixture decodes to
+`a ^ { 2 } + 8 = 1 2` — byte-identical to docling's enriched groundtruth, so the
+port is confirmed against upstream rather than merely plausible.
+
+Work:
+
+- Fallback when decode is unavailable or fails: **emit nothing rather than
+  `orig`**. The item keeps its `formula` label with empty text, which is enough
+  for a reader to say "formula" and move on. Never narrate the OCR layer.
+- Cap decode tokens — a runaway decode on a degraded crop is the worst case, and
+  degraded crops are common on real scans.
+- Formula word boxes: N identical rects, one per spoken word, all carrying the
+  region box, so the highlight rests on the formula while it is read. The
+  mechanism already exists from objective 1.
+
+## 1.3 Verbalization — LaTeX to natural text
+
+Decided: **server-side, in Rust.** The chain is validated end to end.
+
+```
+CodeFormula LaTeX → normalize → MathML → speech
+```
+
+- **`latex2mathml`** for MathML, *not* `pulldown-latex`: the latter mis-parses
+  integrals, emitting `<msub><mo>∫</mo>…</msub><msup><mrow></mrow>…` — the limits
+  split across separate scripts with an empty base — where `latex2mathml`
+  correctly produces `<msubsup>`. It also wraps every script in a redundant
+  `<mrow>`.
+- **A token-rejoining normalizer is mandatory.** CodeFormula emits
+  space-separated tokens, so `= 1 2` parses as two `<mn>` nodes and a speech
+  engine says "one two" instead of "twelve"; `1 0 0 . 5` shatters into five.
+  The normalizer strips those spaces while keeping the one that terminates a
+  control word (`\cdot E` keeps its space, `\rightarrow2` does not need one).
+- **MathCAT** (`mathcat`, MIT, DAISY — the engine behind NVDA and JAWS) for
+  MathML → speech. It is written in Rust, so this needs no FFI, no per-platform
+  binaries, and stays wasm-compatible. It ships its own `Rules` directory;
+  English-only is a fraction of the 6.5 MB full set and fits the `.models/`
+  asset pattern (missing → warn and degrade).
+
+Measured output of the full chain:
+
+```
+a ^ { 2 } + 8 = 1 2   → "eigh squared plus 8, is equal to 12"
+E = m c ^ { 2 }       → "cap e is equal to m c squared"
+\int_0^\infty …       → "the integral from 0 to infinity of; e raised to the
+                         negative x power, d x; is equal to 1"
+\nabla \cdot E = …    → "divergence of cap e, is equal to; the fraction with
+                         numerator rho; and denominator epsilon sub 0"
+2H₂ + O₂ → 2H₂O       → "2 cap h sub 2, plus cap o sub 2; REACTS TO FORM, …"
+9½ - 6¼ = 3¼          → "9 and 1 half, minus 6 and 1 fourth; is equal to, …"
+```
+
+`∇·` becomes "divergence of", and MathCAT's chemistry heuristics fire on their
+own — the arrow reads as "reacts to form", not "right arrow". **Chemistry needs
+no separate work**, which collapses it into the same path as math and physics.
+
+Surface: an additive **`spoken` field** on the formula item, JSON-only, off by
+default behind a flag — the pattern the `words` array established, so
+conformance output is untouched and no groundtruth is regenerated.
+
+## 1.4 Science scope
+
+| Tier | New model | Status |
+| --- | --- | --- |
+| display equations — math, physics | none | the chain above |
+| display chemical equations | none | same chain; MathCAT detects chemistry |
+| structure diagrams (benzene rings) | — | **out of scope**; label only |
+| inline math/chemistry in prose | none, but new detection | later |
+
+Structural formulas are pictures, not notation: reading them needs OCSR
+(image → SMILES → IUPAC name), which is a project of its own and out of scope.
+The honest fallback is labelling — docling's picture classifier already has a
+`chemistry_structure` class among its 26 and is already implemented, so a reader
+can say "chemical structure diagram" instead of skipping silently.
+
+Inline math never gets a box: heron has only a *display* formula class, so
+`H₂O` or `E=mc²` inside a sentence arrives as ordinary text. That needs
+detection in the text stream rather than in a region, touches ordinary prose,
+and carries regression risk. Later phase.
+
+---
+
+## Phases after this one
+
+- **Phase 3 — hybrid / digital pages.** The trigger is already built and
+  corpus-measured. Note the Phase 1 finding that constrains it: a digital page
+  containing a formula still needs server processing, because the text layer
+  cannot be trusted for math.
+- **Phase 4 — performance.** See `performance-plan.md`. Deliberately last:
+  correctness first, and optimizing before the output is settled means
+  re-measuring every time the output moves.
