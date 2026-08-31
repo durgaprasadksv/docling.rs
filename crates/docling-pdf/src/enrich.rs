@@ -176,6 +176,8 @@ const IMAGE_SEQ_LEN: usize = 64; // visual tokens per tile
 const IMAGE_TOKEN_ID: i64 = 100270; // <image>
 const EOS_ID: i64 = 100338; // <end_of_utterance>
 const MODEL_MAX_LEN: usize = 8192;
+/// Generation budget for a *formula* crop, prompt included. See the decode loop.
+const FORMULA_MAX_NEW_TOKENS: usize = 1024;
 const HIDDEN: usize = 576;
 const N_LAYERS: usize = 30;
 const N_KV: usize = 3;
@@ -328,7 +330,26 @@ impl CodeFormula {
         let mut x = embeds;
         let mut x_seq = seq;
         let mut out_ids: Vec<u32> = Vec::new();
-        let max_new = MODEL_MAX_LEN.saturating_sub(seq);
+        // A greedy decode that never emits EOS runs to the model's whole
+        // context — ~7,800 steps, each a separate decoder invocation. That is
+        // not a hypothetical: a crop the model cannot parse (a table the layout
+        // stage labelled `formula`, a block of several equations) does exactly
+        // this, and one such crop costs minutes where a real equation costs a
+        // second or two.
+        //
+        // Past a few hundred tokens a formula's output is garbage anyway, so
+        // the cap loses nothing and bounds the worst case. Chosen against
+        // PP-FormulaNet, which caps formula generation at 1,024 tokens (2,560
+        // in its largest variant) — real equations here decode in well under
+        // 200. Code blocks keep the full budget: unlike an equation, a long one
+        // is legitimate.
+        let budget = match kind {
+            CodeFormulaKind::Formula => FORMULA_MAX_NEW_TOKENS,
+            CodeFormulaKind::Code => MODEL_MAX_LEN,
+        };
+        let max_new = budget
+            .saturating_sub(seq)
+            .min(MODEL_MAX_LEN.saturating_sub(seq));
         for _ in 0..max_new {
             let embeds_t = Tensor::from_array(([1usize, x_seq, HIDDEN], x))
                 .map_err(|e| format!("code-formula: embeds: {e}"))?;
@@ -515,6 +536,26 @@ fn post_process(text: &str) -> String {
         t = t.replace(tok, "");
     }
     t.trim_start().to_string()
+}
+
+/// Collapse an immediately repeated line in a formula's LaTeX.
+///
+/// A greedy decoder handed a multi-line equation sometimes emits one of its
+/// lines twice — on a scanned textbook page, exercise 11 (which wraps onto a
+/// second line) came back as its own first line, repeated. Nothing downstream
+/// can tell that apart from a genuine repetition, and a reader voices it twice.
+///
+/// Only *consecutive* identical lines are collapsed, and only for formulas: two
+/// identical adjacent lines are near-meaningless in an equation, while in code
+/// they are ordinary.
+pub fn dedupe_repeated_lines(latex: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    for seg in latex.split("\\\\") {
+        if out.last().map(|p: &&str| p.trim()) != Some(seg.trim()) {
+            out.push(seg);
+        }
+    }
+    out.join("\\\\")
 }
 
 /// docling's `_extract_code_language`: an output beginning with
