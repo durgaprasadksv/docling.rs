@@ -3766,6 +3766,37 @@ pub fn assemble_page(
         }
     }
 
+    // A formula region wholly inside another is the same maths described
+    // twice: the layout model emits both a block over a run of display
+    // equations and a region per equation inside it. Both reaching the body
+    // means the reader narrates the run, then narrates each equation again.
+    //
+    // docling collapses an overlapping group to one cluster, preferring the
+    // larger (`_remove_overlapping_clusters` /
+    // `_select_best_cluster_from_group`), so the block is what survives — and
+    // the enrichment has already decoded it *through* its children, so the
+    // surviving item carries every equation. Consumed rather than deleted, so
+    // its cells still belong to it and nothing is lost from the page.
+    //
+    // Containment is judged on the contained region's own area: a child can be
+    // well under half the block's area (28pt inside 63pt on OpenStax
+    // University Physics p166), which an IoU test would miss entirely.
+    for i in 0..regions.len() {
+        if regions[i].label != "formula" {
+            continue;
+        }
+        let ra = area(regions[i].l, regions[i].t, regions[i].r, regions[i].b).max(1.0);
+        let contained = regions.iter().enumerate().any(|(j, o)| {
+            j != i
+                && o.label == "formula"
+                && area(o.l, o.t, o.r, o.b) > ra
+                && inter(&regions[i], o.l, o.t, o.r, o.b) / ra > 0.8
+        });
+        if contained {
+            consumed[i] = true;
+        }
+    }
+
     // docling `ReadingOrderPredictor.predict_merges`: join a text fragment with a
     // following text fragment strictly to its right (an author column that wraps
     // into the next, a paragraph continuing in the next column) into one block —
