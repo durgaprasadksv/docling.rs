@@ -327,7 +327,11 @@ impl Builder {
                 text,
             } => {
                 self.adopt_loc(Some(*location));
-                let label = if *footer { "page_footer" } else { "page_header" };
+                let label = if *footer {
+                    "page_footer"
+                } else {
+                    "page_header"
+                };
                 Some(self.add_text_layered(label, text, parent, json!({}), "furniture"))
             }
             // A location wrapper turns into the wrapped item's `prov` entry —
@@ -963,7 +967,7 @@ fn fnv1a(s: &str) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::{DoclingDocument, ImageMode, Node, PictureImage, Table};
+    use crate::{CellSpan, DoclingDocument, ImageMode, Node, PictureImage, Table};
     use serde_json::Value;
 
     fn doc_with_image() -> DoclingDocument {
@@ -1130,5 +1134,199 @@ mod tests {
         // table grid + header flag
         assert_eq!(v["tables"][0]["data"]["num_cols"], 2);
         assert_eq!(v["tables"][0]["data"]["grid"][0][0]["column_header"], true);
+    }
+
+    /// A PDF page's structural metadata must survive into docling-JSON, not just
+    /// its text. These four are the ones a downstream reader (reading-order
+    /// consumer, TTS segmenter) needs and that regressed or were missing:
+    /// list membership, furniture layering, footnote labelling, and the page
+    /// number every item is anchored to.
+    fn page_doc(nodes: Vec<Node>) -> Value {
+        let mut doc = DoclingDocument::new("t");
+        doc.push(Node::PageInfo {
+            page_no: 1,
+            width: 612.0,
+            height: 792.0,
+        });
+        for n in nodes {
+            doc.push(n);
+        }
+        serde_json::from_str(&doc.export_to_json()).unwrap()
+    }
+
+    fn item(ordered: bool, number: u64, first: bool, text: &str) -> Node {
+        Node::ListItem {
+            ordered,
+            number,
+            first_in_list: first,
+            text: text.into(),
+            level: 0,
+            marker: None,
+            location: Some([10, 10, 500, 30]),
+            dclx: None,
+            href: None,
+            layer: None,
+        }
+    }
+
+    /// Consecutive list items batch into one `group`, and each item keeps the
+    /// `list_item` label. A `Node::Spanned` wrapper around an item would break
+    /// the grouping match (items carry their own `location` for exactly this
+    /// reason), which is how 34 list items once silently became 0.
+    #[test]
+    fn consecutive_list_items_group_and_keep_their_label() {
+        let v = page_doc(vec![
+            item(false, 1, true, "alpha"),
+            item(false, 2, false, "beta"),
+            item(false, 3, false, "gamma"),
+        ]);
+        let labels: Vec<_> = v["texts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(labels, ["list_item", "list_item", "list_item"]);
+        let groups = v["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 1, "three consecutive items = one list group");
+        assert_eq!(groups[0]["children"].as_array().unwrap().len(), 3);
+        // and the group, not the body, is what owns them
+        assert_eq!(v["body"]["children"].as_array().unwrap().len(), 1);
+    }
+
+    /// Page headers and footers are emitted as labelled items on the
+    /// `furniture` content layer — docling's own split — rather than dropped.
+    /// A consumer that wants body-only text filters on the layer; one that
+    /// wants running heads still has them.
+    #[test]
+    fn page_furniture_is_labelled_and_layered() {
+        let v = page_doc(vec![
+            Node::PageFurniture {
+                footer: false,
+                location: [10, 10, 500, 25],
+                text: "Running head".into(),
+            },
+            Node::Paragraph {
+                text: "Body text.".into(),
+            },
+            Node::PageFurniture {
+                footer: true,
+                location: [10, 480, 500, 500],
+                text: "7".into(),
+            },
+        ]);
+        let got: Vec<_> = v["texts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| {
+                (
+                    t["label"].as_str().unwrap(),
+                    t["content_layer"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("page_header", "furniture"),
+                ("text", "body"),
+                ("page_footer", "furniture"),
+            ]
+        );
+    }
+
+    /// Footnotes carry docling's `footnote` label instead of collapsing into
+    /// generic `text`, so a reader can defer or skip them.
+    #[test]
+    fn footnotes_keep_their_label() {
+        let v = page_doc(vec![Node::Footnote {
+            text: "1. See the appendix.".into(),
+        }]);
+        assert_eq!(v["texts"][0]["label"], "footnote");
+        assert_eq!(v["texts"][0]["content_layer"], "body");
+    }
+
+    /// Every located item is anchored to its page, which is what lets a client
+    /// merge server output back onto the page it rendered.
+    #[test]
+    fn items_carry_their_page_number() {
+        let v = page_doc(vec![Node::Located {
+            location: [0, 0, 512, 64],
+            inner: Box::new(Node::Paragraph {
+                text: "hello".into(),
+            }),
+        }]);
+        assert_eq!(v["texts"][0]["prov"][0]["page_no"], 1);
+    }
+
+    /// Word-level provenance is additive and opt-in: with the flag off the item
+    /// has no `words` key at all; with it on, every entry's `text` must equal
+    /// the slice of the item text its `charspan` names, and the box must flip to
+    /// BOTTOMLEFT like every other bbox in the export.
+    #[test]
+    fn word_provenance_is_opt_in_and_self_consistent() {
+        let spans = vec![
+            CellSpan {
+                char_start: 0,
+                char_end: 5,
+                l: 52.6,
+                t: 100.0,
+                r: 92.0,
+                b: 112.0,
+            },
+            CellSpan {
+                char_start: 6,
+                char_end: 11,
+                l: 96.0,
+                t: 100.0,
+                r: 140.0,
+                b: 112.0,
+            },
+        ];
+        let node = || Node::Located {
+            location: [0, 0, 512, 64],
+            inner: Box::new(Node::Spanned {
+                spans: spans.clone(),
+                inner: Box::new(Node::Paragraph {
+                    text: "hello world".into(),
+                }),
+            }),
+        };
+
+        std::env::remove_var("DOCLING_RS_WORD_PROV");
+        let off = page_doc(vec![node()]);
+        assert!(
+            off["texts"][0].get("words").is_none(),
+            "flag off must leave the JSON byte-identical to before"
+        );
+
+        std::env::set_var("DOCLING_RS_WORD_PROV", "1");
+        let on = page_doc(vec![node()]);
+        let words = on["texts"][0]["words"].as_array().unwrap();
+        assert_eq!(words.len(), 2);
+        let text = on["texts"][0]["text"].as_str().unwrap();
+        let chars: Vec<char> = text.chars().collect();
+        for w in words {
+            let s = w["charspan"][0].as_u64().unwrap() as usize;
+            let e = w["charspan"][1].as_u64().unwrap() as usize;
+            let slice: String = chars[s..e].iter().collect();
+            assert_eq!(
+                w["text"].as_str().unwrap(),
+                slice,
+                "text must match charspan"
+            );
+            assert_eq!(w["bbox"]["coord_origin"], "BOTTOMLEFT");
+            let (t, b) = (
+                w["bbox"]["t"].as_f64().unwrap(),
+                w["bbox"]["b"].as_f64().unwrap(),
+            );
+            assert!(t > b, "BOTTOMLEFT box has its top edge above its bottom");
+        }
+        assert_eq!(words[0]["text"], "hello");
+        assert_eq!(words[1]["text"], "world");
+        // 792pt page, span top 100 -> 692 in BOTTOMLEFT
+        assert_eq!(words[0]["bbox"]["t"], 692.0);
+        std::env::remove_var("DOCLING_RS_WORD_PROV");
     }
 }

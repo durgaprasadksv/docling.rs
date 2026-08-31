@@ -924,7 +924,13 @@ fn emit_nodes(out: &mut Out, depth: i32, nodes: &[Node], i: &mut usize, level: u
             // A span wrapper is JSON-only provenance; DocLang renders the inner
             // element unchanged.
             Node::Spanned { inner, .. } => {
-                emit_nodes(out, depth, std::slice::from_ref(inner.as_ref()), &mut 0, level);
+                emit_nodes(
+                    out,
+                    depth,
+                    std::slice::from_ref(inner.as_ref()),
+                    &mut 0,
+                    level,
+                );
                 *i += 1;
             }
             Node::Located { location, inner } => {

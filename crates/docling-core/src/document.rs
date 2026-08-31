@@ -219,7 +219,9 @@ pub enum Node {
     /// A PDF page header or footer (docling's `page_header`/`page_footer`
     /// furniture): DocLang emits `<page_header>`/`<page_footer>` with a
     /// `<layer value="furniture"/>` head, the four `<location>` tokens, then the
-    /// text. Markdown and JSON omit it like other furniture.
+    /// text. JSON emits it as a labelled item on the `furniture` content layer
+    /// (docling's own split — a body-only consumer filters on the layer);
+    /// Markdown omits it like other furniture.
     PageFurniture {
         footer: bool,
         location: [u16; 4],

@@ -18,6 +18,15 @@ use crate::ocr_prep::{
 };
 use crate::pdfium_backend::TextCell;
 
+/// One recognized line: its decoded text, the mean per-character confidence,
+/// and the CTC timestep that emitted each character (what `line_words` turns
+/// into per-word boxes).
+type PositionedLine = (String, f32, Vec<usize>);
+
+/// One page's OCR result: the line cells with their confidences, plus the
+/// word-level cells recovered from the same recognition run.
+type PageOcr = (Vec<(TextCell, f32)>, Vec<TextCell>);
+
 pub struct OcrModel {
     rec: Session,
     /// DBNet text detector, loaded on first use — only the fallback path needs
@@ -280,7 +289,7 @@ impl OcrModel {
         w: usize,
         chunk: &[usize],
         lines: &[PrepLine],
-    ) -> Result<(Vec<(String, f32, Vec<usize>)>, usize), String> {
+    ) -> Result<(Vec<PositionedLine>, usize), String> {
         let n = chunk.len();
         let data = batch_input(w, chunk, lines);
         let input = Tensor::from_array(([n, 3, REC_HEIGHT as usize, w], data))
@@ -458,7 +467,7 @@ impl OcrModel {
         img: &RgbImage,
         regions: &[Region],
         scale: f32,
-    ) -> Result<(Vec<(TextCell, f32)>, Vec<TextCell>), String> {
+    ) -> Result<PageOcr, String> {
         // Gather every line crop on the page first (shared with the browser
         // path), so equal-width lines can share a recognition run regardless
         // of which region they came from.
@@ -482,9 +491,7 @@ impl OcrModel {
         // Emit cells in page order, exactly as the sequential walk did.
         let mut cells = Vec::new();
         let mut words = Vec::new();
-        for (i, ((l, t, r, b), (text, conf, at))) in
-            bboxes.into_iter().zip(texts).enumerate()
-        {
+        for (i, ((l, t, r, b), (text, conf, at))) in bboxes.into_iter().zip(texts).enumerate() {
             words.extend(line_words(
                 &text,
                 &at,
@@ -529,34 +536,6 @@ impl OcrModel {
             cells.push((TextCell { text, l, t, r, b }, conf));
         }
         Ok(cells)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// #254: docling's four `OcrMode` ids parse; `full_page`/`layout_regions`
-    /// reduce to the force-full-page machinery, the default/pdf-aware pair to
-    /// the standard text-layer-aware path. Unknown ids parse to nothing.
-    #[test]
-    fn ocr_mode_ids_parse_and_map_to_forcing() {
-        for (id, mode, forces) in [
-            ("default", OcrMode::Default, false),
-            ("full_page", OcrMode::FullPage, true),
-            ("layout_regions", OcrMode::LayoutRegions, true),
-            (
-                "pdf_aware_layout_regions",
-                OcrMode::PdfAwareLayoutRegions,
-                false,
-            ),
-        ] {
-            assert_eq!(OcrMode::parse(id), Some(mode));
-            assert_eq!(mode.forces_full_page(), forces, "{id}");
-        }
-        assert_eq!(OcrMode::parse(" Full_Page "), Some(OcrMode::FullPage));
-        assert_eq!(OcrMode::parse("easyocr"), None);
-        assert_eq!(OcrMode::parse(""), None);
     }
 }
 
@@ -631,4 +610,32 @@ fn line_words(
     }
     flush(&mut word, &mut first, last);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #254: docling's four `OcrMode` ids parse; `full_page`/`layout_regions`
+    /// reduce to the force-full-page machinery, the default/pdf-aware pair to
+    /// the standard text-layer-aware path. Unknown ids parse to nothing.
+    #[test]
+    fn ocr_mode_ids_parse_and_map_to_forcing() {
+        for (id, mode, forces) in [
+            ("default", OcrMode::Default, false),
+            ("full_page", OcrMode::FullPage, true),
+            ("layout_regions", OcrMode::LayoutRegions, true),
+            (
+                "pdf_aware_layout_regions",
+                OcrMode::PdfAwareLayoutRegions,
+                false,
+            ),
+        ] {
+            assert_eq!(OcrMode::parse(id), Some(mode));
+            assert_eq!(mode.forces_full_page(), forces, "{id}");
+        }
+        assert_eq!(OcrMode::parse(" Full_Page "), Some(OcrMode::FullPage));
+        assert_eq!(OcrMode::parse("easyocr"), None);
+        assert_eq!(OcrMode::parse(""), None);
+    }
 }

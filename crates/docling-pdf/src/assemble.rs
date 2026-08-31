@@ -1392,8 +1392,8 @@ fn cells_text_spanned(mut inside: Vec<&TextCell>) -> (String, Option<Vec<CellSpa
                 if dashish {
                     if last_word_alnum(prev) && first_word_alnum(t) {
                         out.pop(); // wrapped word: fuse without the dash
-                        // The popped dash was the previous cell's last
-                        // character; its span shrinks with it.
+                                   // The popped dash was the previous cell's last
+                                   // character; its span shrinks with it.
                         if let Some(last) = spans.last_mut() {
                             last.char_end = last.char_end.saturating_sub(1);
                         }
@@ -1507,8 +1507,8 @@ fn refine_with_words(spans: Vec<CellSpan>, text: &str, word_cells: &[TextCell]) 
         let (s0, s1) = (span.char_start as usize, span.char_end as usize);
         let mut toks: Vec<(u32, u32)> = Vec::new();
         let mut start: Option<usize> = None;
-        for i in s0..s1.min(chars.len()) {
-            if chars[i].is_whitespace() {
+        for (i, ch) in chars.iter().enumerate().take(s1.min(chars.len())).skip(s0) {
+            if ch.is_whitespace() {
                 if let Some(b) = start.take() {
                     toks.push((b as u32, i as u32));
                 }
