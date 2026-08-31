@@ -2349,7 +2349,25 @@ pub fn assemble_page(
         let mut text = region_texts[i].clone();
         text.push_str(&merge_suffix[i]);
         if text.is_empty() {
-            continue;
+            // A formula survives having no text, the way docling's
+            // postprocessor exempts it from empty-cluster removal
+            // (`if cluster.cells or cluster.label == DocItemLabel.FORMULA`).
+            //
+            // It is not a degenerate case: a typeset display equation is often
+            // drawn as vector paths with no glyphs at all — every chemical
+            // equation on OpenStax Chemistry 2e p158 is, and the page carries
+            // no maths font whatsoever. Dropping those regions loses the
+            // equation *silently*: the narration runs "First, write the
+            // unbalanced equation." straight into "Next, count the number of
+            // each type of atom", with nothing in between.
+            //
+            // Kept, the region still has pixels, which is all the formula
+            // recognizer needs; and with no recognizer it is an empty
+            // `formula` item, which is enough for a reader to say "formula"
+            // rather than skip in silence.
+            if region.label != "formula" {
+                continue;
+            }
         }
         // Everything this region pushes gets its per-cell provenance attached
         // below; taking the mark here covers every arm without touching each.
