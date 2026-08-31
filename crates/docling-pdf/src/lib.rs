@@ -286,6 +286,26 @@ pub(crate) fn prefer_fp32() -> bool {
 /// Resolve a default (CWD-relative) asset path — the shared chain in
 /// [`docling_core::assets`]: CWD, then next to the executable and one level
 /// above it (the `scripts/install/install.sh` layout).
+/// Whether this formula region sits wholly inside a larger one.
+///
+/// Mirrors the containment rule assembly uses to collapse an overlapping group
+/// (`assemble`), so the two agree on which region survives: judged on the
+/// contained region's own area, since a child can be well under half the
+/// block's area and an IoU test misses it.
+#[cfg(feature = "ocr-prep")]
+fn is_nested_formula(r: &layout::Region, regions: &[layout::Region]) -> bool {
+    let area = |x: &layout::Region| ((x.r - x.l) * (x.b - x.t)).max(1.0);
+    let ra = area(r);
+    regions.iter().any(|o| {
+        if o.label != "formula" || std::ptr::eq(o, r) || area(o) <= ra {
+            return false;
+        }
+        let ix = (r.r.min(o.r) - r.l.max(o.l)).max(0.0);
+        let iy = (r.b.min(o.b) - r.t.max(o.t)).max(0.0);
+        ix * iy / ra > 0.8
+    })
+}
+
 /// The formula regions wholly inside `owner`, in reading order.
 ///
 /// A `formula` cluster is often a coarse block over a run of display equations
@@ -316,7 +336,25 @@ fn contained_formulas(owner: &layout::Region, regions: &[layout::Region]) -> Vec
         .cloned()
         .collect();
     inside.sort_by(|a, b| a.t.total_cmp(&b.t).then(a.l.total_cmp(&b.l)));
-    inside
+    // The model routinely emits the same equation twice with near-identical
+    // boxes. Left in, each is decoded and the equation is spoken twice — on one
+    // page of a scanned textbook, exercise 11 appeared twice in a row. Keep the
+    // first of any heavily-overlapping run (they are sorted top-down, so that is
+    // the upper-left one).
+    let mut out: Vec<layout::Region> = Vec::with_capacity(inside.len());
+    for c in inside {
+        let dup = out.iter().any(|k| {
+            let ix = (c.r.min(k.r) - c.l.max(k.l)).max(0.0);
+            let iy = (c.b.min(k.b) - c.t.max(k.t)).max(0.0);
+            let i = ix * iy;
+            // Either box being mostly covered means the same equation.
+            i / area(&c) > 0.7 || i / area(k) > 0.7
+        });
+        if !dup {
+            out.push(c);
+        }
+    }
+    out
 }
 
 pub(crate) fn resolve_asset(rel: &str) -> String {
@@ -1262,6 +1300,19 @@ impl Worker {
                             if !wants(r.label) {
                                 continue;
                             }
+                            // A formula nested inside a larger one is consumed
+                            // during assembly (the block survives an overlapping
+                            // group, as docling does), and the block is decoded
+                            // *through* these same regions — so decoding them
+                            // here as well does the work twice and throws half of
+                            // it away. On two pages of a scanned textbook that is
+                            // 12 decodes where 7 suffice, and a decode is the
+                            // most expensive thing in the pipeline by three
+                            // orders of magnitude.
+                            if r.label == "formula" && is_nested_formula(r, &regions) {
+                                docling_core::debug_log!("code_formula: skipping a nested formula");
+                                continue;
+                            }
                             let subs = if r.label == "formula" {
                                 contained_formulas(r, &regions)
                             } else {
@@ -1328,16 +1379,33 @@ impl Worker {
                                 // line break, since the model reads one equation
                                 // at a time (see `contained_formulas`).
                                 enrich::CodeFormulaKind::Formula if subs.len() > 1 => {
+                                    docling_core::debug_log!(
+                                        "code_formula: splitting a formula block into {} sub-equations",
+                                        subs.len()
+                                    );
                                     let mut out: Vec<String> = Vec::with_capacity(subs.len());
                                     for sub in &subs {
-                                        let (w, h) = (sub.r - sub.l, sub.b - sub.t);
+                                        // Same crop derivation as the whole-region
+                                        // path: the detector box unioned with the
+                                        // cells. Cropping a sub-equation tighter
+                                        // than its parent measurably degrades the
+                                        // decode — `1/(1·2)` came back as
+                                        // `1/((1·2)/(1·2))` while the two paths
+                                        // disagreed.
+                                        let [sl, st, sr, sb] =
+                                            match assemble::region_cell_bbox(sub, &page.cells) {
+                                                Some([cl, ct, cr, cb]) => [
+                                                    cl.min(sub.l),
+                                                    ct.min(sub.t),
+                                                    cr.max(sub.r),
+                                                    cb.max(sub.b),
+                                                ],
+                                                None => [sub.l, sub.t, sub.r, sub.b],
+                                            };
+                                        let (w, h) = (sr - sl, sb - st);
                                         let ex = enrich::CODE_FORMULA_EXPANSION;
-                                        let bx = [
-                                            sub.l - w * ex,
-                                            sub.t - h * ex,
-                                            sub.r + w * ex,
-                                            sub.b + h * ex,
-                                        ];
+                                        let bx =
+                                            [sl - w * ex, st - h * ex, sr + w * ex, sb + h * ex];
                                         let Some(c) = assemble::crop_region_scaled(
                                             page,
                                             bx,
@@ -1346,7 +1414,18 @@ impl Worker {
                                             continue;
                                         };
                                         match model.predict(&c, kind) {
-                                            Ok(t) if !t.trim().is_empty() => {
+                                            // The same equation reaching the model
+                                            // twice (overlapping detections, or a
+                                            // wrapped equation whose continuation
+                                            // region still shows the first line)
+                                            // would otherwise be spoken twice.
+                                            // Geometry does not reliably identify
+                                            // the pair; identical output does.
+                                            Ok(t)
+                                                if !t.trim().is_empty()
+                                                    && out.last().map(String::as_str)
+                                                        != Some(t.trim()) =>
+                                            {
                                                 out.push(t.trim().to_string())
                                             }
                                             // One unreadable equation must not
@@ -1377,7 +1456,9 @@ impl Worker {
                                             }
                                         }
                                         enrich::CodeFormulaKind::Formula => {
-                                            assemble::Enrichment::Formula { latex: text }
+                                            assemble::Enrichment::Formula {
+                                                latex: enrich::dedupe_repeated_lines(&text),
+                                            }
                                         }
                                     });
                                 }
