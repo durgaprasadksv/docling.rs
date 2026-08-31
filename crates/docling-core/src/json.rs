@@ -532,7 +532,7 @@ impl Builder {
     fn add_formula_item(&mut self, latex: &str, orig: &str, parent: &str) -> String {
         let self_ref = format!("#/texts/{}", self.texts.len());
         let prov = self.take_prov(latex.chars().count());
-        self.texts.push(json!({
+        let mut item = json!({
             "self_ref": self_ref,
             "parent": { "$ref": parent },
             "children": [],
@@ -541,7 +541,18 @@ impl Builder {
             "prov": prov,
             "orig": orig,
             "text": latex,
-        }));
+        });
+        // Additive and opt-in, like the `words` array: with the flag (or the
+        // `speech` feature) off the item is byte-identical to before. A formula
+        // that could not be voiced carries no `spoken` key at all — never the
+        // raw extraction, which on a scanned page is whatever the OCR layer
+        // produced and is routinely unreadable.
+        if crate::env::flag("DOCLING_RS_SPEECH") {
+            if let Some(spoken) = crate::speech::speak_latex(latex) {
+                item["spoken"] = Value::String(spoken);
+            }
+        }
+        self.texts.push(item);
         self_ref
     }
 
@@ -1193,6 +1204,14 @@ mod tests {
     /// consumer, TTS segmenter) needs and that regressed or were missing:
     /// list membership, furniture layering, footnote labelling, and the page
     /// number every item is anchored to.
+    /// `DOCLING_RS_SPEECH` and `DOCLING_RS_WORD_PROV` are process-wide, and the
+    /// test harness runs tests in parallel — without this, one test clears the
+    /// flag while another is mid-export and the assertions flap.
+    fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn page_doc(nodes: Vec<Node>) -> Value {
         let mut doc = DoclingDocument::new("t");
         doc.push(Node::PageInfo {
@@ -1318,6 +1337,7 @@ mod tests {
     /// BOTTOMLEFT like every other bbox in the export.
     #[test]
     fn word_provenance_is_opt_in_and_self_consistent() {
+        let _env = env_guard();
         let spans = vec![
             CellSpan {
                 char_start: 0,
@@ -1437,5 +1457,82 @@ mod tests {
         }]);
         assert!(v["pictures"][0]["children"].as_array().unwrap().is_empty());
         assert_eq!(v["pictures"][0]["captions"].as_array().unwrap().len(), 1);
+    }
+
+    /// A formula item carries the additive `spoken` field only when asked, and
+    /// a formula that could not be voiced carries no key at all — never the raw
+    /// extraction, which on a scanned page is whatever the OCR layer produced.
+    ///
+    /// Needs the `speech` feature and the MathCAT rules; skips cleanly without
+    /// them, like every other asset-dependent test in the workspace.
+    #[test]
+    fn formula_spoken_field_is_additive_and_opt_in() {
+        let _env = env_guard();
+        let doc = || {
+            let mut d = DoclingDocument::new("t");
+            d.push(Node::Formula {
+                latex: "a ^ { 2 } + 8 = 1 2".into(),
+                orig: "a 2 +8 = 12".into(),
+                location: None,
+            });
+            serde_json::from_str::<Value>(&d.export_to_json()).unwrap()
+        };
+
+        std::env::remove_var("DOCLING_RS_SPEECH");
+        let off = doc();
+        assert_eq!(off["texts"][0]["label"], "formula");
+        assert!(
+            off["texts"][0].get("spoken").is_none(),
+            "flag off must leave the export byte-identical"
+        );
+
+        // Tests run with CWD = the crate dir; the rules live at the repo root.
+        let rules = concat!(env!("CARGO_MANIFEST_DIR"), "/../../.models/mathcat");
+        if !std::path::Path::new(rules).is_dir() {
+            eprintln!("skipping the spoken half: {rules} is not present");
+            return;
+        }
+        std::env::set_var("DOCLING_RS_MATHCAT_RULES", rules);
+        std::env::set_var("DOCLING_RS_SPEECH", "1");
+        let on = doc();
+        std::env::remove_var("DOCLING_RS_SPEECH");
+
+        if cfg!(feature = "speech") {
+            let spoken = on["texts"][0]["spoken"]
+                .as_str()
+                .expect("`speech` feature on and rules present -> a spoken form");
+            // The point of the normalizer: `1 2` must voice as twelve, not
+            // "one two", and the superscript must survive as "squared".
+            assert!(
+                spoken.contains("12"),
+                "multi-digit number rejoined: {spoken:?}"
+            );
+            assert!(spoken.contains("squared"), "superscript spoken: {spoken:?}");
+        } else {
+            assert!(on["texts"][0].get("spoken").is_none());
+        }
+    }
+
+    /// An undecoded formula — the common case on a scanned page — stays silent
+    /// rather than falling back to `orig`.
+    #[test]
+    fn undecoded_formula_never_speaks_the_raw_extraction() {
+        let _env = env_guard();
+        let rules = concat!(env!("CARGO_MANIFEST_DIR"), "/../../.models/mathcat");
+        std::env::set_var("DOCLING_RS_MATHCAT_RULES", rules);
+        std::env::set_var("DOCLING_RS_SPEECH", "1");
+        let mut d = DoclingDocument::new("t");
+        d.push(Node::Formula {
+            latex: String::new(),
+            orig: r#"Jl X ^ =: -.''^" * » 5X0-"#.into(),
+            location: None,
+        });
+        let v: Value = serde_json::from_str(&d.export_to_json()).unwrap();
+        std::env::remove_var("DOCLING_RS_SPEECH");
+        assert_eq!(v["texts"][0]["label"], "formula");
+        assert!(
+            v["texts"][0].get("spoken").is_none(),
+            "an undecoded formula must not narrate the OCR layer"
+        );
     }
 }

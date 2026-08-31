@@ -21,6 +21,8 @@ pub mod env;
 mod json;
 mod labels;
 mod markdown;
+/// Spoken-form rendering of formula items (LaTeX -> MathML -> English).
+pub mod speech;
 
 pub use confidence::{ConfidenceReport, PageConfidence, QualityGrade};
 pub use doclang::inline_runs_from_markdown;

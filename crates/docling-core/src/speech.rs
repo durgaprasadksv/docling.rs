@@ -1,0 +1,209 @@
+//! Spoken-form rendering of formula items: LaTeX → MathML → English.
+//!
+//! A screen reader speaks a formula; a TTS reader has to as well, and neither
+//! can do anything useful with `$$a^{2}+8=12$$`. This module turns the LaTeX a
+//! [`Node::Formula`](crate::Node::Formula) carries into a sentence
+//! ("eigh squared plus 8, is equal to 12") that lands on the JSON item as the
+//! additive `spoken` field.
+//!
+//! The chain is pure Rust, which is why it lives server-side rather than in a
+//! client:
+//!
+//! 1. [`normalize_latex`] rejoins the space-separated tokens the CodeFormula
+//!    model emits — the step without which every multi-digit number breaks.
+//! 2. `latex2mathml` parses that into MathML. Chosen over `pulldown-latex`,
+//!    which mis-parses `\int_{0}^{\infty}` into a `<msub>` plus an `<msup>`
+//!    over an empty base instead of one `<msubsup>`.
+//! 3. MathCAT (the DAISY engine behind NVDA and JAWS) speaks the MathML. Its
+//!    chemistry heuristics fire on their own — `\rightarrow` in a chemical
+//!    equation reads as "reacts to form", not "right arrow" — so chemistry
+//!    needs no separate path.
+//!
+//! Everything here is behind the `speech` feature; with it off the JSON export
+//! is byte-identical, so no groundtruth moves.
+
+/// Rejoin the space-separated tokens a formula recognizer emits.
+///
+/// CodeFormulaV2 writes `a ^ { 2 } + 8 = 1 2`, one token at a time. Fed to a
+/// MathML parser as-is, `1 2` becomes two separate `<mn>` nodes and a speech
+/// engine says "one two" instead of "twelve"; `1 0 0 . 5` shatters into five
+/// nodes. Every number in every formula is wrong, quietly.
+///
+/// Removing *all* spaces would break the other direction: a control word needs
+/// its terminating space when a letter follows (`\cdot E` must not become
+/// `\cdotE`). So a space survives only in that one case — between a control
+/// word and a following letter. `\rightarrow 2` needs no space because a digit
+/// cannot extend the command name.
+pub fn normalize_latex(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut chars = src.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != ' ' {
+            out.push(c);
+            continue;
+        }
+        // Is what we've emitted so far ending in a control word (`\` followed by
+        // letters only)? Then a following letter would extend it.
+        let ends_control_word = out.rfind('\\').is_some_and(|i| {
+            let tail = &out[i + 1..];
+            !tail.is_empty() && tail.chars().all(|c| c.is_ascii_alphabetic())
+        });
+        if ends_control_word && chars.peek().is_some_and(|c| c.is_ascii_alphabetic()) {
+            out.push(' ');
+        }
+    }
+    out
+}
+
+#[cfg(feature = "speech")]
+mod engine {
+    use std::sync::Mutex;
+
+    /// MathCAT keeps its parsed expression in `thread_local` state, so one call
+    /// per process at a time. Formula verbalization is not on any hot path (a
+    /// page has a handful of formulas, each of which cost a VLM decode to
+    /// produce), so a mutex is the right trade against per-thread rule loading.
+    static LOCK: Mutex<()> = Mutex::new(());
+
+    /// Point MathCAT at its rules directory, once. Returns whether speech is
+    /// available — a missing rules directory degrades to no `spoken` field
+    /// rather than failing the conversion, like every other optional asset.
+    fn ready() -> bool {
+        use std::sync::OnceLock;
+        static READY: OnceLock<bool> = OnceLock::new();
+        *READY.get_or_init(|| {
+            let Some(dir) = rules_dir() else {
+                crate::debug_log!(
+                    "speech: MathCAT rules not found (.models/mathcat); \
+                     formula items will carry no `spoken` field"
+                );
+                return false;
+            };
+            match libmathcat::interface::set_rules_dir(dir.to_string_lossy().into_owned()) {
+                Ok(()) => true,
+                Err(e) => {
+                    crate::debug_log!("speech: MathCAT rules {}: {e}", dir.display());
+                    false
+                }
+            }
+        })
+    }
+
+    /// `.models/mathcat/`, resolved CWD-relative then against
+    /// `DOCLING_RS_MODELS_DIR`, matching how every other runtime asset is found.
+    fn rules_dir() -> Option<std::path::PathBuf> {
+        if let Some(over) = crate::env::nonempty("DOCLING_RS_MATHCAT_RULES") {
+            let p = std::path::PathBuf::from(over);
+            return p.is_dir().then_some(p);
+        }
+        let cwd = std::path::PathBuf::from(".models/mathcat");
+        if cwd.is_dir() {
+            return Some(cwd);
+        }
+        let base = crate::env::nonempty("DOCLING_RS_MODELS_DIR")?;
+        let p = std::path::Path::new(&base).join(".models/mathcat");
+        p.is_dir().then_some(p)
+    }
+
+    /// Speak one MathML string, or `None` if MathCAT is unavailable or refuses
+    /// it. Never propagates an error: a formula we cannot voice is a formula
+    /// the reader announces as "formula", not a failed conversion.
+    pub(super) fn speak(mathml: String) -> Option<String> {
+        if !ready() {
+            return None;
+        }
+        let _guard = LOCK.lock().ok()?;
+        libmathcat::interface::set_mathml(mathml)
+            .ok()
+            .and_then(|_| libmathcat::interface::get_spoken_text().ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+}
+
+/// The spoken form of a formula's LaTeX, or `None` when it cannot be produced.
+///
+/// `None` is the honest answer in several cases and they are all treated alike:
+/// the formula was never decoded (empty LaTeX), the LaTeX does not parse, or
+/// the MathCAT rules are not installed. **The caller must not substitute the
+/// raw extraction.** On a scanned page a formula's `orig` is whatever the OCR
+/// layer produced, which on real scans is routinely unreadable
+/// (`'Jl X ^ =: -·''^" * » 5X0-'`); narrating that is worse than saying
+/// "formula" and moving on.
+#[cfg(feature = "speech")]
+pub fn speak_latex(latex: &str) -> Option<String> {
+    let latex = latex.trim();
+    if latex.is_empty() {
+        return None;
+    }
+    let normalized = normalize_latex(latex);
+    let mathml =
+        latex2mathml::latex_to_mathml(&normalized, latex2mathml::DisplayStyle::Block).ok()?;
+    engine::speak(mathml)
+}
+
+/// Without the `speech` feature there is no spoken form, and the JSON export
+/// stays byte-identical.
+#[cfg(not(feature = "speech"))]
+pub fn speak_latex(_latex: &str) -> Option<String> {
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_latex;
+
+    /// The whole reason this step exists: a recognizer emits one token at a
+    /// time, so consecutive digits arrive separated and would parse as separate
+    /// numbers ("one two" for 12, five nodes for 100.5).
+    #[test]
+    fn rejoins_multi_digit_numbers() {
+        assert_eq!(normalize_latex("a ^ { 2 } + 8 = 1 2"), "a^{2}+8=12");
+        assert_eq!(normalize_latex("x = 1 0 0 . 5"), "x=100.5");
+    }
+
+    /// A control word keeps the space that terminates it when a letter follows,
+    /// and loses it otherwise — `\cdotE` is a different (undefined) command,
+    /// while `\rightarrow2` is unambiguous.
+    #[test]
+    fn keeps_only_the_space_that_terminates_a_control_word() {
+        assert_eq!(
+            normalize_latex(r"\nabla \cdot E = \frac { \rho } { \varepsilon _ { 0 } }"),
+            r"\nabla\cdot E=\frac{\rho}{\varepsilon_{0}}"
+        );
+        assert_eq!(
+            normalize_latex(r"2 H _ { 2 } + O _ { 2 } \rightarrow 2 H _ { 2 } O"),
+            r"2H_{2}+O_{2}\rightarrow2H_{2}O"
+        );
+    }
+
+    /// Structure survives: fractions, scripts and integral limits are unchanged
+    /// apart from the removed spacing.
+    #[test]
+    fn preserves_structure() {
+        assert_eq!(
+            normalize_latex(r"\int _ { 0 } ^ { \infty } e ^ { - x } d x = 1"),
+            r"\int_{0}^{\infty}e^{-x}dx=1"
+        );
+        assert_eq!(
+            normalize_latex(r"9 \frac { 1 } { 2 } - 6 \frac { 1 } { 4 }"),
+            r"9\frac{1}{2}-6\frac{1}{4}"
+        );
+    }
+
+    /// Already-tight LaTeX (any other backend's) passes through untouched.
+    #[test]
+    fn tight_latex_is_unchanged() {
+        for s in [r"a^{2}+8=12", r"\frac{1}{2}", r"E=mc^{2}"] {
+            assert_eq!(normalize_latex(s), s);
+        }
+    }
+
+    /// A formula that was never decoded has no spoken form — and, critically,
+    /// the caller gets `None` rather than a fallback to the raw extraction.
+    #[test]
+    fn undecoded_formula_has_no_spoken_form() {
+        assert_eq!(super::speak_latex(""), None);
+        assert_eq!(super::speak_latex("   "), None);
+    }
+}

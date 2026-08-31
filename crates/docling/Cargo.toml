@@ -18,6 +18,9 @@ exclude = ["tests", "benches"]
 [features]
 # HEIC/HEIF image input (#211): forwards to docling-pdf's libheif decode.
 heif = ["pdf", "docling-pdf/heif"]
+# Spoken form for formula items (docling-core's LaTeX -> MathML -> English
+# chain). Off by default; the JSON export is byte-identical without it.
+speech = ["docling-core/speech"]
 # The default build is the full converter. The ML pipelines and the HTTP
 # client are feature-sliced so `--no-default-features` leaves the pure-Rust
 # declarative converters (DOCX/HTML/MD/XLSX/PPTX/… → md/json) — a set that

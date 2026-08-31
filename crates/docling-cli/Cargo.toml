@@ -23,6 +23,9 @@ path = "src/main.rs"
 default = ["chunking"]
 # HEIC/HEIF image input (#211) — links the system libheif.
 heif = ["docling/heif"]
+# Pass through to the library's formula verbalization, so
+# `cargo run -p docling-cli --features speech -- --speech …` voices formulas.
+speech = ["docling/speech"]
 # Pass through to the library's optional headless-browser HTML pre-render, so
 # `cargo run -p docling-cli --features web-browser -- --use-web-browser …`
 # activates it. Off by default (keeps the default binary browser-dependency-free).
