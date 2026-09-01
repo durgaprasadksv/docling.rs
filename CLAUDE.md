@@ -17,11 +17,16 @@ validated for byte-for-byte conformance against upstream Python docling.
   publishable crate's source changed). No automatic semver-major: majors are
   cut by hand (`force_version` dispatch input) — v1.0.0 marks the breaking
   `.models/` asset-dir rename.
-- Claude Web: **Never open pull requests on `artiz/docling.rs`.** Push a `claude/<topic>`
-  branch and hand back a compare link
-  (`https://github.com/docling-project/docling.rs/compare/master...artiz:docling.rs:<branch>?expand=1`);
-  the maintainer opens/merges PRs themself (usually into the upstream
-  `docling-project/docling.rs`; `artiz/docling.rs` is their working fork).
+- **Remotes.** `origin` is upstream `docling-project/docling.rs` and is
+  **read-only** here (`push: false`), as is the maintainer's
+  `artiz/docling.rs`. Work is pushed to `fork` —
+  `git@github.com:durgaprasadksv/docling.rs.git` — over SSH; the HTTPS URL
+  fails with "could not read Username" because git has no credential helper
+  configured, while `gh` is set up for SSH.
+- **Push, then hand back a compare link. Never open the PR.** After
+  `git push -u fork claude/<topic>`, give the maintainer
+  `https://github.com/docling-project/docling.rs/compare/master...durgaprasadksv:docling.rs:<branch>?expand=1`
+  and let them open and merge it.
 - One feature = one branch off fresh `origin/master`. Don't stack unrelated
   work.
 - Issue numbers (`#80`, `#138`, …) refer to `docling-project/docling.rs`
@@ -46,6 +51,21 @@ validated for byte-for-byte conformance against upstream Python docling.
 | `crates/docling-serve` | axum HTTP conversion API (+ Dockerfile with ffmpeg) |
 | `crates/docling-py` / `docling-node` / `docling-wasm` | pyo3 / napi-rs / wasm-bindgen bindings — **node and wasm are ordinary workspace members; only docling-py sits outside the workspace and builds from its own directory (maturin)** |
 | `crates/docling-rag` | RAG subsystem (embedder, store, web UI) |
+
+## This machine (Intel Mac, x86_64-apple-darwin)
+
+- **`source ~/.local/onnxruntime/env.sh` before any cargo command.** `ort`
+  ships no prebuilt ONNX Runtime for x86_64 macOS (pyke dropped Intel Mac), so
+  the build links Microsoft's 1.23.2 via `ORT_LIB_LOCATION` plus an rpath. Skip
+  it and the link fails.
+- Running from a directory other than the repo root needs
+  `PDFIUM_DYNAMIC_LIB_PATH=/Users/dp/docling.rs/.pdfium/lib` — pdfium
+  resolution is CWD-relative.
+- `.models/layout_heron_int8.onnx` is renamed `.disabled` here: on this CPU it
+  mislabels a table that the fp32 graph gets right. Untracked, local only.
+- **Run anything with the ML pipeline in the background.** A foreground tool
+  call is killed at 10 minutes, and a page of formula enrichment can exceed
+  that. `DOCLING_RS_TIMING=1` prints a per-stage breakdown at exit.
 
 ## Build & test
 
