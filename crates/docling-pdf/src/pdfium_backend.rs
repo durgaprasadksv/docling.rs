@@ -60,6 +60,18 @@ pub struct PdfPage {
     /// (browser, METS/TIFF), which fall back to stretching [`Self::image`].
     #[cfg(feature = "ocr-prep")]
     pub image_layout: Option<RgbImage>,
+    /// A high-resolution render for enrichment crops, present only when
+    /// `DOCLING_RS_ENRICH_SCALE` asks for one.
+    ///
+    /// The formula recognizer reads its crop out of [`Self::image`], which is
+    /// 2 px/pt — 144 dpi. That is ample for vector typesetting and destructive
+    /// for a scan: the exercises page of a 1900s arithmetic textbook carries a
+    /// **600 dpi** embedded image, so a superscript ~20px tall in the source
+    /// arrives ~5px tall at the model, where `3` and `8` are genuinely
+    /// indistinguishable. Raising the crop's `target_scale` cannot recover it —
+    /// that only upsamples this same bitmap.
+    #[cfg(feature = "ocr-prep")]
+    pub image_enrich: Option<(RgbImage, f32)>,
     /// Hyperlink annotations on the page (rect in top-left page coords + target
     /// URI), restricted to web/mail/tel schemes. Used only by strict Markdown.
     pub links: Vec<LinkAnnot>,
@@ -94,6 +106,8 @@ impl PdfPage {
             image: RgbImage::new(0, 0),
             #[cfg(feature = "ocr-prep")]
             image_layout: None,
+            #[cfg(feature = "ocr-prep")]
+            image_enrich: None,
             links: Vec::new(),
             rotation: 0,
         }
@@ -252,7 +266,7 @@ impl PdfDocument {
         let mut pages = Vec::new();
         for (i, page) in doc.pages().iter().enumerate() {
             let rc = rust.as_mut().and_then(|v| v.get_mut(i).map(std::mem::take));
-            pages.push(extract_page(&page, &ffi, i as i32, rc, true)?);
+            pages.push(extract_page(&page, &ffi, i as i32, rc, true, None)?);
         }
         Ok(PdfDocument { pages })
     }
@@ -309,6 +323,7 @@ pub fn for_each_page<E, F>(
     password: Option<&str>,
     render_image: bool,
     range: Option<(usize, usize)>,
+    enrich_scale: Option<f32>,
     mut f: F,
 ) -> Result<(), E>
 where
@@ -327,7 +342,7 @@ where
             continue;
         }
         let rc = rust.as_mut().and_then(|v| v.get_mut(i).map(std::mem::take));
-        let extracted = extract_page(&page, &ffi, i as i32, rc, render_image)?;
+        let extracted = extract_page(&page, &ffi, i as i32, rc, render_image, enrich_scale)?;
         f(i, total, extracted)?;
     }
     Ok(())
@@ -424,6 +439,7 @@ fn extract_page(
     index: i32,
     rust_cells: Option<crate::textparse::PageParserCells>,
     render_image: bool,
+    enrich_scale: Option<f32>,
 ) -> Result<PdfPage, PdfiumError> {
     let width = page.width().value;
     let height = page.height().value;
@@ -484,6 +500,24 @@ fn extract_page(
     } else {
         RgbImage::new(1, 1)
     };
+    // The enrichment crop source, when asked for: a *native* pdfium render at
+    // the requested scale, so a scanned page's real resolution reaches the
+    // formula recognizer instead of an upsampled 144 dpi bitmap.
+    let image_enrich = match (render_image, enrich_scale) {
+        (true, Some(sc)) if sc > RENDER_SCALE => {
+            let tw = (width * sc).round().max(1.0) as i32;
+            let th = (height * sc).round().max(1.0) as i32;
+            let cfg = PdfRenderConfig::new()
+                .set_target_width(tw)
+                .set_target_height(th);
+            crate::timing::timed("pdfium.render_enrich", || {
+                page.render_with_config(&cfg)
+                    .map(|b| (b.as_image().into_rgb8(), sc))
+                    .ok()
+            })
+        }
+        _ => None,
+    };
     // The layout model's input image, built exactly like docling's
     // `get_page_image(scale=1.0)`: a pdfium render at 1.5× (pypdfium2 sizes
     // with `ceil`), PIL-BICUBIC down to the point-size image (PIL `resize`'s
@@ -533,6 +567,8 @@ fn extract_page(
         height,
         scale: RENDER_SCALE,
         image_layout,
+        #[cfg(feature = "ocr-prep")]
+        image_enrich,
         cells,
         code_cells,
         word_cells,

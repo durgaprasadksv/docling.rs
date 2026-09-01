@@ -118,6 +118,8 @@ fn mets_pages(bytes: &[u8]) -> Result<Vec<PdfPage>, PdfError> {
             word_cells: Vec::new(),
             image,
             image_layout: None,
+            #[cfg(feature = "ocr-prep")]
+            image_enrich: None,
             links: Vec::new(),
             rotation: 0,
         });

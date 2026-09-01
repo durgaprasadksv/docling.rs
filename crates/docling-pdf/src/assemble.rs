@@ -1842,10 +1842,35 @@ pub enum Enrichment {
 /// [`crate::pdfium_backend::RENDER_SCALE`] render instead of a fresh pdfium
 /// pass (the page bitmap is already the exact docling render at scale 2).
 #[cfg(feature = "ml")]
+/// Crop for a *formula or code* region, preferring the high-resolution
+/// enrichment render when one was made.
+///
+/// Kept separate from [`crop_region_scaled`] on purpose. Cropping the ordinary
+/// 2 px/pt bitmap and resizing *up* cannot invent detail — a scanned page's
+/// 600 dpi source reaches the recognizer as 144 dpi, which is where `3` and `8`
+/// stop being distinguishable in a superscript, and raising the target scale
+/// only upsamples the same pixels. But that extra resolution is wanted by this
+/// model alone: the layout model takes a fixed 640x640, the OCR recognizer
+/// resamples every line to 48px, and the picture classifier's 224x224 input is
+/// pinned against docling's own crops. Routing them all through a different
+/// source bitmap would change their inputs for no gain.
+#[cfg(feature = "ocr-prep")]
+pub fn crop_region_enrich(page: &PdfPage, bbox: [f32; 4], target_scale: f32) -> Option<RgbImage> {
+    match &page.image_enrich {
+        Some((img, scale)) => crop_from(img, *scale, bbox, target_scale),
+        None => crop_region_scaled(page, bbox, target_scale),
+    }
+}
+
 pub fn crop_region_scaled(page: &PdfPage, bbox: [f32; 4], target_scale: f32) -> Option<RgbImage> {
-    let s = page.scale;
+    crop_from(&page.image, page.scale, bbox, target_scale)
+}
+
+/// Crop `bbox` (page points) out of a page bitmap rendered at `src_scale`, and
+/// resize to `target_scale` pixels per point.
+fn crop_from(src: &RgbImage, s: f32, bbox: [f32; 4], target_scale: f32) -> Option<RgbImage> {
     let [l, t, r, b] = bbox;
-    let (iw, ih) = (page.image.width(), page.image.height());
+    let (iw, ih) = (src.width(), src.height());
     let x = (l * s).max(0.0) as u32;
     let y = (t * s).max(0.0) as u32;
     if x >= iw || y >= ih {
@@ -1856,7 +1881,7 @@ pub fn crop_region_scaled(page: &PdfPage, bbox: [f32; 4], target_scale: f32) -> 
     if w == 0 || h == 0 {
         return None;
     }
-    let crop = image::imageops::crop_imm(&page.image, x, y, w, h).to_image();
+    let crop = image::imageops::crop_imm(src, x, y, w, h).to_image();
     // docling renders the crop at `target_scale` directly; from the scale-2
     // page render that is a resize to the same pixel geometry
     // (`round(width_points * scale)`, PIL's BICUBIC ≙ CatmullRom).
@@ -3479,6 +3504,8 @@ mod tests {
             )],
             image: image::RgbImage::new(1, 1),
             image_layout: None,
+            #[cfg(feature = "ocr-prep")]
+            image_enrich: None,
             links: vec![
                 annot(100.0, 180.0, "https://l"),
                 annot(200.0, 260.0, "https://g"),

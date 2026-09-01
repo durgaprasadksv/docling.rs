@@ -140,6 +140,7 @@ pub fn convert_vlm(
                 None,
                 true, // render page images — they are the whole input here
                 range,
+                None, // no enrichment crops on the VLM path
                 |i, _total, page| {
                     let step =
                         encode_png(&page.image).and_then(|png| request_page(&agent, opts, &png));

@@ -28,6 +28,22 @@ use docling_core::PictureClass;
 /// 2.0 for the picture classifier, 1.67 (≈120 dpi) for CodeFormula.
 pub const CLASSIFIER_SCALE: f32 = 2.0;
 pub const CODE_FORMULA_SCALE: f32 = 1.67;
+
+/// The crop scale actually used, `DOCLING_RS_ENRICH_SCALE` overriding the
+/// docling default.
+///
+/// Worth tuning because the model's preprocessing resizes the crop's longest
+/// edge to 2048 regardless: at 1.67 px/pt a 200pt equation is rendered 334px
+/// wide and then upscaled six-fold, so the detail distinguishing a worn `3`
+/// from an `8` in a superscript is invented by the resampler rather than read
+/// off the page. Rendering larger costs nothing at inference — the tile count
+/// after the 2048 normalization is unchanged — and only the render itself gets
+/// more expensive.
+pub fn code_formula_scale() -> f32 {
+    docling_core::env::parse::<f32>("DOCLING_RS_ENRICH_SCALE")
+        .filter(|v| *v > 0.1 && *v <= 12.0)
+        .unwrap_or(CODE_FORMULA_SCALE)
+}
 /// CodeFormula expands the region box by 18% of its size on every side
 /// (docling's `expansion_factor`) before cropping.
 pub const CODE_FORMULA_EXPANSION: f32 = 0.18;
@@ -344,6 +360,7 @@ impl CodeFormula {
         let max_new = budget
             .saturating_sub(seq)
             .min(MODEL_MAX_LEN.saturating_sub(seq));
+        let mut finished = false;
         for _ in 0..max_new {
             let embeds_t = Tensor::from_array(([1usize, x_seq, HIDDEN], x))
                 .map_err(|e| format!("code-formula: embeds: {e}"))?;
@@ -378,6 +395,7 @@ impl CodeFormula {
             };
             past_len += x_seq;
             if next == EOS_ID {
+                finished = true;
                 break;
             }
             out_ids.push(next as u32);
@@ -386,6 +404,18 @@ impl CodeFormula {
             positions = vec![past_len as i64];
         }
 
+        // A decode that exhausts its budget without ever emitting EOS did not
+        // finish — it ran away. Its output is not a partial answer to be
+        // salvaged: it is the model looping, and on a page of worn type one
+        // such crop produced `x_1, y_1, z_1, …` repeated to the cap. Reporting
+        // that as a formula would have a reader narrate noise with no signal
+        // that anything was wrong, which is worse than saying nothing. Errors
+        // here degrade to an undecoded formula, which the reader announces.
+        if !finished {
+            return Err(format!(
+                "generation hit the {max_new}-token budget without finishing"
+            ));
+        }
         let text = self
             .tokenizer
             .decode(&out_ids, false)

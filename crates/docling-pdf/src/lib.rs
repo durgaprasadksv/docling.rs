@@ -357,6 +357,19 @@ fn contained_formulas(owner: &layout::Region, regions: &[layout::Region]) -> Vec
     out
 }
 
+/// The scale to render an enrichment crop source at, when enrichment will run.
+///
+/// `None` keeps the ordinary 2 px/pt page bitmap (and its memory). Set only
+/// when a code/formula model will actually read pixels, since a second render
+/// of every page is not free.
+#[cfg(feature = "ocr-prep")]
+fn enrich_crop_scale(e: &EnrichmentOptions) -> Option<f32> {
+    if !(e.code || e.formula) {
+        return None;
+    }
+    Some(enrich::code_formula_scale().max(pdfium_backend::RENDER_SCALE))
+}
+
 pub(crate) fn resolve_asset(rel: &str) -> String {
     docling_core::assets::resolve(rel)
 }
@@ -1345,10 +1358,10 @@ impl Worker {
                             let (w, h) = (br - bl, bb - bt);
                             let ex = enrich::CODE_FORMULA_EXPANSION;
                             let bbox = [bl - w * ex, bt - h * ex, br + w * ex, bb + h * ex];
-                            let Some(crop) = assemble::crop_region_scaled(
+                            let Some(crop) = assemble::crop_region_enrich(
                                 page,
                                 bbox,
-                                enrich::CODE_FORMULA_SCALE,
+                                enrich::code_formula_scale(),
                             ) else {
                                 continue;
                             };
@@ -1406,10 +1419,10 @@ impl Worker {
                                         let ex = enrich::CODE_FORMULA_EXPANSION;
                                         let bx =
                                             [sl - w * ex, st - h * ex, sr + w * ex, sb + h * ex];
-                                        let Some(c) = assemble::crop_region_scaled(
+                                        let Some(c) = assemble::crop_region_enrich(
                                             page,
                                             bx,
-                                            enrich::CODE_FORMULA_SCALE,
+                                            enrich::code_formula_scale(),
                                         ) else {
                                             continue;
                                         };
@@ -1971,12 +1984,14 @@ impl Pipeline {
         let render_image = !self.no_ocr;
         let progress = self.progress.clone();
         let mut done = 0usize;
+        let enrich_scale = enrich_crop_scale(&self.enrich);
         let worker = self.primary()?;
         pdfium_backend::for_each_page(
             bytes,
             password,
             render_image,
             range,
+            enrich_scale,
             |n, _total, mut page| {
                 let (mut nodes, links, conf) = worker.process(n, &mut page)?;
                 assemble::stamp_page_no(&mut nodes, n + 1);
@@ -2009,6 +2024,7 @@ impl Pipeline {
         range: Option<(usize, usize)>,
         selected: usize,
     ) -> Result<DoclingDocument, PdfError> {
+        let enrich_scale = enrich_crop_scale(&self.enrich);
         self.ensure_pool()?;
         let progress = self.progress.clone();
         let pages_done = std::sync::atomic::AtomicUsize::new(0);
@@ -2082,6 +2098,7 @@ impl Pipeline {
                 password,
                 render_image,
                 range,
+                enrich_scale,
                 |i, _total, page| {
                     work_tx
                         .send((i, page))
@@ -2169,12 +2186,14 @@ impl Pipeline {
     {
         let mut asm = assemble::StreamAssembler::new();
         let render_image = !self.no_ocr;
+        let enrich_scale = enrich_crop_scale(&self.enrich);
         let worker = self.primary()?;
         pdfium_backend::for_each_page(
             bytes,
             password,
             render_image,
             range,
+            enrich_scale,
             |n, _total, mut page| {
                 // Confidence is dropped on the streaming path: the report is
                 // only complete once every page has run, which defeats
@@ -2202,6 +2221,7 @@ impl Pipeline {
     where
         F: FnMut(Vec<Node>, Vec<(String, String)>) -> Result<(), PdfError>,
     {
+        let enrich_scale = enrich_crop_scale(&self.enrich);
         self.ensure_pool()?;
         let n_workers = self.pool.len();
         let render_image = !self.no_ocr;
@@ -2262,6 +2282,7 @@ impl Pipeline {
                         password,
                         render_image,
                         range,
+                        enrich_scale,
                         |i, _total, page| {
                             work_tx
                                 .send((i, page))
@@ -2377,6 +2398,8 @@ impl Pipeline {
             // A standalone image *is* its own scale-1.0 page image, so the
             // layout model sees it through the docling-exact PIL kernel.
             image_layout: Some(image.clone()),
+            #[cfg(feature = "ocr-prep")]
+            image_enrich: None,
             image,
             links: Vec::new(),
             rotation: 0,
