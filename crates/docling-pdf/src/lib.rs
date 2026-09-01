@@ -286,6 +286,57 @@ pub(crate) fn prefer_fp32() -> bool {
 /// Resolve a default (CWD-relative) asset path — the shared chain in
 /// [`docling_core::assets`]: CWD, then next to the executable and one level
 /// above it (the `scripts/install/install.sh` layout).
+/// Shrink an expanded crop box so it does not reach into a neighbouring
+/// region's text.
+///
+/// docling grows a code/formula crop by 18% of the region's size on every side
+/// to avoid clipping glyph edges. That is a couple of points for a one-line
+/// equation and *twelve* for a tall multi-equation block — enough to swallow
+/// the prose line above it. On a scanned calculus page the words "Form the
+/// product", "Then" and "Hence" were each pulled into a formula crop and
+/// dutifully transcribed by the recognizer (`\text{rm}\,\the product`).
+///
+/// So the expansion stops at the edge of any region that is *not* part of this
+/// formula: it may grow into whitespace, never into another block's box. The
+/// unexpanded region itself is always kept, since a detector box that already
+/// overlaps a neighbour is not something to shrink away.
+#[cfg(feature = "ocr-prep")]
+fn clamp_expansion(
+    core: [f32; 4],
+    expanded: [f32; 4],
+    regions: &[layout::Region],
+    keep: &dyn Fn(&layout::Region) -> bool,
+) -> [f32; 4] {
+    let [cl, ct, cr, cb] = core;
+    let [mut l, mut t, mut r, mut b] = expanded;
+    for o in regions {
+        if keep(o) {
+            continue;
+        }
+        // Only regions overlapping this one horizontally can crowd it
+        // vertically, and vice versa.
+        let h_overlap = o.r > cl && o.l < cr;
+        let v_overlap = o.b > ct && o.t < cb;
+        if h_overlap {
+            if o.b <= ct {
+                t = t.max(o.b); // a block above: stop at its bottom
+            }
+            if o.t >= cb {
+                b = b.min(o.t); // a block below
+            }
+        }
+        if v_overlap {
+            if o.r <= cl {
+                l = l.max(o.r);
+            }
+            if o.l >= cr {
+                r = r.min(o.l);
+            }
+        }
+    }
+    [l.min(cl), t.min(ct), r.max(cr), b.max(cb)]
+}
+
 /// Whether this formula region sits wholly inside a larger one.
 ///
 /// Mirrors the containment rule assembly uses to collapse an overlapping group
@@ -1359,7 +1410,11 @@ impl Worker {
                             };
                             let (w, h) = (br - bl, bb - bt);
                             let ex = enrich::CODE_FORMULA_EXPANSION;
-                            let bbox = [bl - w * ex, bt - h * ex, br + w * ex, bb + h * ex];
+                            let grown = [bl - w * ex, bt - h * ex, br + w * ex, bb + h * ex];
+                            // Never expand into a neighbouring block's text.
+                            let bbox = clamp_expansion([bl, bt, br, bb], grown, &regions, &|o| {
+                                std::ptr::eq(o, r) || o.label == r.label
+                            });
                             let Some(crop) = assemble::crop_region_enrich(
                                 page,
                                 bbox,
@@ -1419,8 +1474,14 @@ impl Worker {
                                             };
                                         let (w, h) = (sr - sl, sb - st);
                                         let ex = enrich::CODE_FORMULA_EXPANSION;
-                                        let bx =
+                                        let grown =
                                             [sl - w * ex, st - h * ex, sr + w * ex, sb + h * ex];
+                                        let bx = clamp_expansion(
+                                            [sl, st, sr, sb],
+                                            grown,
+                                            &regions,
+                                            &|o| o.label == "formula",
+                                        );
                                         let Some(c) = assemble::crop_region_enrich(
                                             page,
                                             bx,
