@@ -504,17 +504,24 @@ fn extract_page(
     // the requested scale, so a scanned page's real resolution reaches the
     // formula recognizer instead of an upsampled 144 dpi bitmap.
     let image_enrich = match (render_image, enrich_scale) {
-        (true, Some(sc)) if sc > RENDER_SCALE => {
-            let tw = (width * sc).round().max(1.0) as i32;
-            let th = (height * sc).round().max(1.0) as i32;
-            let cfg = PdfRenderConfig::new()
-                .set_target_width(tw)
-                .set_target_height(th);
-            crate::timing::timed("pdfium.render_enrich", || {
-                page.render_with_config(&cfg)
-                    .map(|b| (b.as_image().into_rgb8(), sc))
-                    .ok()
-            })
+        // `Some(_)` means "enrichment will run"; the scale itself is derived
+        // from this page's width against the recognizer's 2048px input.
+        (true, Some(_)) => {
+            let sc = crate::enrich::auto_enrich_scale(width);
+            if sc <= RENDER_SCALE {
+                None
+            } else {
+                let tw = (width * sc).round().max(1.0) as i32;
+                let th = (height * sc).round().max(1.0) as i32;
+                let cfg = PdfRenderConfig::new()
+                    .set_target_width(tw)
+                    .set_target_height(th);
+                crate::timing::timed("pdfium.render_enrich", || {
+                    page.render_with_config(&cfg)
+                        .map(|b| (b.as_image().into_rgb8(), sc))
+                        .ok()
+                })
+            }
         }
         _ => None,
     };

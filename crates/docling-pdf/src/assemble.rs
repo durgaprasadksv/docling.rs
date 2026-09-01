@@ -1857,7 +1857,14 @@ pub enum Enrichment {
 #[cfg(feature = "ocr-prep")]
 pub fn crop_region_enrich(page: &PdfPage, bbox: [f32; 4], target_scale: f32) -> Option<RgbImage> {
     match &page.image_enrich {
-        Some((img, scale)) => crop_from(img, *scale, bbox, target_scale),
+        // Crop at the render's own scale rather than `target_scale`. Taking the
+        // pixels from a high-resolution render and then resampling *down* to
+        // docling's 1.67 px/pt throws away exactly the detail the render was
+        // made for — measured: with the downscale in place a scanned page's
+        // exponents decoded as `3^8` where the page reads `3^3`, the same
+        // errors as cropping the 2 px/pt bitmap. The model resizes to 2048 on
+        // the longest edge regardless, so handing it more costs nothing.
+        Some((img, scale)) => crop_from(img, *scale, bbox, *scale),
         None => crop_region_scaled(page, bbox, target_scale),
     }
 }

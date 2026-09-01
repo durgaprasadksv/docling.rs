@@ -367,7 +367,9 @@ fn enrich_crop_scale(e: &EnrichmentOptions) -> Option<f32> {
     if !(e.code || e.formula) {
         return None;
     }
-    Some(enrich::code_formula_scale().max(pdfium_backend::RENDER_SCALE))
+    // The value is derived per page from its width (`auto_enrich_scale`); this
+    // only says that a model will read pixels, so the render is worth making.
+    Some(enrich::MAX_ENRICH_SCALE)
 }
 
 pub(crate) fn resolve_asset(rel: &str) -> String {

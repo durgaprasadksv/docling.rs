@@ -29,6 +29,34 @@ use docling_core::PictureClass;
 pub const CLASSIFIER_SCALE: f32 = 2.0;
 pub const CODE_FORMULA_SCALE: f32 = 1.67;
 
+/// The scale to render a page at so its formula crops carry real detail,
+/// derived from the recognizer's own input size.
+///
+/// Idefics3 preprocessing resizes a crop's longest edge to
+/// [`LONGEST_EDGE`] (2048), so that is exactly the resolution worth
+/// supplying: below it the model interpolates, above it the pixels are
+/// discarded. A display equation typically spans about half the text width, so
+/// targeting 2048px across half the page gives `2 * LONGEST_EDGE / page_width`
+/// — about 6.7 px/pt on US Letter, 14 on a small octavo page.
+///
+/// Clamped at both ends: never below the ordinary page render (there would be
+/// nothing to gain), and never above [`MAX_ENRICH_SCALE`], since the render is
+/// a full-page RGB bitmap and the pipeline holds several pages at once.
+/// `DOCLING_RS_ENRICH_SCALE` overrides it outright.
+pub fn auto_enrich_scale(page_width_pt: f32) -> f32 {
+    if let Some(v) = docling_core::env::parse::<f32>("DOCLING_RS_ENRICH_SCALE") {
+        if v > 0.1 && v <= 16.0 {
+            return v;
+        }
+    }
+    let want = 2.0 * LONGEST_EDGE as f32 / page_width_pt.max(1.0);
+    want.clamp(crate::pdfium_backend::RENDER_SCALE, MAX_ENRICH_SCALE)
+}
+
+/// Ceiling for [`auto_enrich_scale`]: a US Letter page at 8 px/pt is a
+/// 4896x6336 RGB bitmap (~93 MB), and pages are processed several at a time.
+pub const MAX_ENRICH_SCALE: f32 = 8.0;
+
 /// The crop scale actually used, `DOCLING_RS_ENRICH_SCALE` overriding the
 /// docling default.
 ///
