@@ -1008,6 +1008,7 @@ fn located_heading(node: &Node) -> Option<(&str, Option<[u16; 4]>)> {
 }
 
 /// The heading level inside any stack of `Located`/`Spanned` wrappers.
+#[cfg(test)]
 fn heading_level(node: &Node) -> Option<u8> {
     match node {
         Node::Heading { level, .. } => Some(*level),

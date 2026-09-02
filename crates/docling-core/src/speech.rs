@@ -55,6 +55,43 @@ pub fn normalize_latex(src: &str) -> String {
     out
 }
 
+/// Rewrite logic arrows as chemical ones when the formula is plainly chemistry.
+///
+/// A formula recognizer reaches for the arrow that *looks* right and gets the
+/// meaning wrong: it writes `\Longrightarrow` (implication) for a reaction and
+/// `\Longleftrightarrow` (equivalence) for an equilibrium. MathCAT then reads
+/// them exactly as written — "implies", "if and only if" — so a chemical
+/// equation is narrated as a logical proposition. With the chemical arrows it
+/// says "reacts to form" and "is in equilibrium with" instead.
+///
+/// Only applied when the expression carries unambiguous chemistry: a state
+/// symbol (`(aq)`, `(s)`, `(g)`, `(l)`) or an ionic charge (`^{+…}`/`^{-…}`).
+/// In mathematics those arrows mean what they say, and a generic
+/// `aA + bB ⟺ eE + fF` with neither marker is genuinely ambiguous without
+/// document context — it is left alone rather than guessed at.
+fn chemical_arrows(latex: &str) -> std::borrow::Cow<'_, str> {
+    let flat: String = latex.chars().filter(|c| !c.is_whitespace()).collect();
+    let charged = flat.contains("^{+") || flat.contains("^{-");
+    let state = ["(aq)", "(s)", "(g)", "(l)"]
+        .iter()
+        .any(|m| flat.contains(m));
+    if !(charged || state) {
+        return std::borrow::Cow::Borrowed(latex);
+    }
+    let mut out = latex.to_string();
+    for (logic, chem) in [
+        ("\\Longleftrightarrow", "\\rightleftharpoons"),
+        ("\\Leftrightarrow", "\\rightleftharpoons"),
+        ("\\longleftrightarrow", "\\rightleftharpoons"),
+        ("\\leftrightarrow", "\\rightleftharpoons"),
+        ("\\Longrightarrow", "\\longrightarrow"),
+        ("\\Rightarrow", "\\longrightarrow"),
+    ] {
+        out = out.replace(logic, chem);
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 /// Split a trailing prose annotation off a formula: `… \quad ( \text {balanced} )`
 /// becomes the equation and `"balanced"`.
 ///
@@ -159,6 +196,13 @@ mod engine {
             .and_then(|_| libmathcat::interface::get_spoken_text().ok())
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
+            // MathCAT reports an unparseable subexpression *inside* the speech
+            // rather than failing, so the string can contain
+            // "[PARSE ERROR: Undefined(...)]". A recognizer emitting a
+            // malformed command (`\right leftrightarrow` for
+            // `\rightleftharpoons`) produces exactly that, and a reader would
+            // narrate the error text aloud. Treat it as no spoken form.
+            .filter(|s| !s.contains("PARSE ERROR"))
     }
 }
 
@@ -178,7 +222,8 @@ pub fn speak_latex(latex: &str) -> Option<String> {
         return None;
     }
     let (head, note) = split_annotation(latex);
-    let normalized = normalize_latex(head);
+    let head = chemical_arrows(head);
+    let normalized = normalize_latex(&head);
     let mathml =
         latex2mathml::latex_to_mathml(&normalized, latex2mathml::DisplayStyle::Block).ok()?;
     let spoken = engine::speak(mathml)?;
@@ -272,6 +317,31 @@ mod tests {
             let (head, note) = super::split_annotation(s);
             assert_eq!(head, s, "unchanged: {s}");
             assert_eq!(note, None);
+        }
+    }
+
+    /// A recognizer reaches for the arrow that looks right and gets the meaning
+    /// wrong, so a reaction is narrated as "implies" and an equilibrium as "if
+    /// and only if". Rewritten only where the chemistry is unambiguous.
+    #[test]
+    fn logic_arrows_become_chemical_ones_only_in_chemistry() {
+        let chem = super::chemical_arrows(
+            r"O H ^ { - } ( a q ) + H ^ { + } ( a q ) \Longleftrightarrow H _ { 2 } O",
+        );
+        assert!(chem.contains(r"\rightleftharpoons"), "{chem}");
+
+        let reaction =
+            super::chemical_arrows(r"Z n ( s ) + C u ^ { + 2 } \Longrightarrow Z n ^ { + 2 }");
+        assert!(reaction.contains(r"\longrightarrow"), "{reaction}");
+
+        // Mathematics means what it says: implication and equivalence stay.
+        for m in [
+            r"x > 0 \Longrightarrow x ^ { 2 } > 0",
+            r"P \Leftrightarrow Q",
+            // No state symbol and no charge: genuinely ambiguous, left alone.
+            r"a A + b B \Longleftrightarrow e E + f F",
+        ] {
+            assert_eq!(super::chemical_arrows(m), m, "unchanged: {m}");
         }
     }
 
