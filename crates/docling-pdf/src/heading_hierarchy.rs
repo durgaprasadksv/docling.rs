@@ -908,13 +908,17 @@ fn collect(nodes: &[Node], with_list_items: bool) -> Vec<HeadingRef> {
                 page_w = *width;
                 page_h = *height;
             }
-            Node::Located { location, inner } => {
-                if let Node::Heading { text, .. } = inner.as_ref() {
+            // A heading from the PDF pipeline arrives wrapped: `Located` for
+            // its `<location>`, and `Spanned` outside that when per-cell text
+            // provenance was recorded. Unwrap both, or every heading looks like
+            // something else and the whole stage silently does nothing.
+            Node::Located { .. } | Node::Spanned { .. } => {
+                if let Some((text, location)) = located_heading(node) {
                     out.push(HeadingRef {
                         node_idx: idx,
-                        text: text.clone(),
+                        text: text.to_string(),
                         page_no,
-                        bbox_points: denorm(*location, page_w, page_h),
+                        bbox_points: location.map(|l| denorm(l, page_w, page_h)).unwrap_or(None),
                         is_list_item: false,
                     });
                 }
@@ -1089,13 +1093,34 @@ pub(crate) fn apply(
     }
 }
 
+/// The heading text and `<location>` inside any stack of `Located`/`Spanned`
+/// wrappers, or `None` if the node is not a heading.
+fn located_heading(node: &Node) -> Option<(&str, Option<[u16; 4]>)> {
+    match node {
+        Node::Heading { text, .. } => Some((text, None)),
+        Node::Located { location, inner } => {
+            let (t, l) = located_heading(inner)?;
+            Some((t, l.or(Some(*location))))
+        }
+        Node::Spanned { inner, .. } => located_heading(inner),
+        _ => None,
+    }
+}
+
+/// The heading level inside any stack of `Located`/`Spanned` wrappers.
+fn heading_level(node: &Node) -> Option<u8> {
+    match node {
+        Node::Heading { level, .. } => Some(*level),
+        Node::Located { inner, .. } | Node::Spanned { inner, .. } => heading_level(inner),
+        _ => None,
+    }
+}
+
 fn set_heading_level(node: &mut Node, new_level: u8) {
     match node {
         Node::Heading { level, .. } => *level = new_level,
-        Node::Located { inner, .. } => {
-            if let Node::Heading { level, .. } = inner.as_mut() {
-                *level = new_level;
-            }
+        Node::Located { inner, .. } | Node::Spanned { inner, .. } => {
+            set_heading_level(inner, new_level)
         }
         _ => {}
     }
@@ -1183,10 +1208,7 @@ mod tests {
         nodes
             .iter()
             .filter_map(|n| match n {
-                Node::Located { inner, .. } => match inner.as_ref() {
-                    Node::Heading { level, .. } => Some(*level),
-                    _ => None,
-                },
+                Node::Located { inner, .. } | Node::Spanned { inner, .. } => heading_level(inner),
                 Node::Heading { level, .. } => Some(*level),
                 _ => None,
             })
