@@ -27,8 +27,9 @@ validated for byte-for-byte conformance against upstream Python docling.
   `git push -u fork claude/<topic>`, give the maintainer
   `https://github.com/docling-project/docling.rs/compare/master...durgaprasadksv:docling.rs:<branch>?expand=1`
   and let them open and merge it.
-- One feature = one branch off fresh `origin/master`. Don't stack unrelated
-  work.
+- One feature = one branch off fresh **`fork/master`** — not `origin/master`.
+  Branching from upstream instead diverges from the work already on the fork
+  and turns the merge into a rebase. Don't stack unrelated work.
 - Issue numbers (`#80`, `#138`, …) refer to `docling-project/docling.rs`
   issues; reference them in commit messages (`Refs #NN`).
 - **Slack notifications** (when the Slack MCP connector is available): post to
