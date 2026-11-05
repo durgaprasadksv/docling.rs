@@ -69,6 +69,7 @@ pub fn normalize_latex(src: &str) -> String {
 /// In mathematics those arrows mean what they say, and a generic
 /// `aA + bB ⟺ eE + fF` with neither marker is genuinely ambiguous without
 /// document context — it is left alone rather than guessed at.
+#[cfg_attr(not(feature = "speech"), allow(dead_code))] // read by the speech chain only
 fn chemical_arrows(latex: &str) -> std::borrow::Cow<'_, str> {
     let flat: String = latex.chars().filter(|c| !c.is_whitespace()).collect();
     let charged = flat.contains("^{+") || flat.contains("^{-");

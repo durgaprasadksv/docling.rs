@@ -574,12 +574,13 @@ def quantize_code_formula_decoder():
     import onnx
     from onnxruntime.quantization import QuantType, quantize_dynamic
 
-    src = f"{MODELS}/code_formula/decoder_kv.onnx"
+    cf_dir = os.environ.get("DOCLING_CODE_FORMULA_DIR", f"{MODELS}/code_formula")
+    src = f"{cf_dir}/decoder_kv.onnx"
     if not os.path.exists(src):
         print(f"code-formula-decoder: {src} not found — skipping")
         return
     tmp = f"{MODELS}/code_formula/decoder_kv_fold.onnx"
-    dst = f"{MODELS}/code_formula/decoder_kv_int8.onnx"
+    dst = f"{cf_dir}/decoder_kv_int8.onnx"
 
     # torch's exporter emits the Linear weights as `Constant` *nodes*, but
     # `MatMulConstBOnly` only quantizes MatMuls whose B is an *initializer* —

@@ -219,11 +219,31 @@ const N_LAYERS: usize = 30;
 const N_KV: usize = 3;
 const HEAD_DIM: usize = 64;
 
+/// Which checkpoint family the loaded graphs came from. Both are Idefics3
+/// with the same SigLIP2 tower, pixel-shuffle connector and 165M Llama-style
+/// decoder (576 hidden, 30 layers, 3 KV heads), so the ONNX graphs and the
+/// decode loop are shared; only the chat template, the task query and the
+/// end-of-turn token differ.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Flavor {
+    /// `docling-project/CodeFormulaV2`: `user:<image><formula><end_of_utterance>`.
+    CodeFormulaV2,
+    /// `ibm-granite/granite-docling-258M` (granite chat template, task
+    /// prompts like "Convert formula to LaTeX.", `<|end_of_text|>` ends a turn).
+    GraniteDocling,
+}
+
 pub struct CodeFormula {
     vision: Session,
     embed: Session,
     decoder: Session,
     tokenizer: Tokenizer,
+    flavor: Flavor,
+    /// Token ids that end the answer. Looked up by name because the two
+    /// checkpoints number their special tokens differently (CodeFormulaV2's
+    /// `<end_of_utterance>` is 100338; granite-docling's is 100352 and its
+    /// template closes turns with `<|end_of_text|>` 100257 instead).
+    eos: Vec<i64>,
 }
 
 impl CodeFormula {
@@ -234,10 +254,50 @@ impl CodeFormula {
         let dir = docling_core::env::nonempty("DOCLING_CODE_FORMULA_DIR")
             .unwrap_or_else(|| crate::resolve_asset(".models/code_formula"));
         let file = |name: &str| format!("{dir}/{name}");
-        // INT8 variants take priority when present, like the other models.
+        if !std::path::Path::new(&file("tokenizer.json")).exists() {
+            eprintln!(
+                "docling-pdf: CodeFormula model not found ({dir}/tokenizer.json); code/formula \
+                 enrichment skipped. Run scripts/install/download_dependencies.sh."
+            );
+            return None;
+        }
+        let tokenizer = Tokenizer::from_file(file("tokenizer.json"))
+            .map_err(|e| eprintln!("docling-pdf: CodeFormula tokenizer: {e}"))
+            .ok()?;
+        // Both checkpoints descend from the granite vocabulary (role markers
+        // and all), so the discriminator is the SmolVLM turn terminator:
+        // CodeFormulaV2's tokenizer has `<end_of_utterance>` (its EOS, 100338),
+        // granite-docling's does not and closes a turn with `<|end_of_text|>`.
+        // `DOCLING_CODE_FORMULA_FLAVOR=granite|codeformula` forces it.
+        let eou = tokenizer.token_to_id("<end_of_utterance>").map(i64::from);
+        let flavor = match docling_core::env::nonempty("DOCLING_CODE_FORMULA_FLAVOR").as_deref() {
+            Some("granite") => Flavor::GraniteDocling,
+            Some("codeformula") => Flavor::CodeFormulaV2,
+            _ if eou.is_some() => Flavor::CodeFormulaV2,
+            _ => Flavor::GraniteDocling,
+        };
+        let eos: Vec<i64> = match flavor {
+            Flavor::CodeFormulaV2 => vec![eou.unwrap_or(EOS_ID)],
+            Flavor::GraniteDocling => tokenizer
+                .token_to_id("<|end_of_text|>")
+                .map(i64::from)
+                .into_iter()
+                .collect(),
+        };
+        if eos.is_empty() {
+            eprintln!("docling-pdf: CodeFormula: no end-of-turn token in {dir}/tokenizer.json");
+            return None;
+        }
+        // INT8 variants take priority when present, like the other models —
+        // except for granite-docling's decoder: its dynamic per-tensor INT8
+        // quantization is not near-exact the way CodeFormulaV2's is. Measured
+        // on the same 52 crops, the INT8 decoder ran away to the token budget
+        // on 13 of 32 real crops where fp32 finished every one, so the
+        // flavor pins fp32 (the file is simply ignored if present).
+        let allow_int8 = !crate::prefer_fp32() && flavor == Flavor::CodeFormulaV2;
         let graph = |base: &str| {
             let int8 = file(&format!("{base}_int8.onnx"));
-            if !crate::prefer_fp32() && std::path::Path::new(&int8).exists() {
+            if allow_int8 && std::path::Path::new(&int8).exists() {
                 int8
             } else {
                 file(&format!("{base}.onnx"))
@@ -265,14 +325,14 @@ impl CodeFormula {
                 .map_err(|e| eprintln!("docling-pdf: CodeFormula load {p}: {e}"))
                 .ok()
         };
-        let tokenizer = Tokenizer::from_file(file("tokenizer.json"))
-            .map_err(|e| eprintln!("docling-pdf: CodeFormula tokenizer: {e}"))
-            .ok()?;
+        crate::debug_log!("code-formula: {flavor:?} from {dir}, eos ids {eos:?}");
         Some(Self {
             vision: load(graph("vision"))?,
             embed: load(graph("embed"))?,
             decoder: load(graph("decoder_kv"))?,
             tokenizer,
+            flavor,
+            eos,
         })
     }
 
@@ -307,14 +367,7 @@ impl CodeFormula {
 
         // Prompt: the chat template with the single <image> expanded into the
         // per-tile token grid (transformers' Idefics3Processor layout).
-        let query = match kind {
-            CodeFormulaKind::Code => "<code>",
-            CodeFormulaKind::Formula => "<formula>",
-        };
-        let prompt = format!(
-            "<|start_of_role|>user:{}{query}<end_of_utterance>\nassistant:",
-            image_prompt(rows, cols)
-        );
+        let prompt = self.prompt(kind, rows, cols);
         let enc = self
             .tokenizer
             .encode(prompt, false)
@@ -386,6 +439,7 @@ impl CodeFormula {
         let max_new = budget
             .saturating_sub(seq)
             .min(MODEL_MAX_LEN.saturating_sub(seq));
+        let mut finished = false;
         for _ in 0..max_new {
             let embeds_t = Tensor::from_array(([1usize, x_seq, HIDDEN], x))
                 .map_err(|e| format!("code-formula: embeds: {e}"))?;
@@ -415,7 +469,7 @@ impl CodeFormula {
                     .enumerate()
                     .max_by(|a, b| a.1.total_cmp(b.1))
                     .map(|(i, _)| i as i64)
-                    .unwrap_or(EOS_ID);
+                    .unwrap_or(self.eos[0]);
                 cache = Some((
                     out.remove("new_k")
                         .ok_or_else(|| "code-formula: new_k missing".to_string())?,
@@ -425,7 +479,8 @@ impl CodeFormula {
                 next
             };
             past_len += x_seq;
-            if next == EOS_ID {
+            if self.eos.contains(&next) {
+                finished = true;
                 break;
             }
             out_ids.push(next as u32);
@@ -434,11 +489,58 @@ impl CodeFormula {
             positions = vec![past_len as i64];
         }
 
+        // A decode that exhausts its budget without ever emitting EOS did not
+        // finish — it ran away. Its output is not a partial answer to be
+        // salvaged: it is the model looping, and on a page of worn type one
+        // such crop produced `x_1, y_1, z_1, …` repeated to the cap. Reporting
+        // that as a formula would have a reader narrate noise with no signal
+        // that anything was wrong, which is worse than saying nothing. Errors
+        // here degrade to an undecoded formula, which the reader announces.
+        if !finished {
+            return Err(format!(
+                "generation hit the {max_new}-token budget without finishing"
+            ));
+        }
         let text = self
             .tokenizer
             .decode(&out_ids, false)
             .map_err(|e| format!("code-formula: decode: {e}"))?;
         Ok(post_process(&text))
+    }
+
+    /// The full chat-templated prompt for a `rows`×`cols` tile grid: each
+    /// checkpoint's own template around the task query. The query can be
+    /// overridden for experiments (`DOCLING_RS_FORMULA_PROMPT` /
+    /// `DOCLING_RS_CODE_PROMPT`), e.g. to try granite-docling's long-form
+    /// instruction ("Convert formula to LaTeX.") against the default.
+    fn prompt(&self, kind: CodeFormulaKind, rows: u32, cols: u32) -> String {
+        let default = match (self.flavor, kind) {
+            (Flavor::CodeFormulaV2, CodeFormulaKind::Code) => "<code>",
+            (Flavor::CodeFormulaV2, CodeFormulaKind::Formula) => "<formula>",
+            // granite-docling's model card lists both the long instruction
+            // ("Convert formula to LaTeX.") and this short form. Measured on
+            // 52 crops (scanned 1900s algebra, OpenStax physics/chemistry,
+            // synthetic): the long form ran away to the token budget on half
+            // the real crops and wrapped answers in prose; the short form —
+            // the DocTags tag the model emits in full-page mode — did not.
+            (Flavor::GraniteDocling, CodeFormulaKind::Code) => "<code>",
+            (Flavor::GraniteDocling, CodeFormulaKind::Formula) => "<formula>",
+        };
+        let env = match kind {
+            CodeFormulaKind::Code => "DOCLING_RS_CODE_PROMPT",
+            CodeFormulaKind::Formula => "DOCLING_RS_FORMULA_PROMPT",
+        };
+        let query = docling_core::env::nonempty(env).unwrap_or_else(|| default.to_string());
+        let img = image_prompt(rows, cols);
+        match self.flavor {
+            Flavor::CodeFormulaV2 => {
+                format!("<|start_of_role|>user:{img}{query}<end_of_utterance>\nassistant:")
+            }
+            Flavor::GraniteDocling => format!(
+                "<|start_of_role|>user<|end_of_role|>{img}{query}<|end_of_text|>\n\
+                 <|start_of_role|>assistant<|end_of_role|>"
+            ),
+        }
     }
 
     fn embed_ids(&mut self, ids: &[i64]) -> Result<Vec<f32>, String> {
@@ -571,7 +673,36 @@ fn post_process(text: &str) -> String {
     for tok in ["</code>", "</formula>", "<loc_0><loc_0><loc_500><loc_500>"] {
         t = t.replace(tok, "");
     }
+    // granite-docling answers a crop prompt DocTags-style — the opening task
+    // tag and a `<loc_…>` box run can precede the content. Strip them all.
+    t = strip_loc_tokens(&t);
+    for tok in ["<formula>", "<code>"] {
+        if let Some(rest) = t.trim_start().strip_prefix(tok) {
+            t = rest.to_string();
+        }
+    }
     t.trim_start().to_string()
+}
+
+/// Remove every `<loc_N>` token from `s`.
+fn strip_loc_tokens(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find("<loc_") {
+        out.push_str(&rest[..i]);
+        let tail = &rest[i..];
+        match tail.find('>') {
+            Some(j) if j > 5 && tail[5..j].bytes().all(|b| b.is_ascii_digit()) => {
+                rest = &tail[j + 1..]
+            }
+            _ => {
+                out.push_str("<loc_");
+                rest = &tail[5..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Collapse an immediately repeated line in a formula's LaTeX.
@@ -644,6 +775,21 @@ mod tests {
         let (tensor, rows, cols) = preprocess_idefics3(&img);
         assert_eq!((rows, cols), (2, 4));
         assert_eq!(tensor.len(), 9 * 3 * 512 * 512);
+    }
+
+    #[test]
+    fn granite_crop_answer_is_stripped_to_content() {
+        // granite-docling answers a crop DocTags-style: task tag, a full-page
+        // `<loc_…>` box run, the LaTeX, closing tag.
+        assert_eq!(
+            post_process("<formula><loc_0><loc_0><loc_500><loc_500>\\frac { a } { b }</formula>"),
+            "\\frac { a } { b }"
+        );
+        // Only well-formed `<loc_N>` runs are removed; look-alikes survive.
+        assert_eq!(
+            strip_loc_tokens("x<loc_12>y<loc_>z<loc_a>"),
+            "xy<loc_>z<loc_a>"
+        );
     }
 
     #[test]

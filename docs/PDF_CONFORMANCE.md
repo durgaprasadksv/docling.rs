@@ -567,6 +567,60 @@ scale-2 page render — sub-pixel differences the classifier's softmax sees in
 the third decimal, and that the VLM's argmax decoding absorbs entirely on the
 fixtures.
 
+### granite-docling as the formula recognizer (measured)
+
+`ibm-granite/granite-docling-258M` is the same Idefics3 shape as CodeFormulaV2
+(SigLIP2 tower, pixel-shuffle connector, 165M Llama-style decoder: 576 hidden,
+30 layers, 3 KV heads), so `export_code_formula.py` exports it unchanged
+(`CODE_FORMULA_REPO=ibm-granite/granite-docling-258M … .models/granite_docling`)
+and the enrichment stage runs it behind `DOCLING_CODE_FORMULA_DIR`. The loader
+tells the two apart by the tokenizer (`<end_of_utterance>` exists only in
+CodeFormulaV2's; `DOCLING_CODE_FORMULA_FLAVOR=granite|codeformula` forces it)
+and applies each checkpoint's own chat template and task query.
+
+Measured 2026-11-05 on 52 crops — 20 from a 1900s scanned algebra textbook,
+4 from OpenStax University Physics, 5 from OpenStax Chemistry 2e, the
+`code_and_formula.pdf` fixture, and 10 synthetic formulas rendered clean and
+scan-degraded with known LaTeX. The reference for the book crops is a human
+reading of each crop; the score is a whitespace/brace-insensitive character
+similarity of the LaTeX. CodeFormulaV2 ran its shipped INT8 decoder;
+granite-docling its fp32 decoder (see below). CPU (Intel, 8 cores, 4 threads).
+
+| group | n | CodeFormulaV2 | granite `<formula>` | granite long prompt |
+|---|---:|---:|---:|---:|
+| scanned algebra | 20 | 0.926 | 0.924 (1 runaway) | 0.913 (1 runaway) |
+| OpenStax physics | 4 | 0.843 | 0.990 (1 runaway, on a figure) | 0.877 |
+| OpenStax chemistry | 5 | 1.000 | 1.000 | 1.000 |
+| synthetic, clean | 10 | 0.968 | 0.973 | 0.984 |
+| synthetic, scan-degraded | 10 | 0.972 | 0.985 | 0.976 |
+| **all** | 52 | **0.946** | **0.960** | **0.947** |
+| mean s / crop | | 17 | 24 | 23 |
+
+Reading the numbers:
+
+- **A tie on content, not an upgrade.** The two differ per crop (granite reads
+  `\binom` where CodeFormulaV2 duplicates a factor; CodeFormulaV2 keeps every
+  line of a three-line derivation where granite stops after the first), but
+  neither is reliably better, and both misread the same hard old-print cases
+  (the extent of a radical, `nx` vs `mx`).
+- **granite's INT8 decoder is unusable.** The dynamic per-tensor quantization
+  that is near-exact for CodeFormulaV2 ran granite away to the token budget on
+  13 of 32 real crops where fp32 finished every one; the loader therefore pins
+  fp32 for the granite flavor and ignores a `decoder_kv_int8.onnx`. fp32 is
+  also why it is ~40% slower per crop here.
+- **Prompt form matters.** The model card's long instruction ("Convert formula
+  to LaTeX.") wrapped answers in prose or `<doctag>` and ran away on
+  prose-heavy crops; the DocTags short form `<formula>` — the default now —
+  did not, which is why it is the default.
+- The ONNX graphs decode token-identically to `transformers.generate` on a
+  real crop (`scripts/install/export_code_formula.py`'s check; the vision
+  tower differs by 1e-3 from torch under torch 2.2's eager-attention trace,
+  which the greedy check absorbs).
+
+`cargo run --release -p docling-pdf --example formula_ab -- crop.png …`
+re-runs either recognizer on crops dumped by `DOCLING_RS_ENRICH_DEBUG`, which
+is how the table was produced.
+
 ## How the pipeline works
 
 A pure-Rust parser (lopdf) reads the glyph layer and the page metadata, the
