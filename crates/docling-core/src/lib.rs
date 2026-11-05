@@ -42,7 +42,7 @@ mod vtt;
 pub use confidence::{ConfidenceReport, OcrCellConfidence, PageConfidence, QualityGrade};
 pub use doclang::inline_runs_from_markdown;
 pub use document::{
-    for_each_picture_in, for_each_picture_in_mut, inline_paragraph_node, CaptionParent,
+    for_each_picture_in, for_each_picture_in_mut, inline_paragraph_node, CaptionParent, CellSpan,
     ContentLayer, ContentLayers, DoclingDocument, FieldItem, GraphCell, GraphLink,
     HtmlExportOptions, InlineRun, ListItemDclx, MarkdownExportOptions, Node, Notice, NoticeKind,
     PictureClass, PictureDescription, PictureImage, Script, Table, TableCell, TableStructure,

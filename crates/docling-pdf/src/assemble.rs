@@ -5,7 +5,9 @@
 //! assigned to its best-containing region, regions are ordered in reading order
 //! (two-column aware), and each becomes a typed node by its layout label.
 
-use docling_core::{CaptionParent, ListItemDclx, Node, PictureClass, PictureImage, Table};
+use docling_core::{
+    CaptionParent, CellSpan, ListItemDclx, Node, PictureClass, PictureImage, Table,
+};
 #[cfg(any(feature = "ml", feature = "ocr-prep"))]
 use image::RgbImage;
 
@@ -1711,29 +1713,130 @@ fn clean_text(text: &str) -> String {
 /// into one word (#919). Stripped here, the fragment ended mid-word with
 /// nothing to say so, and the two halves were joined with a space.
 fn clean_text_keep_wrap(text: &str) -> String {
+    clean_text_mapped_keep_wrap(text).0
+}
+
+/// [`clean_text_keep_wrap`], plus a per-output-character map back into the
+/// *input*'s character indices — what per-cell provenance needs to translate
+/// the offsets recorded during [`cells_text_spanned_keep_wrap`]'s join into
+/// offsets in the serialized text.
+///
+/// The sanitizer is not length-preserving: `\u{2}`/`\u{ad}` wrap hyphens are
+/// dropped (and can merge two words), `…` expands to three characters, and
+/// the ends are trimmed. Offsets taken before it are therefore meaningless
+/// after it — recording them and hoping is the silent-wrongness case, boxes
+/// that look plausible and sit a few characters off wherever a soft hyphen
+/// appeared.
+///
+/// `None` when no stable correspondence exists: [`fix_arabic_lam_alef`]
+/// reorders characters and inserts spaces at bidi boundaries. Callers degrade
+/// to block geometry there rather than emit subtly wrong boxes.
+///
+/// This is the single implementation; [`clean_text_keep_wrap`] discards the
+/// map, so the two can never drift, and `clean_text_matches_reference`
+/// machine-checks it against the chained-`replace` reference
+/// ([`fold_typography`]) it replaced.
+fn clean_text_mapped_keep_wrap(text: &str) -> (String, Option<Vec<u32>>) {
     let wrap = text.trim_end().ends_with('\u{ad}');
-    let unwrapped = text
-        .replace("\u{2} ", "")
-        .replace("\u{ad} ", "")
-        // any stray wrap hyphens not at a join
-        .replace(['\u{2}', '\u{ad}'], "");
     // `pdf_keep_typography` (#921): legal citations and quoted terms tell
     // `„…“` and `‚…‘` from ASCII quotes, and `–` ranges from hyphens; the
     // folding erases that, so the opt-out keeps the glyphs as drawn.
-    let replaced = if KEEP_TYPOGRAPHY.with(std::cell::Cell::get) {
-        unwrapped
-    } else {
-        fold_typography(&unwrapped)
-    };
-    // The docling-parse sanitizer already placed the correct spacing (e.g.
-    // justified double spaces); preserve internal runs of spaces, only
-    // normalizing line breaks/tabs and trimming the ends.
-    let out = replaced.replace(['\n', '\r', '\t'], " ").trim().to_string();
-    let mut out = fix_arabic_lam_alef(&out);
-    if wrap && !out.is_empty() {
-        out.push('\u{ad}');
+    let fold = !KEEP_TYPOGRAPHY.with(std::cell::Cell::get);
+    let chars: Vec<char> = text.chars().collect();
+    let mut out: Vec<char> = Vec::with_capacity(chars.len());
+    let mut src: Vec<u32> = Vec::with_capacity(chars.len());
+    let mut i = 0usize;
+    while i < chars.len() {
+        let c = chars[i];
+        let idx = i as u32;
+        match c {
+            // Wrap hyphens: dropped, taking a following space with them. The
+            // reference chains `replace("\u{2} ", "")` before the bare-char
+            // replace, so the two-character form always wins — which
+            // collapses to this single lookahead.
+            '\u{2}' | '\u{ad}' => {
+                i += if chars.get(i + 1) == Some(&' ') { 2 } else { 1 };
+                continue;
+            }
+            // The docling-parse sanitizer already placed the correct spacing
+            // (e.g. justified double spaces); only line breaks and tabs
+            // become spaces.
+            '\n' | '\r' | '\t' => {
+                out.push(' ');
+                src.push(idx);
+            }
+            // docling-parse's sanitizer table (see [`fold_typography`]).
+            '\u{2018}' | '\u{2019}' | '\u{201b}' if fold => {
+                out.push('\'');
+                src.push(idx);
+            }
+            '\u{201c}' | '\u{201d}' | '\u{201e}' | '\u{201f}' if fold => {
+                out.push('"');
+                src.push(idx);
+            }
+            '\u{201a}' if fold => {
+                out.push(',');
+                src.push(idx);
+            }
+            '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
+            | '\u{2212}'
+                if fold =>
+            {
+                out.push('-');
+                src.push(idx);
+            }
+            '\u{2044}' if fold => {
+                out.push('/');
+                src.push(idx);
+            }
+            '\u{2022}' if fold => {
+                out.push('\u{b7}');
+                src.push(idx);
+            }
+            // … → ... — the one expansion; three output chars share one source.
+            '\u{2026}' if fold => {
+                for _ in 0..3 {
+                    out.push('.');
+                    src.push(idx);
+                }
+            }
+            _ => {
+                out.push(c);
+                src.push(idx);
+            }
+        }
+        i += 1;
     }
-    out
+    // Trim the ends, keeping the map aligned.
+    let start = out
+        .iter()
+        .position(|c| !c.is_whitespace())
+        .unwrap_or(out.len());
+    let end = out
+        .iter()
+        .rposition(|c| !c.is_whitespace())
+        .map_or(start, |e| e + 1);
+    let joined: String = out[start..end].iter().collect();
+    let mut src = src[start..end].to_vec();
+    let mut fixed = fix_arabic_lam_alef(&joined);
+    // Pass 1 reorders (alef+lam → lam+alef), pass 2 inserts spaces at
+    // Arabic↔Latin boundaries. Either invalidates the map, and both sit
+    // behind an all-non-Arabic early return — so an unchanged string means it
+    // holds.
+    let map = if fixed == joined {
+        if wrap && !fixed.is_empty() {
+            // The kept soft hyphen maps to its own source character — the
+            // last one of the trimmed text's run; callers that pop it clamp.
+            src.push(src.last().copied().unwrap_or(0));
+        }
+        Some(src)
+    } else {
+        None
+    };
+    if wrap && !fixed.is_empty() {
+        fixed.push('\u{ad}');
+    }
+    (fixed, map)
 }
 
 thread_local! {
@@ -1770,6 +1873,10 @@ pub fn keep_typography_from_env() -> bool {
 /// double ones the ASCII `"` (docling-parse#349, 7.x — before it folded both
 /// to `'`, which docling's groundtruth carried until its docling-parse 7
 /// refresh), `‚` a comma, the dash family a hyphen.
+///
+/// Kept as the chained-`replace` reference the character-mapped sanitizer
+/// ([`clean_text_mapped_keep_wrap`]) is machine-checked against.
+#[cfg(test)]
 fn fold_typography(text: &str) -> String {
     text.replace(['\u{2018}', '\u{2019}', '\u{201b}'], "'") // ‘ ’ ‛ → '
         .replace(['\u{201c}', '\u{201d}', '\u{201e}', '\u{201f}'], "\"") // “ ” „ ‟ → "
@@ -2033,6 +2140,22 @@ pub fn region_texts_exclusive(regions: &[Region], cells: &[TextCell]) -> Vec<Str
 /// [`region_texts_exclusive`] with a region's trailing soft hyphen kept
 /// (#919): the page assembler strips it and hands it to the paragraph it ends.
 fn region_texts_keep_wrap(regions: &[Region], cells: &[TextCell]) -> Vec<String> {
+    region_texts_spanned_keep_wrap(regions, cells)
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect()
+}
+
+/// [`region_texts_keep_wrap`], additionally returning each region's
+/// [`CellSpan`] list: the character range every contributing cell occupies in
+/// that region's text, with the cell's box. `None` where no correspondence
+/// could be established — the non-claimers (tables, wrappers, pictures) take
+/// their text by a different rule ([`region_text`]), and Arabic regions lose
+/// the mapping to the bidi fix-ups.
+fn region_texts_spanned_keep_wrap(
+    regions: &[Region],
+    cells: &[TextCell],
+) -> Vec<(String, Option<Vec<CellSpan>>)> {
     let owned = assign_cells(regions, cells);
     // Non-claimers (tables/wrappers/pictures) keep the inclusive > 0.5 text:
     // docling fills a special cluster's cells from its contained children, and
@@ -2042,9 +2165,9 @@ fn region_texts_keep_wrap(regions: &[Region], cells: &[TextCell]) -> Vec<String>
         .zip(owned)
         .map(|(r, cs)| {
             if claims_cells(r) {
-                cells_text_keep_wrap(cs.iter().map(|&i| &cells[i]).collect())
+                cells_text_spanned_keep_wrap(cs.iter().map(|&i| &cells[i]).collect())
             } else {
-                region_text(r, cells)
+                (region_text(r, cells), None)
             }
         })
         .collect()
@@ -2434,6 +2557,14 @@ fn cells_text(inside: Vec<&TextCell>) -> String {
 
 /// [`cells_text`] keeping a trailing soft hyphen (see [`clean_text_keep_wrap`]).
 fn cells_text_keep_wrap(inside: Vec<&TextCell>) -> String {
+    cells_text_spanned_keep_wrap(inside).0
+}
+
+/// [`cells_text_keep_wrap`], additionally returning each contributing cell's
+/// [`CellSpan`]: the character range it occupies in the returned text (the
+/// join's offsets translated through the sanitizer's map) with the cell's box.
+/// `None` when the sanitizer could establish no stable correspondence.
+fn cells_text_spanned_keep_wrap(inside: Vec<&TextCell>) -> (String, Option<Vec<CellSpan>>) {
     // docling orders a cluster's cells by their docling-parse cell index
     // alone (`LayoutPostprocessor._sort_cells`: `sorted(cells, key=c.index)`)
     // — the sanitizer's output order, which our `cells` slice already is.
@@ -2458,12 +2589,15 @@ fn cells_text_keep_wrap(inside: Vec<&TextCell>) -> String {
         // `-"C" cell a new table cell`. Our cells still carry the raw dash
         // family (docling-parse normalizes to `-` before this; clean_text does
         // it after), so the endswith test matches them all.
-        let texts: Vec<&str> = inside
+        // Paired with its cell so each contribution can record the character
+        // range it occupies; the text alone loses which box produced which
+        // span.
+        let texts: Vec<(&str, &TextCell)> = inside
             .iter()
-            .map(|c| c.text.trim())
+            .map(|c| (c.text.trim(), *c))
             // Skip whitespace-only cells (a justified line's trailing space
             // glyph): an empty line would double the separator.
-            .filter(|t| !t.is_empty())
+            .filter(|(t, _)| !t.is_empty())
             .collect();
         let last_word_alnum = |s: &str| {
             s.split(|c: char| !(c.is_alphanumeric() || c == '_'))
@@ -2476,9 +2610,10 @@ fn cells_text_keep_wrap(inside: Vec<&TextCell>) -> String {
                 .is_some_and(|w| w.chars().all(char::is_alphanumeric))
         };
         let mut out = String::new();
-        for (i, t) in texts.iter().enumerate() {
+        let mut spans: Vec<CellSpan> = Vec::with_capacity(texts.len());
+        for (i, &(t, cell)) in texts.iter().enumerate() {
             if i > 0 {
-                let prev = texts[i - 1];
+                let prev = texts[i - 1].0;
                 let dashish = matches!(
                     prev.chars().last(),
                     Some(
@@ -2505,17 +2640,66 @@ fn cells_text_keep_wrap(inside: Vec<&TextCell>) -> String {
                 } else if dashish && attached {
                     if last_word_alnum(prev) && first_word_alnum(t) {
                         out.pop(); // wrapped word: fuse without the dash
+                                   // The popped dash was the previous cell's last
+                                   // character; its span shrinks with it.
+                        if let Some(last) = spans.last_mut() {
+                            last.char_end = last.char_end.saturating_sub(1);
+                        }
                     }
                     // an attached dash never takes a separating space
                 } else {
                     out.push(' ');
                 }
             }
+            let start = out.chars().count() as u32;
             out.push_str(t);
+            spans.push(CellSpan {
+                char_start: start,
+                char_end: out.chars().count() as u32,
+                l: cell.l,
+                t: cell.t,
+                r: cell.r,
+                b: cell.b,
+            });
         }
-        out
+        (out, spans)
     };
-    clean_text_keep_wrap(&joined)
+    let (joined, spans) = joined;
+    // Offsets above index `joined`; the sanitizer is not length-preserving, so
+    // they must be translated through its map before they mean anything about
+    // the serialized text.
+    let (text, map) = clean_text_mapped_keep_wrap(&joined);
+    (text, map.map(|m| remap_spans(spans, &m)))
+}
+
+/// Translate spans from pre-sanitizer offsets into the serialized text's, via
+/// [`clean_text_mapped_keep_wrap`]'s per-output-character source map. The map
+/// is monotonically non-decreasing, so each bound is a partition point. Spans
+/// the sanitizer deleted entirely — a cell that was only a wrap hyphen — are
+/// dropped.
+fn remap_spans(spans: Vec<CellSpan>, map: &[u32]) -> Vec<CellSpan> {
+    spans
+        .into_iter()
+        .filter_map(|s| {
+            let start = map.partition_point(|&m| m < s.char_start) as u32;
+            let end = map.partition_point(|&m| m < s.char_end) as u32;
+            (end > start).then_some(CellSpan {
+                char_start: start,
+                char_end: end,
+                ..s
+            })
+        })
+        .collect()
+}
+
+/// Clamp spans to a text that lost its tail (the popped trailing soft
+/// hyphen), dropping any that emptied.
+fn clamp_spans(spans: &mut Vec<CellSpan>, char_len: usize) {
+    let len = char_len as u32;
+    spans.retain_mut(|s| {
+        s.char_end = s.char_end.min(len);
+        s.char_end > s.char_start
+    });
 }
 
 /// Tighten the spaces pdfium leaves around tight punctuation in a code line
@@ -3522,13 +3706,22 @@ pub fn assemble_page(
         .chain(picture_children.iter().flatten())
         .cloned()
         .collect();
-    let mut region_texts: Vec<String> = region_texts_keep_wrap(&with_children, &page.cells);
+    let (mut region_texts, mut region_spans): (Vec<String>, Vec<Option<Vec<CellSpan>>>) =
+        region_texts_spanned_keep_wrap(&with_children, &page.cells)
+            .into_iter()
+            .unzip();
     // A trailing soft hyphen marks a word split across the line break; only a
     // plain paragraph hands it on to `merge_continuations` (#919).
     let wraps: Vec<bool> = region_texts
         .iter_mut()
         .map(|t| t.ends_with('\u{ad}') && t.pop().is_some())
         .collect();
+    for (spans, text) in region_spans.iter_mut().zip(&region_texts) {
+        if let Some(spans) = spans {
+            clamp_spans(spans, text.chars().count());
+        }
+    }
+    region_spans.truncate(regions.len());
     let mut kid_texts = region_texts.split_off(regions.len()).into_iter();
     let child_texts: Vec<Vec<String>> = picture_children
         .iter()
@@ -3582,7 +3775,11 @@ pub fn assemble_page(
         }
     }
 
+    // Where each region's nodes start, so its per-cell provenance can be
+    // attached after the loop (its arms `continue` freely).
+    let mut spans_marks: Vec<(usize, usize)> = Vec::with_capacity(regions.len());
     for (i, region) in regions.iter().enumerate() {
+        spans_marks.push((nodes.len(), i));
         if consumed[i] {
             continue;
         }
@@ -3926,6 +4123,25 @@ pub fn assemble_page(
                 };
                 nodes.push(located(loc, node))
             }
+        }
+    }
+    // Attach each region's per-cell provenance to whatever it produced. The
+    // wrapper sits *outside* the location wrapper so both survive; only the
+    // JSON export reads it, and only when asked (`DOCLING_RS_WORD_PROV`). A
+    // merged continuation's text was appended after the head's own, so the
+    // head's spans stay valid for the part they cover.
+    let end = nodes.len();
+    for (k, &(start, i)) in spans_marks.iter().enumerate() {
+        let stop = spans_marks.get(k + 1).map_or(end, |m| m.0);
+        let Some(spans) = region_spans[i].as_ref().filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        for node in &mut nodes[start..stop] {
+            let inner = std::mem::replace(node, Node::PageBreak);
+            *node = Node::Spanned {
+                spans: spans.clone(),
+                inner: Box::new(inner),
+            };
         }
     }
     // A `/Rotate`-normalized scanned page (see `pdfium_backend`) was assembled
@@ -4309,8 +4525,9 @@ impl StreamAssembler {
 #[cfg(test)]
 mod tests {
     use super::{
-        cells_text, clean_text, is_note_of, looks_like_note_call, merge_overlapping_regulars,
-        reclaim_heading_body_footers,
+        cells_text, cells_text_spanned_keep_wrap, clean_text, clean_text_keep_wrap,
+        clean_text_mapped_keep_wrap, fix_arabic_lam_alef, fold_typography, is_note_of,
+        looks_like_note_call, merge_overlapping_regulars, reclaim_heading_body_footers,
     };
 
     /// docling drops a picture covering > 90 % of the page (its labels then
@@ -4345,6 +4562,7 @@ mod tests {
         code_region_text, float_running_head, merge_continuations, resolve_link_anchors,
         StreamAssembler,
     };
+    use super::{TypographyScope, KEEP_TYPOGRAPHY};
     use crate::layout::Region;
     use crate::pdfium_backend::{LinkAnnot, PdfPage, TextCell};
     use docling_core::Node;
@@ -5607,6 +5825,96 @@ mod tests {
         // The docling-parse sanitizer's internal spacing is preserved as
         // placed; line breaks/tabs normalize to a space, ends trim.
         assert_eq!(clean_text("a   b\nc"), "a   b c");
+    }
+
+    /// The chained-`replace` sanitizer `clean_text_keep_wrap` used to be,
+    /// restated: the mapped implementation must agree with it on every input.
+    fn clean_text_keep_wrap_reference(text: &str) -> String {
+        let wrap = text.trim_end().ends_with('\u{ad}');
+        let unwrapped = text
+            .replace("\u{2} ", "")
+            .replace("\u{ad} ", "")
+            .replace(['\u{2}', '\u{ad}'], "");
+        let replaced = if KEEP_TYPOGRAPHY.with(std::cell::Cell::get) {
+            unwrapped
+        } else {
+            fold_typography(&unwrapped)
+        };
+        let out = replaced.replace(['\n', '\r', '\t'], " ").trim().to_string();
+        let mut out = fix_arabic_lam_alef(&out);
+        if wrap && !out.is_empty() {
+            out.push('\u{ad}');
+        }
+        out
+    }
+
+    #[test]
+    fn clean_text_matches_reference() {
+        let inputs = [
+            "com\u{2} pact",
+            "end-to\u{2} end deep",
+            "word\u{2}",
+            "Graph\u{2019}s \u{201c}x\u{201d} \u{201e}y\u{201c}",
+            "a\u{2026}",
+            "a   b\nc\td\r",
+            "  padded  ",
+            "Ver\u{f6}ffent\u{ad}",
+            "Ver\u{f6}ffent\u{ad} ",
+            "\u{ad}",
+            "x \u{2013} y \u{2022} z \u{2044} w \u{201a}",
+            "\u{0628}\u{0623}\u{0644} and \u{0627}\u{0644}\u{0622}\u{0644}\u{064a}",
+            "",
+        ];
+        for keep in [false, true] {
+            let _scope = TypographyScope::set(keep);
+            for s in inputs {
+                assert_eq!(
+                    clean_text_keep_wrap(s),
+                    clean_text_keep_wrap_reference(s),
+                    "keep_typography={keep} input={s:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn clean_text_map_points_at_source_chars() {
+        // `ab<shy> cd…e`: the wrap hyphen and its space vanish, the ellipsis
+        // becomes three dots sharing one source index.
+        let (out, map) = clean_text_mapped_keep_wrap("ab\u{ad} cd\u{2026}e");
+        assert_eq!(out, "abcd...e");
+        assert_eq!(map.unwrap(), vec![0, 1, 4, 5, 6, 6, 6, 7]);
+        // Trimming shifts the map, a kept trailing soft hyphen maps onto the
+        // last real character, and an Arabic fix-up yields no map at all.
+        let (out, map) = clean_text_mapped_keep_wrap("  ab\u{ad}");
+        assert_eq!(out, "ab\u{ad}");
+        assert_eq!(map.unwrap(), vec![2, 3, 3]);
+        // `بأل`: the alef-hamza + lam reorder is the bidi fix-up that
+        // invalidates the map; an unchanged Arabic string keeps it.
+        let (_, map) = clean_text_mapped_keep_wrap("\u{0628}\u{0623}\u{0644}");
+        assert!(map.is_none());
+        let (_, map) = clean_text_mapped_keep_wrap("\u{0627}\u{0644}\u{0622}\u{0644}\u{064a}");
+        assert!(map.is_some());
+    }
+
+    #[test]
+    fn cell_spans_follow_the_join() {
+        let cell = |text: &str, l: f32| cell(text, l, 0.0, l + 10.0, 10.0);
+        // A wrapped word fuses without its dash: the first span shrinks by one.
+        let (text, spans) =
+            cells_text_spanned_keep_wrap(vec![&cell("plat-", 0.0), &cell("forms", 20.0)]);
+        assert_eq!(text, "platforms");
+        let spans = spans.unwrap();
+        assert_eq!((spans[0].char_start, spans[0].char_end), (0, 4));
+        assert_eq!((spans[1].char_start, spans[1].char_end), (4, 9));
+        assert_eq!(spans[1].l, 20.0);
+        // Plain lines join with a space the first cell does not own.
+        let (text, spans) =
+            cells_text_spanned_keep_wrap(vec![&cell("one", 0.0), &cell("two", 20.0)]);
+        assert_eq!(text, "one two");
+        let spans = spans.unwrap();
+        assert_eq!((spans[0].char_start, spans[0].char_end), (0, 3));
+        assert_eq!((spans[1].char_start, spans[1].char_end), (4, 7));
     }
 
     /// docling#4064: a form's children are emitted together where the form
