@@ -4212,6 +4212,15 @@ pub fn assemble_page(
             continue;
         };
         for node in &mut nodes[start..stop] {
+            // List items are exempt, for the same reason they carry their own
+            // `location` instead of a `Node::Located` wrapper: the serializers
+            // batch a consecutive *run* of bare `ListItem`s into one list
+            // group, and any wrapper breaks that match, so the items silently
+            // stop being lists in JSON/DCLX while Markdown (which renders
+            // through wrappers) still looks right. Costs them word provenance.
+            if matches!(node, Node::ListItem { .. }) {
+                continue;
+            }
             let inner = std::mem::replace(node, Node::PageBreak);
             *node = Node::Spanned {
                 spans: spans.clone(),
