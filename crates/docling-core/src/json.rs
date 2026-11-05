@@ -3120,7 +3120,7 @@ mod tests {
     use crate::ImageMode;
     #[cfg(feature = "preserve-order")]
     use crate::PictureImage;
-    use crate::{CaptionParent, ContentLayer, DoclingDocument, Node, Table};
+    use crate::{CaptionParent, CellSpan, ContentLayer, DoclingDocument, Node, Table};
     use serde_json::Value;
 
     fn cell_at(text: &str, row: usize, col: usize, col_span: usize) -> crate::TableCell {
@@ -4753,5 +4753,160 @@ mod tests {
             doc.export_to_text(),
             "1 https://example.com/a_b\n\n© 2022 the authors"
         );
+    }
+
+    /// A PDF page's structural metadata must survive into docling-JSON, not
+    /// just its text: list membership, the page number every item is anchored
+    /// to, and the opt-in word provenance (#80).
+    fn page_doc(nodes: Vec<Node>) -> Value {
+        let mut doc = DoclingDocument::new("t");
+        doc.push(Node::PageInfo {
+            page_no: 1,
+            width: 612.0,
+            height: 792.0,
+        });
+        for n in nodes {
+            doc.push(n);
+        }
+        serde_json::from_str(&doc.export_to_json()).unwrap()
+    }
+
+    fn bare_item(number: u64, first: bool, text: &str) -> Node {
+        Node::ListItem {
+            ordered: false,
+            number,
+            first_in_list: first,
+            text: text.into(),
+            level: 0,
+            marker: None,
+            location: Some([10, 10, 500, 30]),
+            dclx: None,
+            href: None,
+            layer: None,
+        }
+    }
+
+    /// Consecutive list items batch into one `group`, and each item keeps the
+    /// `list_item` label — also when the paragraphs around them carry a
+    /// `Node::Spanned` wrapper (items themselves are never wrapped: the match
+    /// is on bare items, which is how 34 list items once silently became 0).
+    #[test]
+    fn consecutive_list_items_group_and_keep_their_label() {
+        let spanned = |text: &str| Node::Spanned {
+            spans: vec![CellSpan {
+                char_start: 0,
+                char_end: text.chars().count() as u32,
+                l: 10.0,
+                t: 10.0,
+                r: 100.0,
+                b: 20.0,
+            }],
+            inner: Box::new(Node::Paragraph { text: text.into() }),
+        };
+        let v = page_doc(vec![
+            spanned("before"),
+            bare_item(1, true, "alpha"),
+            bare_item(2, false, "beta"),
+            bare_item(3, false, "gamma"),
+            spanned("after"),
+        ]);
+        let labels: Vec<_> = v["texts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            labels,
+            ["text", "list_item", "list_item", "list_item", "text"]
+        );
+        let groups = v["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 1, "three consecutive items = one list group");
+        assert_eq!(groups[0]["children"].as_array().unwrap().len(), 3);
+        // the body owns the two paragraphs and the group, not the items
+        assert_eq!(v["body"]["children"].as_array().unwrap().len(), 3);
+    }
+
+    /// Every located item is anchored to its page, which is what lets a client
+    /// merge server output back onto the page it rendered.
+    #[test]
+    fn items_carry_their_page_number() {
+        let v = page_doc(vec![Node::Located {
+            location: [0, 0, 512, 64],
+            inner: Box::new(Node::Paragraph {
+                text: "hello".into(),
+            }),
+        }]);
+        assert_eq!(v["texts"][0]["prov"][0]["page_no"], 1);
+    }
+
+    /// Word-level provenance is additive and opt-in: with the flag off the
+    /// item has no `words` key at all; with it on, every entry's `text` must
+    /// equal the slice of the item text its `charspan` names, and the box must
+    /// flip to BOTTOMLEFT like every other bbox in the export.
+    #[test]
+    fn word_provenance_is_opt_in_and_self_consistent() {
+        let spans = vec![
+            CellSpan {
+                char_start: 0,
+                char_end: 5,
+                l: 52.6,
+                t: 100.0,
+                r: 92.0,
+                b: 112.0,
+            },
+            CellSpan {
+                char_start: 6,
+                char_end: 11,
+                l: 96.0,
+                t: 100.0,
+                r: 140.0,
+                b: 112.0,
+            },
+        ];
+        let node = || Node::Located {
+            location: [0, 0, 512, 64],
+            inner: Box::new(Node::Spanned {
+                spans: spans.clone(),
+                inner: Box::new(Node::Paragraph {
+                    text: "hello world".into(),
+                }),
+            }),
+        };
+        // The env flag is process-global; no other test reads it, and it is
+        // cleared again below.
+        std::env::remove_var("DOCLING_RS_WORD_PROV");
+        let off = page_doc(vec![node()]);
+        assert!(
+            off["texts"][0].get("words").is_none(),
+            "flag off must leave the JSON byte-identical to before"
+        );
+        std::env::set_var("DOCLING_RS_WORD_PROV", "1");
+        let on = page_doc(vec![node()]);
+        std::env::remove_var("DOCLING_RS_WORD_PROV");
+        let words = on["texts"][0]["words"].as_array().unwrap();
+        assert_eq!(words.len(), 2);
+        let text = on["texts"][0]["text"].as_str().unwrap();
+        let chars: Vec<char> = text.chars().collect();
+        for w in words {
+            let s = w["charspan"][0].as_u64().unwrap() as usize;
+            let e = w["charspan"][1].as_u64().unwrap() as usize;
+            let slice: String = chars[s..e].iter().collect();
+            assert_eq!(
+                w["text"].as_str().unwrap(),
+                slice,
+                "text must match charspan"
+            );
+            assert_eq!(w["bbox"]["coord_origin"], "BOTTOMLEFT");
+            let (t, b) = (
+                w["bbox"]["t"].as_f64().unwrap(),
+                w["bbox"]["b"].as_f64().unwrap(),
+            );
+            assert!(t > b, "BOTTOMLEFT box has its top edge above its bottom");
+        }
+        assert_eq!(words[0]["text"], "hello");
+        assert_eq!(words[1]["text"], "world");
+        // 792pt page, span top 100 -> 692 in BOTTOMLEFT
+        assert_eq!(words[0]["bbox"]["t"], 692.0);
     }
 }

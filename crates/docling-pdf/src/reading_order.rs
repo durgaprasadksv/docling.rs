@@ -517,3 +517,133 @@ mod tests {
         assert_eq!(linked, [0, 1, 2]);
     }
 }
+
+#[cfg(test)]
+mod property_tests {
+    use super::order_page;
+
+    /// Assembly-order ids: the geometry-only properties below never rely on
+    /// the same-row pairing, so sequential ids are the neutral choice.
+    fn cids(n: usize) -> Vec<usize> {
+        (0..n).collect()
+    }
+
+    const PAGE_W: f32 = 612.0;
+    const PAGE_H: f32 = 792.0;
+
+    /// A two-column body laid out like an ACM/USENIX paper, in `(l, t, r, b)`
+    /// top-left coords. Column edges are the real ones measured off the GFS
+    /// paper (left 52.6–292.9, right 315.6–555.8).
+    fn two_columns() -> Vec<(f32, f32, f32, f32)> {
+        vec![
+            (52.6, 250.0, 292.9, 320.0),  // 0 left, first
+            (52.6, 330.0, 292.9, 400.0),  // 1 left, second
+            (52.6, 410.0, 292.9, 480.0),  // 2 left, third
+            (315.6, 250.0, 555.8, 320.0), // 3 right, first
+            (315.6, 330.0, 555.8, 400.0), // 4 right, second
+            (315.6, 410.0, 555.8, 480.0), // 5 right, third
+        ]
+    }
+
+    /// The property the whole rule-based predictor exists for: a two-column page
+    /// reads *down* column one and only then down column two, never zig-zagging
+    /// across the gutter the way a plain top-to-bottom sort would (which for
+    /// these boxes would give 0,3,1,4,2,5).
+    #[test]
+    fn two_column_body_reads_column_by_column() {
+        let boxes = two_columns();
+        let flags = vec![false; boxes.len()];
+        assert_eq!(
+            order_page(&boxes, &cids(boxes.len()), &flags, &flags, PAGE_W, PAGE_H),
+            vec![0, 1, 2, 3, 4, 5]
+        );
+    }
+
+    /// Input order must not matter: the predictor works from geometry alone, so
+    /// a scrambled region list produces the same reading sequence.
+    #[test]
+    fn column_order_is_independent_of_input_order() {
+        let src = two_columns();
+        // Feed them right-column-first, bottom-up.
+        let perm = [5usize, 2, 4, 1, 3, 0];
+        let boxes: Vec<_> = perm.iter().map(|&i| src[i]).collect();
+        let flags = vec![false; boxes.len()];
+        let got = order_page(&boxes, &cids(boxes.len()), &flags, &flags, PAGE_W, PAGE_H);
+        // Translate back to original indices to compare against reading order.
+        let as_src: Vec<usize> = got.iter().map(|&i| perm[i]).collect();
+        assert_eq!(as_src, vec![0, 1, 2, 3, 4, 5]);
+    }
+
+    /// A full-width element (title, or a figure spanning the gutter) reads
+    /// before the columns that sit below it.
+    #[test]
+    fn full_width_element_precedes_the_columns_below_it() {
+        let mut boxes = vec![(52.6, 90.0, 555.8, 200.0)]; // spans both columns
+        boxes.extend(two_columns());
+        let flags = vec![false; boxes.len()];
+        assert_eq!(
+            order_page(&boxes, &cids(boxes.len()), &flags, &flags, PAGE_W, PAGE_H),
+            vec![0, 1, 2, 3, 4, 5, 6]
+        );
+    }
+
+    /// Headers and footers are ordered as their own groups and bracket the body
+    /// regardless of where they sit on the page — docling's per-page
+    /// header→body→footer split. Here the "footer" is deliberately placed at the
+    /// very top to prove the grouping wins over the geometry.
+    #[test]
+    fn furniture_brackets_the_body_regardless_of_position() {
+        let boxes = vec![
+            (52.6, 300.0, 292.9, 360.0),  // 0 body, left column
+            (315.6, 300.0, 555.8, 360.0), // 1 body, right column
+            (52.6, 40.0, 555.8, 55.0),    // 2 footer, but drawn at the top
+            (52.6, 60.0, 555.8, 75.0),    // 3 header
+        ];
+        let is_header = vec![false, false, false, true];
+        let is_footer = vec![false, false, true, false];
+        assert_eq!(
+            order_page(
+                &boxes,
+                &cids(boxes.len()),
+                &is_header,
+                &is_footer,
+                PAGE_W,
+                PAGE_H
+            ),
+            vec![3, 0, 1, 2]
+        );
+    }
+
+    /// Narrow elements are dilated toward their column before the graph is
+    /// rebuilt, so a one-line box (a section header) still binds to the column
+    /// it belongs to instead of being treated as spanning content.
+    #[test]
+    fn narrow_section_header_binds_to_its_own_column() {
+        let boxes = vec![
+            (52.6, 250.0, 292.9, 320.0),  // 0 left paragraph
+            (52.6, 330.0, 139.8, 345.0),  // 1 left section header (narrow)
+            (52.6, 355.0, 292.9, 420.0),  // 2 left paragraph
+            (315.6, 250.0, 555.8, 320.0), // 3 right paragraph
+            (315.6, 330.0, 555.8, 400.0), // 4 right paragraph
+        ];
+        let flags = vec![false; boxes.len()];
+        assert_eq!(
+            order_page(&boxes, &cids(boxes.len()), &flags, &flags, PAGE_W, PAGE_H),
+            vec![0, 1, 2, 3, 4]
+        );
+    }
+
+    /// A single element, and an empty page, must not panic or reorder.
+    #[test]
+    fn degenerate_pages() {
+        assert_eq!(
+            order_page(&[], &[], &[], &[], PAGE_W, PAGE_H),
+            Vec::<usize>::new()
+        );
+        let one = [(52.6, 100.0, 292.9, 150.0)];
+        assert_eq!(
+            order_page(&one, &[0], &[false], &[false], PAGE_W, PAGE_H),
+            vec![0]
+        );
+    }
+}
