@@ -358,7 +358,8 @@ impl CodeFormula {
             let n = N.fetch_add(1, Ordering::Relaxed);
             let _ = crop.save(format!("{dir}/rs_crop_{n}.png"));
         }
-        let (tiles, rows, cols) = preprocess_idefics3(crop);
+        let (tiles, rows, cols) =
+            crate::timing::timed("code_formula.preprocess", || preprocess_idefics3(crop));
         let n_tiles = tiles.len() / (3 * (TILE * TILE) as usize);
 
         // Vision tower over the tile batch → [T, 64, 576]. (Scoped: the
@@ -366,9 +367,10 @@ impl CodeFormula {
         let feats: Vec<f32> = {
             let input = Tensor::from_array(([n_tiles, 3, TILE as usize, TILE as usize], tiles))
                 .map_err(|e| format!("code-formula: vision input: {e}"))?;
-            let outputs =
+            let outputs = crate::timing::timed("code_formula.vision", || {
                 docling_onnx::run(&mut self.vision, ort::inputs!["pixel_values" => input])
-                    .map_err(|e| format!("code-formula: vision: {e}"))?;
+            })
+            .map_err(|e| format!("code-formula: vision: {e}"))?;
             let (_, feats) = outputs["image_features"]
                 .try_extract_tensor::<f32>()
                 .map_err(|e| format!("code-formula: vision output: {e}"))?;
@@ -387,7 +389,7 @@ impl CodeFormula {
 
         // Token embeddings, then scatter the visual tokens into the <image>
         // positions (Idefics3's inputs_merger).
-        let mut embeds = self.embed_ids(&ids)?;
+        let mut embeds = crate::timing::timed("code_formula.embed", || self.embed_ids(&ids))?;
         let image_positions: Vec<usize> = ids
             .iter()
             .enumerate()
@@ -478,6 +480,12 @@ impl CodeFormula {
                 .map_err(|e| format!("code-formula: embeds: {e}"))?;
             let pos_t = Tensor::from_array(([1usize, positions.len()], positions.clone()))
                 .map_err(|e| format!("code-formula: positions: {e}"))?;
+            let stage = if cache.is_none() {
+                "code_formula.prefill"
+            } else {
+                "code_formula.step"
+            };
+            let t_step = std::time::Instant::now();
             let next = {
                 let mut out = match (&mut binding, &device) {
                     (Some(b), Some(dev)) => {
@@ -550,13 +558,14 @@ impl CodeFormula {
                 ));
                 next
             };
+            crate::timing::record(stage, t_step.elapsed().as_nanos());
             past_len += x_seq;
             if self.eos.contains(&next) {
                 finished = true;
                 break;
             }
             out_ids.push(next as u32);
-            x = self.embed_ids(&[next])?;
+            x = crate::timing::timed("code_formula.embed", || self.embed_ids(&[next]))?;
             x_seq = 1;
             positions = vec![past_len as i64];
         }
