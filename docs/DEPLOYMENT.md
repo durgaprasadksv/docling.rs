@@ -329,25 +329,54 @@ Where the time goes, from the per-stage timings:
   page as one batch would raise throughput several-fold at the same
   latency per step; fp16 or fused-attention graphs would cut the step time.
 
+### Concurrency on one GPU
+
+The pipeline runs one page worker under a GPU provider unless
+`DOCLING_RS_PDF_WORKERS` raises it, and the formula recognizer is a pool of
+lanes (`DOCLING_RS_ENRICH_LANES`, one per worker on a GPU). On a 12-page
+equation-dense scan (61 formula items), warm:
+
+| workers / lanes | wall s | per page | GPU memory |
+|---|---:|---:|---:|
+| 1 / 1 | 116.7 | 9.7 | 3.0 GB |
+| 2 / 2 | 79.2 | 6.6 | 5.8 GB |
+| 4 / 4 | 91.2 | 7.6 | 11.0 GB |
+
+Two is the sweet spot on a 24 GB card: beyond it the per-token steps of
+concurrent decodes slow each other and the single render helper thread
+serializes the page bitmaps. The same change took the 12-page scanned book
+without formulas from 19 s to 14.7 s. **Recommended serverless
+configuration:** `DOCLING_RS_PDF_WORKERS=2 DOCLING_RS_ENRICH_LANES=2`, one
+request at a time per worker (`--concurrency 1`), on the 16 GB tier — 5.8
+GB of GPU memory fits it, and it is 23 % cheaper than the 24 GB tier.
+
 ### Cost per book (serverless)
 
-RunPod's 24 GB serverless tier (L4 / A5000 / 3090 class) lists at $0.75 per
-hour, $0.000208 per second, billed per second with no per-request charge.
-With the per-page figures above:
+RunPod's 16 GB serverless tier (A4000 / A4500 / RTX 4000 class) lists at
+$0.58 per hour, $0.000161 per second, the 24 GB tier at $0.75, both billed
+per second with no per-request charge. With the recommended configuration
+(two workers, two lanes, SIMD crop resizes) the per-page figures are:
 
-| page kind | seconds | cost |
+| page kind | seconds | cost (16 GB tier) |
 |---|---:|---:|
-| digital text page, tables, no formulas | 0.2 | $0.00004 |
-| digital page with 2–3 formulas | 2–4 | $0.0004–0.0008 |
-| scanned page, no formulas | 1.6 | $0.0003 |
-| scanned page, equation-dense (8 formulas) | 17 | $0.0035 |
+| digital text page, tables, no formulas | 0.2 | $0.00003 |
+| digital page with 2–3 formulas | 2–3.5 | $0.0003–0.0006 |
+| scanned page, no formulas | 1.2 | $0.0002 |
+| scanned page, equation-dense (5 formulas) | 6.6 | $0.0011 |
 
-So a 400-page scanned novel is about 11 minutes and $0.13; a 400-page
-digital physics textbook with formulas on a third of its pages about 10
-minutes and $0.13; a 400-page scanned mathematics textbook with a quarter
-of its pages equation-dense about 36 minutes and $0.45. Add one cold start
-per worker (~8 s, the model and provider load) and whatever idle timeout
-the endpoint keeps a worker warm for.
+So a 400-page scanned novel is about 8 minutes and $0.08; a 400-page digital
+physics textbook with formulas on a third of its pages about 8 minutes and
+$0.08; a 400-page scanned mathematics textbook with a quarter of its pages
+equation-dense about 17 minutes and $0.16 (down from $0.45 before the fp32
+decoder, the device-resident cache, the SIMD resizes and the second
+worker). Add one cold start per worker (~8 s, the model and provider load)
+and whatever idle timeout the endpoint keeps a worker warm for.
+
+The next reductions, in order of gain: decode a page's formulas as one
+batch (the per-token loop is launch-bound, so a batch of eight costs about
+what one does), and decode the embedded scan once per page instead of once
+per render (`render.image_decode`, most of a scanned page's remaining
+time). Together they put the scanned mathematics textbook under $0.10.
 
 ## Offline & Air-Gapped Deployment
 
