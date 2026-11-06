@@ -2591,12 +2591,17 @@ impl Builder {
         });
         // Additive and opt-in, like the `words` array: with the flag (or the
         // `speech` feature) off the item is byte-identical to before. A formula
-        // that could not be voiced carries no `spoken` key at all — never the
+        // that could not be voiced carries no `speech` key at all — never the
         // raw extraction, which on a scanned page is whatever the OCR layer
         // produced and is routinely unreadable.
         if crate::env::flag("DOCLING_RS_SPEECH") {
-            if let Some(spoken) = crate::speech::speak_latex(latex) {
-                item["spoken"] = Value::String(spoken);
+            if let Some(styles) = crate::speech::speak_latex(latex) {
+                item["speech"] = Value::Object(
+                    styles
+                        .into_iter()
+                        .map(|(k, v)| (k, Value::String(v)))
+                        .collect(),
+                );
             }
         }
         self.texts.push(Item::json(item));
@@ -4928,7 +4933,7 @@ mod tests {
         assert_eq!(words[0]["bbox"]["t"], 692.0);
     }
 
-    /// A formula item carries the additive `spoken` field only when asked, and
+    /// A formula item carries the additive `speech` map only when asked, and
     /// a formula that could not be voiced carries no key at all — never the raw
     /// extraction, which on a scanned page is whatever the OCR layer produced.
     ///
@@ -4951,7 +4956,7 @@ mod tests {
         let off = doc();
         assert_eq!(off["texts"][0]["label"], "formula");
         assert!(
-            off["texts"][0].get("spoken").is_none(),
+            off["texts"][0].get("speech").is_none(),
             "flag off must leave the export byte-identical"
         );
 
@@ -4967,7 +4972,7 @@ mod tests {
         std::env::remove_var("DOCLING_RS_SPEECH");
 
         if cfg!(feature = "speech") {
-            let spoken = on["texts"][0]["spoken"]
+            let spoken = on["texts"][0]["speech"]["clearspeak"]
                 .as_str()
                 .expect("`speech` feature on and rules present -> a spoken form");
             // The point of the normalizer: `1 2` must voice as twelve, not
@@ -4978,7 +4983,7 @@ mod tests {
             );
             assert!(spoken.contains("squared"), "superscript spoken: {spoken:?}");
         } else {
-            assert!(on["texts"][0].get("spoken").is_none());
+            assert!(on["texts"][0].get("speech").is_none());
         }
     }
 
@@ -5000,7 +5005,7 @@ mod tests {
         std::env::remove_var("DOCLING_RS_SPEECH");
         assert_eq!(v["texts"][0]["label"], "formula");
         assert!(
-            v["texts"][0].get("spoken").is_none(),
+            v["texts"][0].get("speech").is_none(),
             "an undecoded formula must not narrate the OCR layer"
         );
     }

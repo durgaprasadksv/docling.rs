@@ -276,7 +276,7 @@ docker run --gpus all -p 5001:5001 \
 decoder's dynamically quantized matmuls, so those nodes fall back to the CPU
 with a copy every token — measured at 26 ms per generated token on an RTX
 PRO 4000 against the fp32 graph's figure below. `CUDA_FEATURES` /
-`MATHCAT_RULES` only matter for the spoken-formula field;
+`MATHCAT_RULES` only matter for the `speech` map on formula items;
 `DOCLING_RS_WORD_PROV=1` adds the per-word boxes to the JSON. Both are
 additive and off by default.)
 

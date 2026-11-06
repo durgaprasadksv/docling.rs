@@ -113,7 +113,7 @@ FROM chef-cuda AS build-cuda
 COPY --from=planner /src/recipe.json recipe.json
 # Build dependency tree with --features cuda so ONNX Runtime with CUDA is fetched and cooked.
 # `CUDA_FEATURES` adds to it — e.g. `--build-arg CUDA_FEATURES=cuda,speech`
-# for the spoken-formula field (needs the MathCAT rules, `EXTRA_ASSETS` below).
+# for the `speech` map on formula items (needs the MathCAT rules, `MATHCAT_RULES` below).
 ARG CUDA_FEATURES=cuda
 RUN cargo chef cook --release -p docling-serve -p docling-cli --features "$CUDA_FEATURES" --locked --recipe-path recipe.json
 COPY . .

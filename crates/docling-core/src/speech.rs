@@ -185,30 +185,61 @@ mod engine {
         p.is_dir().then_some(p)
     }
 
-    /// Speak one MathML string, or `None` if MathCAT is unavailable or refuses
-    /// it. Never propagates an error: a formula we cannot voice is a formula
-    /// the reader announces as "formula", not a failed conversion.
-    pub(super) fn speak(mathml: String) -> Option<String> {
+    /// MathCAT's speech styles, as the JSON `speech` map keys them (lower
+    /// case) and as MathCAT's `SpeechStyle` preference names them. Every
+    /// style is produced for every formula: verbalization costs microseconds
+    /// where the formula cost a VLM decode, and the style is a reader
+    /// setting — shipping one would make flipping it re-run the conversion.
+    pub(super) const STYLES: &[(&str, &str)] =
+        &[("clearspeak", "ClearSpeak"), ("simplespeak", "SimpleSpeak")];
+
+    /// Speak one MathML string in every style, or `None` if MathCAT is
+    /// unavailable or refuses it. Never propagates an error: a formula we
+    /// cannot voice is a formula the reader announces as "formula", not a
+    /// failed conversion.
+    pub(super) fn speak(mathml: String) -> Option<super::SpeechStyles> {
         if !ready() {
             return None;
         }
         let _guard = LOCK.lock().ok()?;
-        libmathcat::interface::set_mathml(mathml)
-            .ok()
-            .and_then(|_| libmathcat::interface::get_spoken_text().ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            // MathCAT reports an unparseable subexpression *inside* the speech
-            // rather than failing, so the string can contain
-            // "[PARSE ERROR: Undefined(...)]". A recognizer emitting a
-            // malformed command (`\right leftrightarrow` for
-            // `\rightleftharpoons`) produces exactly that, and a reader would
-            // narrate the error text aloud. Treat it as no spoken form.
-            .filter(|s| !s.contains("PARSE ERROR"))
+        libmathcat::interface::set_mathml(mathml).ok()?;
+        let mut out = super::SpeechStyles::new();
+        for (key, style) in STYLES {
+            let set = libmathcat::interface::set_preference(
+                String::from("SpeechStyle"),
+                String::from(*style),
+            );
+            if set.is_err() {
+                continue;
+            }
+            let Some(s) = libmathcat::interface::get_spoken_text()
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                // MathCAT reports an unparseable subexpression *inside* the
+                // speech rather than failing, so the string can contain
+                // "[PARSE ERROR: Undefined(...)]". A recognizer emitting a
+                // malformed command (`\right leftrightarrow` for
+                // `\rightleftharpoons`) produces exactly that, and a reader
+                // would narrate the error text aloud. Treat it as no spoken
+                // form.
+                .filter(|s| !s.contains("PARSE ERROR"))
+            else {
+                return None;
+            };
+            out.insert((*key).to_string(), s);
+        }
+        (!out.is_empty()).then_some(out)
     }
 }
 
-/// The spoken form of a formula's LaTeX, or `None` when it cannot be produced.
+/// A formula's spoken forms by style — `clearspeak`, `simplespeak` — the
+/// JSON item's `speech` map. The reader picks the style; a style missing
+/// from the map falls back to any present one on the client.
+pub type SpeechStyles = std::collections::BTreeMap<String, String>;
+
+/// The spoken forms of a formula's LaTeX, or `None` when they cannot be
+/// produced.
 ///
 /// `None` is the honest answer in several cases and they are all treated alike:
 /// the formula was never decoded (empty LaTeX), the LaTeX does not parse, or
@@ -218,7 +249,7 @@ mod engine {
 /// (`'Jl X ^ =: -·''^" * » 5X0-'`); narrating that is worse than saying
 /// "formula" and moving on.
 #[cfg(feature = "speech")]
-pub fn speak_latex(latex: &str) -> Option<String> {
+pub fn speak_latex(latex: &str) -> Option<SpeechStyles> {
     let latex = latex.trim();
     if latex.is_empty() {
         return None;
@@ -228,17 +259,20 @@ pub fn speak_latex(latex: &str) -> Option<String> {
     let normalized = normalize_latex(&head);
     let mathml =
         latex2mathml::latex_to_mathml(&normalized, latex2mathml::DisplayStyle::Block).ok()?;
-    let spoken = engine::speak(mathml)?;
-    Some(match note {
-        Some(n) => format!("{spoken}, {n}"),
-        None => spoken,
-    })
+    let mut styles = engine::speak(mathml)?;
+    if let Some(n) = note {
+        for s in styles.values_mut() {
+            s.push_str(", ");
+            s.push_str(n);
+        }
+    }
+    Some(styles)
 }
 
 /// Without the `speech` feature there is no spoken form, and the JSON export
 /// stays byte-identical.
 #[cfg(not(feature = "speech"))]
-pub fn speak_latex(_latex: &str) -> Option<String> {
+pub fn speak_latex(_latex: &str) -> Option<SpeechStyles> {
     None
 }
 

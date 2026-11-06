@@ -63,5 +63,5 @@ preserve-order = ["serde_json/preserve_order"]
 # Markdown window chunker (WindowChunker).
 chunking = ["dep:tokenizers", "dep:pulldown-cmark"]
 # Spoken-form rendering of formula items (`Node::Formula` -> the additive
-# `spoken` JSON field). Off by default: the export is byte-identical without it.
+# `speech` JSON map, one entry per style). Off by default: the export is byte-identical without it.
 speech = ["dep:latex2mathml", "dep:mathcat"]
