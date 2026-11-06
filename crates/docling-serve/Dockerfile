@@ -121,7 +121,14 @@ COPY . .
 # symlinks into its download cache (~/.cache/ort.pyke.io), which no later
 # stage has: copy the files they point to (`cp -L`), and fail the build if a
 # symlink still reached the copy — `cp -a` shipped dangling links (#664).
+# `--build-arg MATHCAT_RULES=1` copies MathCAT's rules (out of the cargo
+# registry a `speech` build populated) into .models/mathcat for the spoken
+# formula field (`DOCLING_RS_SPEECH=1` at run time); the directory always
+# exists so the runtime stage's COPY is unconditional.
+ARG MATHCAT_RULES=0
 RUN cargo build --release -p docling-serve -p docling-cli --features "$CUDA_FEATURES" --locked \
+    && mkdir -p /src/.models/mathcat \
+    && if [ "$MATHCAT_RULES" = "1" ]; then bash scripts/install/fetch_mathcat_rules.sh; fi \
     && mkdir -p /src/cuda-dylibs \
     && test $(find -L target/release -maxdepth 1 -name "libonnxruntime_providers_*.so" -type f | wc -l) -ge 2 \
     && find target/release -maxdepth 1 -name "libonnxruntime_providers_*.so" -exec cp -vL {} /src/cuda-dylibs/ \; \
@@ -160,15 +167,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY scripts/install/download_dependencies.sh scripts/install/download_dependencies.sh
-COPY scripts/install/fetch_mathcat_rules.sh scripts/install/fetch_mathcat_rules.sh
 ARG FETCH_ASSETS=1
 # Further download_dependencies.sh flags, e.g. `--build-arg EXTRA_ASSETS=--enrich`
 # bakes the CodeFormula / picture-classifier models in so
 # `do_formula_enrichment` runs instead of degrading to undecoded formulas.
 ARG EXTRA_ASSETS=""
-# `--build-arg MATHCAT_RULES=1` fetches MathCAT's rules into .models/mathcat for
-# a `speech`-featured build (`DOCLING_RS_SPEECH=1` at run time).
-ARG MATHCAT_RULES=0
 # Extra speech-recognition presets to bake in (#508), space- or comma-separated
 # `--asr-model` names of download_dependencies.sh — e.g.
 # `--build-arg ASR_MODELS=parakeet_tdt_0.6b_v3` (~650 MB int8 + the Silero
@@ -178,7 +181,6 @@ ARG ASR_MODELS=""
 RUN if [ "$FETCH_ASSETS" = "1" ]; then \
       set -- $EXTRA_ASSETS; for m in $(echo "$ASR_MODELS" | tr ',' ' '); do set -- "$@" "--asr-model=$m"; done; \
       sh scripts/install/download_dependencies.sh "$@"; \
-      if [ "$MATHCAT_RULES" = "1" ]; then sh scripts/install/fetch_mathcat_rules.sh; fi; \
     else mkdir -p .models; fi
 
 # ------------------------------------------------------------------------------
@@ -303,6 +305,7 @@ COPY --from=assets /src/.models ./.models
 # in /usr/local/lib, linked from /usr/local/bin. A binary started by bare
 # name re-executes under its absolute path to keep that lookup off the
 # working directory.
+COPY --from=build-cuda /src/.models/mathcat ./.models/mathcat
 COPY --from=build-cuda /src/cuda-dylibs/ /usr/local/lib/
 RUN ln -s /usr/local/lib/libonnxruntime_providers_*.so /usr/local/bin/
 # Fonts pinned as in the CPU runtime stage (#633).
