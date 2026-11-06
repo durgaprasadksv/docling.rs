@@ -294,13 +294,23 @@ impl CodeFormula {
         // on the same 52 crops, the INT8 decoder ran away to the token budget
         // on 13 of 32 real crops where fp32 finished every one, so the
         // flavor pins fp32 (the file is simply ignored if present).
-        let allow_int8 = !crate::prefer_fp32() && flavor == Flavor::CodeFormulaV2;
+        // A GPU build prefers the fp32 graphs (`prefer_fp32`), but the
+        // release ships CodeFormulaV2's decoder as INT8 only (~165 MB in place
+        // of the 655 MB fp32 export), so a CUDA server that insisted on fp32
+        // silently skipped every formula. Take the preferred variant when it
+        // is on disk and the other one when it is not: INT8 is near-exact for
+        // CodeFormulaV2, and a decoded formula beats none.
+        let allow_int8 = flavor == Flavor::CodeFormulaV2;
         let graph = |base: &str| {
+            let fp32 = file(&format!("{base}.onnx"));
             let int8 = file(&format!("{base}_int8.onnx"));
-            if allow_int8 && std::path::Path::new(&int8).exists() {
-                int8
-            } else {
-                file(&format!("{base}.onnx"))
+            let have = |p: &str| std::path::Path::new(p).exists();
+            let want_int8 = allow_int8 && !crate::prefer_fp32();
+            match (want_int8, have(&int8), have(&fp32)) {
+                (true, true, _) => int8,
+                (false, _, true) => fp32,
+                (_, true, false) if allow_int8 => int8,
+                _ => fp32,
             }
         };
         for f in [&graph("vision"), &graph("embed"), &graph("decoder_kv")] {
