@@ -92,6 +92,11 @@ pub use docling_core::{Revision, RevisionKind, TrackChanges};
 
 // The reusable PDF/image pipeline (models loaded once, reused across documents),
 // for callers that convert many files or want a warm, startup-excluded measurement.
+/// The PDF pipeline's per-stage wall-clock timer (`DOCLING_RS_TIMING=1`):
+/// `snapshot()` before and after a conversion gives that conversion's stage
+/// breakdown, which docling-serve reports as the response's `timings`.
+#[cfg(feature = "pdf")]
+pub use docling_pdf::timing as pdf_timing;
 #[cfg(feature = "pdf")]
 pub use docling_pdf::{
     model_inventory, page_count as pdf_page_count, render_pages as render_pdf_pages,

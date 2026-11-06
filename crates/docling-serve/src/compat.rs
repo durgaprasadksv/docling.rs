@@ -429,6 +429,45 @@ fn envelope(
     out
 }
 
+/// The PDF pipeline's stage timer as it stands (`DOCLING_RS_TIMING=1`;
+/// empty when the timer is off), keyed by stage.
+fn stage_timings() -> std::collections::HashMap<&'static str, (std::time::Duration, u64)> {
+    docling::pdf_timing::snapshot()
+        .into_iter()
+        .map(|t| (t.stage, (t.total, t.calls)))
+        .collect()
+}
+
+/// What the stage timer accumulated since `before`, as docling-serve's
+/// `timings` object — `{stage: {"ms": wall-clock, "calls": n}}` — or `None`
+/// when the timer is off (the field stays `{}`, as upstream's does). The
+/// timer is process-wide, so under concurrent conversions the stages of
+/// overlapping requests mix; a benchmark runs the server at
+/// `--concurrency 1` to read one request's breakdown.
+fn stage_timings_since(
+    before: &std::collections::HashMap<&'static str, (std::time::Duration, u64)>,
+) -> Option<Value> {
+    if !docling::pdf_timing::enabled() {
+        return None;
+    }
+    let mut out = serde_json::Map::new();
+    for t in docling::pdf_timing::snapshot() {
+        let (prev_total, prev_calls) = before.get(t.stage).copied().unwrap_or_default();
+        let (total, calls) = (
+            t.total.saturating_sub(prev_total),
+            t.calls.saturating_sub(prev_calls),
+        );
+        if calls == 0 {
+            continue;
+        }
+        out.insert(
+            t.stage.to_string(),
+            json!({ "ms": total.as_secs_f64() * 1000.0, "calls": calls }),
+        );
+    }
+    Some(Value::Object(out))
+}
+
 /// Convert every item and answer docling-serve's way: one document (and no
 /// zip asked) → the `ConvertDocumentResponse` JSON; otherwise a zip of each
 /// document's outputs as `<stem>.<ext>` (a failed one as
@@ -446,7 +485,11 @@ pub(crate) fn run(
     if items.len() == 1 && !ask.zip {
         let (filename, item) = items.into_iter().next().expect("checked len");
         let started = Instant::now();
-        let body = envelope(state, &filename, convert(item), ask, opts, started);
+        let before = stage_timings();
+        let mut body = envelope(state, &filename, convert(item), ask, opts, started);
+        if let Some(timings) = stage_timings_since(&before) {
+            body["timings"] = timings;
+        }
         return StoredResponse {
             errors: Vec::new(),
             content_type: "application/json",

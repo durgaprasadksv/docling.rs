@@ -112,13 +112,16 @@ WORKDIR /src
 FROM chef-cuda AS build-cuda
 COPY --from=planner /src/recipe.json recipe.json
 # Build dependency tree with --features cuda so ONNX Runtime with CUDA is fetched and cooked.
-RUN cargo chef cook --release -p docling-serve -p docling-cli --features cuda --locked --recipe-path recipe.json
+# `CUDA_FEATURES` adds to it — e.g. `--build-arg CUDA_FEATURES=cuda,speech`
+# for the spoken-formula field (needs the MathCAT rules, `EXTRA_ASSETS` below).
+ARG CUDA_FEATURES=cuda
+RUN cargo chef cook --release -p docling-serve -p docling-cli --features "$CUDA_FEATURES" --locked --recipe-path recipe.json
 COPY . .
 # ort's copy-dylibs leaves the provider libraries in target/release as
 # symlinks into its download cache (~/.cache/ort.pyke.io), which no later
 # stage has: copy the files they point to (`cp -L`), and fail the build if a
 # symlink still reached the copy — `cp -a` shipped dangling links (#664).
-RUN cargo build --release -p docling-serve -p docling-cli --features cuda --locked \
+RUN cargo build --release -p docling-serve -p docling-cli --features "$CUDA_FEATURES" --locked \
     && mkdir -p /src/cuda-dylibs \
     && test $(find -L target/release -maxdepth 1 -name "libonnxruntime_providers_*.so" -type f | wc -l) -ge 2 \
     && find target/release -maxdepth 1 -name "libonnxruntime_providers_*.so" -exec cp -vL {} /src/cuda-dylibs/ \; \
@@ -157,7 +160,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY scripts/install/download_dependencies.sh scripts/install/download_dependencies.sh
+COPY scripts/install/fetch_mathcat_rules.sh scripts/install/fetch_mathcat_rules.sh
 ARG FETCH_ASSETS=1
+# Further download_dependencies.sh flags, e.g. `--build-arg EXTRA_ASSETS=--enrich`
+# bakes the CodeFormula / picture-classifier models in so
+# `do_formula_enrichment` runs instead of degrading to undecoded formulas.
+ARG EXTRA_ASSETS=""
+# `--build-arg MATHCAT_RULES=1` fetches MathCAT's rules into .models/mathcat for
+# a `speech`-featured build (`DOCLING_RS_SPEECH=1` at run time).
+ARG MATHCAT_RULES=0
 # Extra speech-recognition presets to bake in (#508), space- or comma-separated
 # `--asr-model` names of download_dependencies.sh — e.g.
 # `--build-arg ASR_MODELS=parakeet_tdt_0.6b_v3` (~650 MB int8 + the Silero
@@ -165,8 +176,9 @@ ARG FETCH_ASSETS=1
 # fetched; requests pick a preset with the `asr_model` option.
 ARG ASR_MODELS=""
 RUN if [ "$FETCH_ASSETS" = "1" ]; then \
-      set -- ; for m in $(echo "$ASR_MODELS" | tr ',' ' '); do set -- "$@" "--asr-model=$m"; done; \
+      set -- $EXTRA_ASSETS; for m in $(echo "$ASR_MODELS" | tr ',' ' '); do set -- "$@" "--asr-model=$m"; done; \
       sh scripts/install/download_dependencies.sh "$@"; \
+      if [ "$MATHCAT_RULES" = "1" ]; then sh scripts/install/fetch_mathcat_rules.sh; fi; \
     else mkdir -p .models; fi
 
 # ------------------------------------------------------------------------------

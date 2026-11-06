@@ -248,6 +248,50 @@ PDF/image models have loaded (and stays 503, with the error, if loading fails).
 
 ---
 
+## GPU Throughput Benchmark (serverless sizing)
+
+To size a GPU deployment — a RunPod serverless endpoint, say — measure the
+server's own per-stage numbers rather than client wall time. The
+`/v1/convert/file` response carries `processing_time` and, when the server
+runs with `DOCLING_RS_TIMING=1`, a `timings` object: `{stage: {ms, calls}}`
+for that request's layout, OCR, TableFormer, render and formula-decode
+stages (the timer is process-wide, so run `--concurrency 1` while measuring,
+or overlapping requests' stages mix).
+
+A CUDA image with the formula recognizer baked in — the default image fetches
+no enrichment models, so `do_formula_enrichment` would silently degrade to
+undecoded formulas:
+
+```bash
+docker build -f crates/docling-serve/Dockerfile --target runtime-cuda \
+  --build-arg EXTRA_ASSETS=--enrich \
+  --build-arg CUDA_FEATURES=cuda,speech --build-arg MATHCAT_RULES=1 \
+  -t docling-rs-serve-cuda:bench .
+docker run --gpus all -p 5001:5001 \
+  -e DOCLING_RS_TIMING=1 -e DOCLING_RS_WORD_PROV=1 -e DOCLING_RS_SPEECH=1 \
+  docling-rs-serve-cuda:bench --concurrency 1
+```
+
+(`CUDA_FEATURES` / `MATHCAT_RULES` only matter for the spoken-formula field;
+`DOCLING_RS_WORD_PROV=1` adds the per-word boxes to the JSON. Both are
+additive and off by default.)
+
+Then drive the corpus through it:
+
+```bash
+scripts/bench/gpu_serve_bench.sh http://host:5001 \
+  scanned-textbook.pdf:220-221 university-physics.pdf:280-281 \
+  chemistry.pdf:620-620 tests/data/pdf/sources/code_and_formula.pdf
+```
+
+One line per request: client wall time, the server's `processing_time`,
+pages, formula items, and the four heaviest stages in milliseconds. The
+first run of each file is cold (model and execution-provider load); set
+`DOCLING_BENCH_RUNS=3` to see the warm figures. On CPU the formula decode is
+80–98 % of a page with equations (docs/PDF_CONFORMANCE.md); the GPU question
+this answers is whether that stage drops to seconds, which it only does if
+the decoder's KV cache stays device-resident between steps.
+
 ## Offline & Air-Gapped Deployment
 
 The container image is fully self-contained by default. If you need to build a custom slim image or mount pre-cached assets from host storage:

@@ -23,6 +23,9 @@ cloud = ["dep:object_store", "dep:reqwest-cloud", "dep:rustls-cloud"]
 # GPU execution providers for the PDF/image ML pipeline (#74) — pass-through
 # to docling → docling-pdf; select at runtime with DOCLING_RS_EP.
 cuda = ["docling/cuda"]
+# Spoken form for formula items (`spoken` on the JSON item, docling-core's
+# LaTeX -> MathML -> English chain; `DOCLING_RS_SPEECH=1` at run time).
+speech = ["docling/speech"]
 # pdfium as an opt-in PDF renderer (`DOCLING_RS_RENDERER=pdfium`) — off by
 # default, the pipeline renders in pure Rust; pass-through to docling-pdf.
 pdfium = ["docling/pdfium"]

@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
-pub(crate) fn enabled() -> bool {
+pub fn enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| docling_core::env::flag("DOCLING_RS_TIMING"))
 }
