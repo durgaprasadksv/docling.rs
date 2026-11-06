@@ -66,6 +66,7 @@ pub fn normalize_latex(src: &str) -> String {
 /// "long rightwards arrow ... of, open paren balanced close paren".
 ///
 /// So the equation is spoken as chemistry and the annotation appended as words.
+#[cfg_attr(not(feature = "speech"), allow(dead_code))] // read by the speech chain only
 pub(crate) fn split_annotation(latex: &str) -> (&str, Option<&str>) {
     let s = latex.trim_end();
     let Some(body) = s.strip_suffix(')') else {

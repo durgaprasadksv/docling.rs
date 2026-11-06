@@ -28,6 +28,42 @@ use docling_core::PictureClass;
 /// 2.0 for the picture classifier, 1.67 (≈120 dpi) for CodeFormula.
 pub const CLASSIFIER_SCALE: f32 = 2.0;
 pub const CODE_FORMULA_SCALE: f32 = 1.67;
+
+/// The scale to render a page at so its formula crops carry real detail,
+/// derived from the recognizer's own input size.
+///
+/// Idefics3 preprocessing resizes a crop's longest edge to 2048, so that is
+/// exactly the resolution worth supplying: below it the model interpolates,
+/// above it the pixels are discarded. A display equation typically spans
+/// about half the text width, so targeting 2048px across half the page gives
+/// `2 * 2048 / page_width` — about 6.7 px/pt on US Letter, 14 on a small
+/// octavo page.
+///
+/// The ordinary 2 px/pt page bitmap (144 dpi) is ample for vector typesetting
+/// and destructive for a scan: the exercises page of a 1900s arithmetic
+/// textbook carries a 600 dpi embedded image, so a superscript ~20px tall in
+/// the source arrived ~5px tall at the model, where `3` and `8` are genuinely
+/// indistinguishable. Upscaling the 2 px/pt crop cannot recover it — measured,
+/// and the output was identical to the pixel; rendering the page afresh at
+/// this scale took one page's exercises from 2 of 6 correct to 6 of 6.
+///
+/// Clamped at both ends: never below the ordinary page render (there would be
+/// nothing to gain), and never above [`MAX_ENRICH_SCALE`], since the render
+/// is a full-page RGB bitmap and the pipeline holds several pages at once.
+/// `DOCLING_RS_ENRICH_SCALE` overrides it outright.
+pub fn auto_enrich_scale(page_width_pt: f32) -> f32 {
+    if let Some(v) = docling_core::env::parse::<f32>("DOCLING_RS_ENRICH_SCALE") {
+        if v > 0.1 && v <= 16.0 {
+            return v;
+        }
+    }
+    let want = 2.0 * LONGEST_EDGE as f32 / page_width_pt.max(1.0);
+    want.clamp(crate::pdfium_backend::RENDER_SCALE, MAX_ENRICH_SCALE)
+}
+
+/// Ceiling for [`auto_enrich_scale`]: a US Letter page at 8 px/pt is a
+/// 4896x6336 RGB bitmap (~93 MB), and pages are processed several at a time.
+pub const MAX_ENRICH_SCALE: f32 = 8.0;
 /// CodeFormula expands the region box by 18% of its size on every side
 /// (docling's `expansion_factor`) before cropping.
 pub const CODE_FORMULA_EXPANSION: f32 = 0.18;

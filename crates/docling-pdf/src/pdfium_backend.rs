@@ -76,6 +76,13 @@ pub struct PdfPage {
     /// images, METS).
     #[cfg(feature = "render")]
     pub pending_image: Option<PendingImage>,
+    /// A handle on the walk's render helper, for a render of this page at a
+    /// scale of the reader's choosing after the walk has moved on
+    /// ([`Self::render_at`]): the formula recognizer's crops (#80). `None`
+    /// on the paths without a helper (the plugin and pdfium renderers,
+    /// images, METS), which keep cropping the 2x bitmap.
+    #[cfg(feature = "render")]
+    pub enrich_render: Option<EnrichRender>,
     /// Hyperlink annotations on the page (rect in top-left page coords + target
     /// URI), restricted to web/mail/tel schemes. Used only by strict Markdown.
     pub links: Vec<LinkAnnot>,
@@ -117,6 +124,8 @@ impl PdfPage {
             image_layout: None,
             #[cfg(feature = "render")]
             pending_image: None,
+            #[cfg(feature = "render")]
+            enrich_render: None,
             links: Vec::new(),
             rotation: 0,
             keep_typography: false,
@@ -141,6 +150,39 @@ impl PdfPage {
     #[cfg(feature = "render")]
     pub fn image_pending(&self) -> bool {
         self.pending_image.is_some()
+    }
+
+    /// Render this page afresh at `scale` pixels per point through the walk's
+    /// render helper — the bitmap a formula crop reads when the ordinary 2x
+    /// one is too coarse (see `enrich::auto_enrich_scale`). `None` when no
+    /// helper serves this page, when `scale` would gain nothing over the
+    /// bitmap already held, or on a `/Rotate`-normalized scan (its crops are
+    /// in upright space, a fresh render in display space). The result is the
+    /// caller's to keep or drop: nothing is cached on the page.
+    #[cfg(feature = "render")]
+    pub fn render_at(&self, scale: f32) -> Option<RgbImage> {
+        let er = self.enrich_render.as_ref()?;
+        if scale <= self.scale || self.rotation != 0 {
+            return None;
+        }
+        let w = (self.width * scale).round().max(1.0) as u32;
+        let h = (self.height * scale).round().max(1.0) as u32;
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
+        er.tx
+            .send(RenderJob {
+                spec: RenderSpec {
+                    index: er.index,
+                    w,
+                    h,
+                    hint: er.hint,
+                    dw: w,
+                    dh: h,
+                },
+                declined: Default::default(),
+                reply,
+            })
+            .ok()?;
+        rx.recv().ok()?.ok()
     }
 
     /// Nothing is going to read this page's deferred 2x bitmap (#897): the
@@ -1012,6 +1054,25 @@ struct RenderSpec {
     dh: u32,
 }
 
+/// A page's line to the walk's render helper (#682), kept past the walk so
+/// an enrichment stage can ask for a higher-resolution render of the page
+/// ([`PdfPage::render_at`]). Holding the sender keeps the helper alive until
+/// the page is dropped.
+#[cfg(feature = "render")]
+#[derive(Clone)]
+pub struct EnrichRender {
+    tx: std::sync::mpsc::Sender<RenderJob>,
+    index: i32,
+    hint: f64,
+}
+
+#[cfg(feature = "render")]
+impl std::fmt::Debug for EnrichRender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "EnrichRender(page {})", self.index)
+    }
+}
+
 #[cfg(feature = "render")]
 struct RenderJob {
     spec: RenderSpec,
@@ -1335,12 +1396,20 @@ fn extract_page(
     // 90° steps), `width`/`height` swap to the upright box, and the display
     // rotation is recorded so assembly can rotate the finished geometry back
     // into display space (docling reports rotated pages in display coords).
+    let enrich_render = defer.map(|d| EnrichRender {
+        tx: d.tx.clone(),
+        index,
+        // The same decode hint as the page's own bitmap: a scan's images at
+        // full size, a digital page's at docling's 1.0.
+        hint: if cells.is_empty() { 0.0 } else { 1.0 },
+    });
     let mut page = PdfPage {
         width,
         height,
         scale: RENDER_SCALE,
         image_layout,
         pending_image,
+        enrich_render,
         cells,
         code_cells,
         word_cells,

@@ -124,6 +124,8 @@ fn mets_pages(bytes: &[u8]) -> Result<Vec<PdfPage>, PdfError> {
             keep_typography: false,
             #[cfg(feature = "ml")]
             pending_image: None,
+            #[cfg(feature = "ml")]
+            enrich_render: None,
         });
     }
     if pages.is_empty() {

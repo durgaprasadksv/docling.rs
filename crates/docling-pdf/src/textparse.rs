@@ -1446,6 +1446,8 @@ impl PageTextParser {
             keep_typography: self.keep_typography,
             #[cfg(feature = "render")]
             pending_image: None,
+            #[cfg(feature = "render")]
+            enrich_render: None,
         }
     }
 }

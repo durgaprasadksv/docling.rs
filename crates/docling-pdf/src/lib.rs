@@ -2547,6 +2547,31 @@ impl Worker {
                         };
                     }
                     if let EnrichSlot::Ready(model) = &mut *guard {
+                        // The bitmap the crops come from: a render of the page at
+                        // the scale the recognizer can actually use
+                        // (`auto_enrich_scale`), made once, on the first crop that
+                        // needs it, and kept at that resolution — resampling it
+                        // back to docling's 1.67 px/pt would discard exactly what
+                        // it was rendered for. Without a render helper (plugin or
+                        // pdfium renderer, images) the crop comes from the page's
+                        // own 2x bitmap at docling's scale, as before.
+                        let enrich_scale = enrich::auto_enrich_scale(page.width);
+                        let mut hi_res: Option<Option<image::RgbImage>> = None;
+                        let mut crop_at = |bbox: [f32; 4]| -> Option<image::RgbImage> {
+                            let hi = hi_res.get_or_insert_with(|| {
+                                timing::timed("render.enrich", || page.render_at(enrich_scale))
+                            });
+                            match hi {
+                                Some(img) => {
+                                    assemble::crop_from(img, enrich_scale, bbox, enrich_scale)
+                                }
+                                None => assemble::crop_region_scaled(
+                                    page,
+                                    bbox,
+                                    enrich::CODE_FORMULA_SCALE,
+                                ),
+                            }
+                        };
                         for (i, r) in regions.iter().enumerate() {
                             if !wants(r.label) {
                                 continue;
@@ -2596,11 +2621,7 @@ impl Worker {
                             let (w, h) = (br - bl, bb - bt);
                             let ex = enrich::CODE_FORMULA_EXPANSION;
                             let bbox = [bl - w * ex, bt - h * ex, br + w * ex, bb + h * ex];
-                            let Some(crop) = assemble::crop_region_scaled(
-                                page,
-                                bbox,
-                                enrich::CODE_FORMULA_SCALE,
-                            ) else {
+                            let Some(crop) = crop_at(bbox) else {
                                 continue;
                             };
                             let kind = if r.label == "code" {
@@ -2657,11 +2678,7 @@ impl Worker {
                                         let ex = enrich::CODE_FORMULA_EXPANSION;
                                         let bx =
                                             [sl - w * ex, st - h * ex, sr + w * ex, sb + h * ex];
-                                        let Some(c) = assemble::crop_region_scaled(
-                                            page,
-                                            bx,
-                                            enrich::CODE_FORMULA_SCALE,
-                                        ) else {
+                                        let Some(c) = crop_at(bx) else {
                                             continue;
                                         };
                                         match model.predict(&c, kind) {
@@ -4378,6 +4395,7 @@ impl Pipeline {
             rotation: 0,
             keep_typography: false,
             pending_image: None,
+            enrich_render: None,
         };
         self.process_pages(vec![page], name)
     }

@@ -3046,9 +3046,16 @@ pub fn crop_region_scaled(page: &PdfPage, bbox: [f32; 4], target_scale: f32) -> 
         !page.image_pending(),
         "a crop reached an unrendered page bitmap (#897)"
     );
-    let s = page.scale;
+    crop_from(&page.image, page.scale, bbox, target_scale)
+}
+
+/// Crop `bbox` (page points) out of a page bitmap rendered at `s` pixels per
+/// point, and resize to `target_scale` pixels per point — the same geometry
+/// as [`crop_region_scaled`], for a bitmap other than the page's own (the
+/// high-resolution render a formula crop reads, `PdfPage::render_at`).
+pub fn crop_from(src: &RgbImage, s: f32, bbox: [f32; 4], target_scale: f32) -> Option<RgbImage> {
     let [l, t, r, b] = bbox;
-    let (iw, ih) = (page.image.width(), page.image.height());
+    let (iw, ih) = (src.width(), src.height());
     let x = (l * s).max(0.0) as u32;
     let y = (t * s).max(0.0) as u32;
     if x >= iw || y >= ih {
@@ -3059,7 +3066,7 @@ pub fn crop_region_scaled(page: &PdfPage, bbox: [f32; 4], target_scale: f32) -> 
     if w == 0 || h == 0 {
         return None;
     }
-    let crop = image::imageops::crop_imm(&page.image, x, y, w, h).to_image();
+    let crop = image::imageops::crop_imm(src, x, y, w, h).to_image();
     // docling renders the crop at `target_scale` directly; from the scale-2
     // page render that is a resize to the same pixel geometry
     // (`round(width_points * scale)`, PIL's BICUBIC ≙ CatmullRom).
@@ -5361,6 +5368,8 @@ mod tests {
             keep_typography: false,
             #[cfg(feature = "ml")]
             pending_image: None,
+            #[cfg(feature = "ml")]
+            enrich_render: None,
         };
         assert_eq!(
             resolve_link_anchors(&page),

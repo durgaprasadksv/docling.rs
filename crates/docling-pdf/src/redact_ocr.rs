@@ -76,6 +76,8 @@ impl Pipeline {
             keep_typography: false,
             #[cfg(feature = "ml")]
             pending_image: None,
+            #[cfg(feature = "ml")]
+            enrich_render: None,
         };
         let ocr_scale = page_ocr_scale(self.ocr_scale, page.width, page.height, page.scale);
         let mut cache = None;
