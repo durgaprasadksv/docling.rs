@@ -341,6 +341,15 @@ equation-dense scan (61 formula items), warm:
 | 1 / 1 | 116.7 | 9.7 | 3.0 GB |
 | 2 / 2 | 79.2 | 6.6 | 5.8 GB |
 | 4 / 4 | 91.2 | 7.6 | 11.0 GB |
+| 2 / 2, decodes stopped at the first repeated cycle | 57.5 | 4.8 | 5.8 GB |
+
+The last row is the same configuration after two fixes the run exposed: the
+formula budget counted the prompt, so a tall block's 17 image tiles left it
+a 0-token budget and the block was dropped (61 → 68 formula items once
+counted in generated tokens), and a decode that has started looping ran to
+the whole 1,024-token budget — six per run, most of the decode time — where
+stopping at the first repeated cycle gives the same empty result at a
+fraction of the cost.
 
 Two is the sweet spot on a 24 GB card: beyond it the per-token steps of
 concurrent decodes slow each other and the single render helper thread
@@ -369,14 +378,15 @@ per second with no per-request charge. With the recommended configuration
 | digital text page, tables, no formulas | 0.2 | $0.00003 |
 | digital page with 2–3 formulas | 2–3.5 | $0.0003–0.0006 |
 | scanned page, no formulas | 1.2 | $0.0002 |
-| scanned page, equation-dense (5 formulas) | 6.6 | $0.0011 |
+| scanned page, equation-dense (5–6 formulas) | 4.8 | $0.0008 |
 
 So a 400-page scanned novel is about 8 minutes and $0.08; a 400-page digital
 physics textbook with formulas on a third of its pages about 8 minutes and
 $0.08; a 400-page scanned mathematics textbook with a quarter of its pages
-equation-dense about 17 minutes and $0.16 (down from $0.45 before the fp32
-decoder, the device-resident cache, the SIMD resizes and the second
-worker). Add one cold start per worker (~8 s, the model and provider load)
+equation-dense about 14 minutes and $0.14 (down from $0.45 before the fp32
+decoder, the device-resident cache, the SIMD resizes, the second worker and
+the loop detector). Add one cold start per worker (~8 s, the model and
+provider load)
 and whatever idle timeout the endpoint keeps a worker warm for.
 
 The next reductions, in order of gain: decode a page's formulas as one
