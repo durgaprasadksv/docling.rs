@@ -350,6 +350,13 @@ configuration:** `DOCLING_RS_PDF_WORKERS=2 DOCLING_RS_ENRICH_LANES=2`, one
 request at a time per worker (`--concurrency 1`), on the 16 GB tier — 5.8
 GB of GPU memory fits it, and it is 23 % cheaper than the 24 GB tier.
 
+A second document in flight on the same GPU does not add throughput: the
+server holds one warm pipeline per process, so with `--concurrency 2` two
+of the 12-page scans submitted together finished at 72 s and 146 s against
+74 s for one alone — queued, not overlapped — and a second server process
+per GPU would reproduce the four-lane row above. Scale by GPUs (serverless
+workers), not by stacking instances on one.
+
 ### Cost per book (serverless)
 
 RunPod's 16 GB serverless tier (A4000 / A4500 / RTX 4000 class) lists at
