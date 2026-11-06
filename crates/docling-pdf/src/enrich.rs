@@ -429,6 +429,29 @@ impl CodeFormula {
         let mut x = embeds;
         let mut x_seq = seq;
         let mut out_ids: Vec<u32> = Vec::new();
+        // Under a GPU provider the loop runs through an `IoBinding`, like
+        // TableFormer's `KvLayered` decode: with plain runs every step handed
+        // ONNX Runtime host tensors to copy to the device and got the whole
+        // KV cache back as host tensors — 30 layers of it, one token longer
+        // each step, both directions — so on an RTX PRO 4000 a formula took
+        // 3–9 s, no faster than a laptop CPU. Bound, the cache outputs stay in
+        // device memory and are the next step's inputs; only `logits` (a
+        // 100k-float row) comes back. Same graph, same kernels: the output is
+        // the plain loop's. `DOCLING_RS_ENRICH_IOBINDING=0` forces the plain
+        // loop for comparison.
+        let device = match docling_core::env::nonempty("DOCLING_RS_ENRICH_IOBINDING") {
+            Some(_) if !docling_core::env::flag("DOCLING_RS_ENRICH_IOBINDING") => None,
+            _ => docling_onnx::device_memory_info(),
+        };
+        let mut binding = match &device {
+            Some(_) => Some(
+                self.decoder
+                    .create_binding()
+                    .map_err(|e| format!("code-formula: io binding: {e}"))?,
+            ),
+            None => None,
+        };
+        let host = ort::memory::MemoryInfo::default();
         // A greedy decode that never emits EOS runs to the model's whole
         // context — ~7,800 steps, each a separate decoder invocation. That is
         // not a hypothetical: a crop the model cannot parse (a table the layout
@@ -456,19 +479,58 @@ impl CodeFormula {
             let pos_t = Tensor::from_array(([1usize, positions.len()], positions.clone()))
                 .map_err(|e| format!("code-formula: positions: {e}"))?;
             let next = {
-                let mut out = match cache.as_ref() {
-                    Some((k, v)) => docling_onnx::run(
-                        &mut self.decoder,
-                        ort::inputs![
-                        "inputs_embeds" => embeds_t, "position_ids" => pos_t,
-                        "past_k" => k, "past_v" => v],
-                    ),
-                    None => docling_onnx::run(
-                        &mut self.decoder,
-                        ort::inputs![
-                        "inputs_embeds" => embeds_t, "position_ids" => pos_t,
-                        "past_k" => &empty.0, "past_v" => &empty.1],
-                    ),
+                let mut out = match (&mut binding, &device) {
+                    (Some(b), Some(dev)) => {
+                        let err = |what: &str, e: ort::Error| {
+                            format!("code-formula: io binding {what}: {e}")
+                        };
+                        b.bind_input("inputs_embeds", &embeds_t)
+                            .map_err(|e| err("inputs_embeds", e))?;
+                        b.bind_input("position_ids", &pos_t)
+                            .map_err(|e| err("position_ids", e))?;
+                        match cache.as_ref() {
+                            Some((k, v)) => {
+                                b.bind_input("past_k", k).map_err(|e| err("past_k", e))?;
+                                b.bind_input("past_v", v).map_err(|e| err("past_v", e))?;
+                            }
+                            None => {
+                                b.bind_input("past_k", &empty.0)
+                                    .map_err(|e| err("past_k", e))?;
+                                b.bind_input("past_v", &empty.1)
+                                    .map_err(|e| err("past_v", e))?;
+                            }
+                        }
+                        // Re-bound every step: the cache outputs are one token
+                        // longer each time, so ONNX Runtime allocates them
+                        // afresh on the device rather than reuse the last.
+                        b.bind_output_to_device("new_k", dev)
+                            .map_err(|e| err("new_k", e))?;
+                        b.bind_output_to_device("new_v", dev)
+                            .map_err(|e| err("new_v", e))?;
+                        b.bind_output_to_device("logits", &host)
+                            .map_err(|e| err("logits", e))?;
+                        // Arena shrinkage once per decode (#842), as the
+                        // TableFormer loop does: per step it is a
+                        // cudaFree/cudaMalloc pair per token.
+                        match (cache.is_none(), docling_onnx::run_options()) {
+                            (true, Some(opts)) => self.decoder.run_binding_with_options(b, opts),
+                            _ => self.decoder.run_binding(b),
+                        }
+                    }
+                    _ => match cache.as_ref() {
+                        Some((k, v)) => docling_onnx::run(
+                            &mut self.decoder,
+                            ort::inputs![
+                            "inputs_embeds" => embeds_t, "position_ids" => pos_t,
+                            "past_k" => k, "past_v" => v],
+                        ),
+                        None => docling_onnx::run(
+                            &mut self.decoder,
+                            ort::inputs![
+                            "inputs_embeds" => embeds_t, "position_ids" => pos_t,
+                            "past_k" => &empty.0, "past_v" => &empty.1],
+                        ),
+                    },
                 }
                 .map_err(|e| format!("code-formula: decoder: {e}"))?;
                 let (_, logits) = out["logits"]
