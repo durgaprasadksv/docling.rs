@@ -264,7 +264,7 @@ undecoded formulas:
 
 ```bash
 docker build -f crates/docling-serve/Dockerfile --target runtime-cuda \
-  --build-arg EXTRA_ASSETS=--enrich \
+  --build-arg EXTRA_ASSETS="--enrich --no-int8" \
   --build-arg CUDA_FEATURES=cuda,speech --build-arg MATHCAT_RULES=1 \
   -t docling-rs-serve-cuda:bench .
 docker run --gpus all -p 5001:5001 \
@@ -272,7 +272,11 @@ docker run --gpus all -p 5001:5001 \
   docling-rs-serve-cuda:bench --concurrency 1
 ```
 
-(`CUDA_FEATURES` / `MATHCAT_RULES` only matter for the spoken-formula field;
+(`--no-int8` matters on a GPU: the CUDA provider does not run the INT8
+decoder's dynamically quantized matmuls, so those nodes fall back to the CPU
+with a copy every token — measured at 26 ms per generated token on an RTX
+PRO 4000 against the fp32 graph's figure below. `CUDA_FEATURES` /
+`MATHCAT_RULES` only matter for the spoken-formula field;
 `DOCLING_RS_WORD_PROV=1` adds the per-word boxes to the JSON. Both are
 additive and off by default.)
 
