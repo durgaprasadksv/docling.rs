@@ -212,7 +212,8 @@ const IMAGE_SEQ_LEN: usize = 64; // visual tokens per tile
 const IMAGE_TOKEN_ID: i64 = 100270; // <image>
 const EOS_ID: i64 = 100338; // <end_of_utterance>
 const MODEL_MAX_LEN: usize = 8192;
-/// Generation budget for a *formula* crop, prompt included. See the decode loop.
+/// Generation budget for a *formula* crop — generated tokens, the prompt
+/// not counted. See the decode loop.
 const FORMULA_MAX_NEW_TOKENS: usize = 1024;
 const HIDDEN: usize = 576;
 const N_LAYERS: usize = 30;
@@ -471,9 +472,18 @@ impl CodeFormula {
             CodeFormulaKind::Formula => FORMULA_MAX_NEW_TOKENS,
             CodeFormulaKind::Code => MODEL_MAX_LEN,
         };
-        let max_new = budget
-            .saturating_sub(seq)
-            .min(MODEL_MAX_LEN.saturating_sub(seq));
+        // The budget counts *generated* tokens. It used to include the prompt,
+        // which was harmless at docling's 1.67 px/pt crops (a few tiles) and
+        // fatal at the native-resolution ones: a tall equation block tiles to
+        // 17 × 64 image tokens, more than the whole formula budget, so the
+        // decode started with a 0-token budget and the block was dropped
+        // ("generation hit the 0-token budget"). The model's context still
+        // caps it.
+        let max_new = match kind {
+            CodeFormulaKind::Formula => budget,
+            CodeFormulaKind::Code => budget.saturating_sub(seq),
+        }
+        .min(MODEL_MAX_LEN.saturating_sub(seq));
         let mut finished = false;
         for _ in 0..max_new {
             let embeds_t = Tensor::from_array(([1usize, x_seq, HIDDEN], x))
