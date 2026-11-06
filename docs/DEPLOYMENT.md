@@ -291,10 +291,63 @@ scripts/bench/gpu_serve_bench.sh http://host:5001 \
 One line per request: client wall time, the server's `processing_time`,
 pages, formula items, and the four heaviest stages in milliseconds. The
 first run of each file is cold (model and execution-provider load); set
-`DOCLING_BENCH_RUNS=3` to see the warm figures. On CPU the formula decode is
-80–98 % of a page with equations (docs/PDF_CONFORMANCE.md); the GPU question
-this answers is whether that stage drops to seconds, which it only does if
-the decoder's KV cache stays device-resident between steps.
+`DOCLING_BENCH_RUNS=3` to see the warm figures.
+
+### Measured (RunPod, RTX PRO 4000 Blackwell 24 GB, 2026-11-06)
+
+Warm second run, `--concurrency 1`, fp32 models, the formula decoder's KV
+cache device-resident (`DOCLING_RS_ENRICH_IOBINDING`, the default under a
+GPU provider). The same box's 48-core CPU provider for comparison:
+
+| input | pages | formula items | GPU s | per page | CPU (48 cores) s |
+|---|---:|---:|---:|---:|---:|
+| arXiv paper 2206.01062 (digital, 5 tables) | 9 | 0 | 1.8 | 0.2 | 6.5 |
+| OpenStax Chemistry 2e p760 (digital) | 1 | 2 | 1.9 | 1.9 | 8.9 |
+| OpenStax Chemistry 2e p620 (digital) | 1 | 3 | 4.0 | 4.0 | 28.8 |
+| OpenStax University Physics p280–281 (digital) | 2 | 4 | 9.2 | 4.6 | 40.4 |
+| 1900s scanned arithmetic textbook, 12 pages | 12 | 4 | 19.1 | 1.6 | 50.3 |
+| the same book's algebra pages 220–221 (equation-dense) | 2 | 16 | 34.6 | 17.3 | 262.6 |
+
+Where the time goes, from the per-stage timings:
+
+- **Formula decode** is the cost on any page with equations: ~10 ms per
+  generated token (`code_formula.step`), ~2 s per formula item on these
+  pages. Two things had to be true for that: the fp32 decoder (the INT8
+  one's quantized matmuls run on the CPU under CUDA — 26 ms/token) and the
+  device-resident cache (the plain loop copied the whole KV cache to and
+  from the host every token — a formula took 3–9 s either way).
+- **Scanned pages** cost ~1.6 s each before any formula: the embedded scan is
+  decoded and resampled for every render of the page — layout, the 2x
+  bitmap and the enrichment render each decode it again
+  (`render.image_decode`, 12 calls for 2 pages). Caching the decoded
+  samples across the renders of a page is the next lever for scanned books.
+- Crop preprocessing (`code_formula.preprocess`, three Lanczos resizes of
+  each crop) was 290 ms per crop with the scalar resize; it now goes
+  through the SIMD resizer like the page bitmaps.
+- The GPU sits at ~35 % utilization: the per-token loop is launch-bound
+  (30 layers of small kernels per step). Decoding several formulas of a
+  page as one batch would raise throughput several-fold at the same
+  latency per step; fp16 or fused-attention graphs would cut the step time.
+
+### Cost per book (serverless)
+
+RunPod's 24 GB serverless tier (L4 / A5000 / 3090 class) lists at $0.75 per
+hour, $0.000208 per second, billed per second with no per-request charge.
+With the per-page figures above:
+
+| page kind | seconds | cost |
+|---|---:|---:|
+| digital text page, tables, no formulas | 0.2 | $0.00004 |
+| digital page with 2–3 formulas | 2–4 | $0.0004–0.0008 |
+| scanned page, no formulas | 1.6 | $0.0003 |
+| scanned page, equation-dense (8 formulas) | 17 | $0.0035 |
+
+So a 400-page scanned novel is about 11 minutes and $0.13; a 400-page
+digital physics textbook with formulas on a third of its pages about 10
+minutes and $0.13; a 400-page scanned mathematics textbook with a quarter
+of its pages equation-dense about 36 minutes and $0.45. Add one cold start
+per worker (~8 s, the model and provider load) and whatever idle timeout
+the endpoint keeps a worker warm for.
 
 ## Offline & Air-Gapped Deployment
 
