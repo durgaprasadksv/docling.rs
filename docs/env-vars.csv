@@ -125,3 +125,10 @@ DOCLING_RS_IDLE_UNLOAD_SECS,limit,crates/docling-serve/src/lib.rs
 DOCLING_RS_ENABLE_UI,operational,crates/docling-serve/src/lib.rs
 DOCLING_SERVE_ENABLE_UI,operational,crates/docling-serve/src/lib.rs
 DOCLING_RS_PAGE_BITMAP,performance,crates/docling-pdf/src/lib.rs
+DOCLING_RS_WORD_PROV,operational,crates/docling-core/src/json.rs
+DOCLING_RS_SPEECH,operational,crates/docling-core/src/json.rs
+DOCLING_RS_MATHCAT_RULES,model path,crates/docling-core/src/speech.rs
+DOCLING_RS_ENRICH_SCALE,performance,crates/docling-pdf/src/enrich.rs
+DOCLING_CODE_FORMULA_FLAVOR,model path,crates/docling-pdf/src/enrich.rs
+DOCLING_RS_FORMULA_PROMPT,operational,crates/docling-pdf/src/enrich.rs
+DOCLING_RS_CODE_PROMPT,operational,crates/docling-pdf/src/enrich.rs
