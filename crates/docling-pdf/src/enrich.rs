@@ -575,6 +575,17 @@ impl CodeFormula {
                 break;
             }
             out_ids.push(next as u32);
+            // A greedy decode that has started looping never emits EOS; it
+            // runs to the budget — 1,024 steps at ~10 ms each on a GPU, and
+            // on one 12-page scanned algebra chapter six such decodes per run
+            // were most of the decode time, producing nothing. Stop at the
+            // first repetition instead; the result is the same (no formula).
+            if looping(&out_ids) {
+                return Err(format!(
+                    "generation looped after {} tokens (a repeated cycle)",
+                    out_ids.len()
+                ));
+            }
             x = crate::timing::timed("code_formula.embed", || self.embed_ids(&[next]))?;
             x_seq = 1;
             positions = vec![past_len as i64];
@@ -787,6 +798,27 @@ fn push_normalized(tensor: &mut Vec<f32>, tile: &RgbImage) {
     }
 }
 
+/// Whether a greedy decode has fallen into a cycle: its last `3 × n` tokens
+/// are the same `n`-token sequence three times over, for some cycle length
+/// `n` up to 32. A real equation repeats a short token run that often only
+/// in degenerate cases (`x_1, y_1, z_1, …` on a page of worn type was the
+/// decode that motivated this), and such a decode never finishes anyway.
+/// Checked from 24 tokens on so the cheapest cycles (one or two tokens
+/// stuttering) are caught early, and a cycle has to fill at least 24 tokens
+/// so `\\ a & b` rows of a genuine matrix do not trip it.
+fn looping(out: &[u32]) -> bool {
+    let len = out.len();
+    if len < 24 {
+        return false;
+    }
+    (1..=32).any(|n| {
+        // The window: at least three copies of the cycle, and at least 24
+        // tokens of it, whichever is longer.
+        let w = (3 * n).max(24);
+        len >= w && (0..w - n).all(|i| out[len - 1 - i] == out[len - 1 - i - n])
+    })
+}
+
 /// docling's CodeFormulaModel post-processing: truncate at
 /// `<end_of_utterance>`, remove the closing/query artifacts, strip leading
 /// whitespace.
@@ -901,6 +933,30 @@ mod tests {
         let (tensor, rows, cols) = preprocess_idefics3(&img);
         assert_eq!((rows, cols), (2, 4));
         assert_eq!(tensor.len(), 9 * 3 * 512 * 512);
+    }
+
+    #[test]
+    fn looping_decodes_are_caught_and_real_runs_are_not() {
+        // A one-token stutter: caught as soon as 24 tokens of it exist.
+        let stutter: Vec<u32> = std::iter::repeat_n(7, 24).collect();
+        assert!(looping(&stutter));
+        assert!(!looping(&stutter[..23]));
+        // `x_1, y_1, z_1,` repeated: a 6-token cycle, three times = 18 tokens,
+        // below the 24-token floor; four times trips it (at n=8 the window
+        // of 24 is three 8-token runs of a 6-cycle… only when aligned, so
+        // check the natural length too).
+        let cycle: Vec<u32> = [1, 2, 3, 4, 5, 6].repeat(3);
+        assert!(!looping(&cycle));
+        let cycle: Vec<u32> = [1, 2, 3, 4, 5, 6].repeat(4);
+        assert!(looping(&cycle));
+        // A long non-repeating run, and a matrix-like row structure whose
+        // rows differ, are not loops.
+        let distinct: Vec<u32> = (0..200).collect();
+        assert!(!looping(&distinct));
+        let rows: Vec<u32> = (0..6)
+            .flat_map(|r| [100, 200 + r, 300, 400 + r, 500])
+            .collect();
+        assert!(!looping(&rows));
     }
 
     #[test]
