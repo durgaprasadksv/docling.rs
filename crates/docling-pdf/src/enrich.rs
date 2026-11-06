@@ -658,13 +658,12 @@ fn image_prompt(rows: u32, cols: u32) -> String {
 /// squashed to 512×512 as the trailing global tile, then `(x/255 - 0.5)/0.5`.
 /// Returns the flattened `[T,3,512,512]` tensor data and the grid shape.
 fn preprocess_idefics3(crop: &RgbImage) -> (Vec<f32>, u32, u32) {
-    use image::imageops::FilterType;
     // 1. longest edge → 2048 exactly (up- or down-scale), short side rounded
     //    to even, both clamped below 4096 (rescale_to_max_len).
     let (w0, h0) = crop.dimensions();
     let (mut w, mut h) = rescale_to_max_len(w0, h0, LONGEST_EDGE);
     (h, w) = scale_below_upper_bound(h, w, MAX_IMAGE_SIZE);
-    let img = image::imageops::resize(crop, w, h, FilterType::Lanczos3);
+    let img = lanczos3(crop, w, h);
 
     // 2. ceil each side to a multiple of the 512 tile (resize_for_vision_encoder).
     let (tw, th) = if w >= h {
@@ -676,7 +675,7 @@ fn preprocess_idefics3(crop: &RgbImage) -> (Vec<f32>, u32, u32) {
         let tw0 = (th as f64 * (w as f64 / h as f64)) as u32;
         (tw0.div_ceil(TILE) * TILE, th)
     };
-    let img = image::imageops::resize(&img, tw, th, FilterType::Lanczos3);
+    let img = lanczos3(&img, tw, th);
 
     // 3. tiles (row-major) + the global squash.
     let (rows, cols) = (th / TILE, tw / TILE);
@@ -687,9 +686,45 @@ fn preprocess_idefics3(crop: &RgbImage) -> (Vec<f32>, u32, u32) {
             push_normalized(&mut tensor, &tile);
         }
     }
-    let global = image::imageops::resize(&img, TILE, TILE, FilterType::Lanczos3);
+    let global = lanczos3(&img, TILE, TILE);
     push_normalized(&mut tensor, &global);
     (tensor, rows, cols)
+}
+
+/// Lanczos-3 resize through `fast_image_resize` (SIMD convolution, the same
+/// kernel as `image::imageops::resize(.., Lanczos3)`). The three resizes of a
+/// crop's preprocessing cost 288 ms per crop with the scalar `image` resize —
+/// 6.6 s of the 34 s two scanned pages took on a GPU, where the decode itself
+/// had become the only other cost. `DOCLING_RS_SLOW_RESIZE=1` restores the
+/// scalar path, as it does for the page bitmaps.
+fn lanczos3(src: &RgbImage, dw: u32, dh: u32) -> RgbImage {
+    use fast_image_resize as fir;
+    static SLOW: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let slow = *SLOW.get_or_init(|| docling_core::env::flag("DOCLING_RS_SLOW_RESIZE"));
+    if !slow && (dw, dh) != src.dimensions() {
+        if let Some(out) = (|| {
+            let s = fir::images::ImageRef::new(
+                src.width(),
+                src.height(),
+                src.as_raw(),
+                fir::PixelType::U8x3,
+            )
+            .ok()?;
+            let mut dst = fir::images::Image::new(dw, dh, fir::PixelType::U8x3);
+            fir::Resizer::new()
+                .resize(
+                    &s,
+                    &mut dst,
+                    &fir::ResizeOptions::new()
+                        .resize_alg(fir::ResizeAlg::Convolution(fir::FilterType::Lanczos3)),
+                )
+                .ok()?;
+            RgbImage::from_raw(dw, dh, dst.into_vec())
+        })() {
+            return out;
+        }
+    }
+    image::imageops::resize(src, dw, dh, image::imageops::FilterType::Lanczos3)
 }
 
 /// transformers' `_resize_output_size_rescale_to_max_len`: longest edge to

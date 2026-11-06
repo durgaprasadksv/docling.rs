@@ -1066,8 +1066,41 @@ enum EnrichSlot<T> {
 
 #[cfg(feature = "ml")]
 type SharedClassifier = Arc<Mutex<EnrichSlot<enrich::PictureClassifier>>>;
+/// The code/formula recognizer, as a pool of independent lanes (#80): a
+/// page worker takes a free one, so pages decode their formulas
+/// concurrently instead of queueing on one model. Each lane is its own
+/// three sessions (~1.3 GB of fp32 graphs), loaded on first use; see
+/// [`enrich_lanes`] for how many.
 #[cfg(feature = "ml")]
-type SharedCodeFormula = Arc<Mutex<EnrichSlot<enrich::CodeFormula>>>;
+type SharedCodeFormula = Arc<Vec<Mutex<EnrichSlot<enrich::CodeFormula>>>>;
+
+/// How many formula-recognizer lanes to keep: `DOCLING_RS_ENRICH_LANES`, else
+/// one per page worker under a GPU provider — the per-token decode loop is
+/// launch-bound and leaves the GPU two-thirds idle, so concurrent pages'
+/// decodes interleave almost free — and one on the CPU, where a decode
+/// already uses the cores and a second model is mostly memory.
+#[cfg(feature = "ml")]
+fn enrich_lanes() -> usize {
+    if let Some(n) = env::parse::<usize>("DOCLING_RS_ENRICH_LANES").filter(|&n| n > 0) {
+        return n;
+    }
+    if docling_onnx::device_memory_info().is_some() {
+        pdf_worker_count().max(1)
+    } else {
+        1
+    }
+}
+
+/// A free lane of the pool, or — all busy — the first one, waited for.
+#[cfg(feature = "ml")]
+fn lock_lane<T>(lanes: &[Mutex<T>]) -> std::sync::MutexGuard<'_, T> {
+    for lane in lanes {
+        if let Ok(g) = lane.try_lock() {
+            return g;
+        }
+    }
+    lanes[0].lock().unwrap_or_else(|p| p.into_inner())
+}
 
 #[cfg(feature = "ml")]
 /// The opt-in enrichment passes, mirroring docling's `PdfPipelineOptions`
@@ -2590,7 +2623,7 @@ impl Worker {
             };
             if regions.iter().any(|r| wants(r.label)) {
                 timing::timed("code_formula", || {
-                    let mut guard = slot.lock().unwrap();
+                    let mut guard = lock_lane(slot);
                     if matches!(*guard, EnrichSlot::Unloaded) {
                         *guard = match enrich::CodeFormula::load_with(intra_threads()) {
                             Some(m) => EnrichSlot::Ready(m),
@@ -3007,7 +3040,11 @@ impl Pipeline {
             tables: Arc::new(Mutex::new(TfSlot::Unloaded)),
             det: Arc::new(Mutex::new(DetSlot::Unloaded)),
             classifier: Arc::new(Mutex::new(EnrichSlot::Unloaded)),
-            code_formula: Arc::new(Mutex::new(EnrichSlot::Unloaded)),
+            code_formula: Arc::new(
+                (0..enrich_lanes())
+                    .map(|_| Mutex::new(EnrichSlot::Unloaded))
+                    .collect(),
+            ),
             target_workers: pdf_worker_count(),
             parallel_min: pdf_parallel_min(),
             no_table_former: false,
