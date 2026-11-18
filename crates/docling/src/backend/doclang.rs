@@ -529,6 +529,7 @@ fn parse_list(el: XmlNode, level: u8, out: &mut Vec<Node>) {
                 level,
                 marker: marker.filter(|_| ordered),
                 location: None,
+                spans: None,
                 dclx: None,
                 href: None,
                 layer: inline.layer,

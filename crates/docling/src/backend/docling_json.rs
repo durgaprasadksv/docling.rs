@@ -444,6 +444,7 @@ fn text_node(
             dclx: None,
             href: None,
             layer: None,
+            spans: None,
         }),
         // docling prefixes the task-list marker to the text of a checkbox item.
         "checkbox_selected" => doc.push(Node::CheckboxItem {
@@ -603,6 +604,7 @@ fn list_group(
             dclx: None,
             href: None,
             layer: None,
+            spans: None,
         });
         first = false;
         if let Some(sub) = item["children"].as_array() {

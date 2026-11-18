@@ -1944,6 +1944,7 @@ fn emit_list(out: &mut Out, depth: i32, nodes: &[Node], i: &mut usize, level: u8
                 dclx,
                 href,
                 layer,
+                spans: None,
             } if *l == level => {
                 // The DocLang overlay wins over the flat Markdown fields for the
                 // list kind and marker (see `ListItemDclx`).

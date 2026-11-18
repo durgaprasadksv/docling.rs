@@ -1621,6 +1621,7 @@ fn list_item_node(text: &str, loc: [u16; 4], first_in_list: bool) -> Node {
         // (`<ldiv><marker>·</marker></ldiv>`); Markdown prints its own `-`.
         marker: Some(marker.to_string()),
         location: Some(loc),
+        spans: None,
         dclx: None,
         href: None,
         layer: None,
@@ -1642,6 +1643,7 @@ fn list_item_node(text: &str, loc: [u16; 4], first_in_list: bool) -> Node {
                 level: 0,
                 marker: Some(marker.to_string()),
                 location: Some(loc),
+                spans: None,
                 dclx: None,
                 href: None,
                 layer: None,
@@ -1661,6 +1663,7 @@ fn list_item_node(text: &str, loc: [u16; 4], first_in_list: bool) -> Node {
                 level: 0,
                 marker: None,
                 location: Some(loc),
+                spans: None,
                 dclx: Some(ListItemDclx {
                     ordered: false,
                     marker: Some(marker.to_string()),
@@ -4288,13 +4291,15 @@ pub fn assemble_page(
             continue;
         };
         for node in &mut nodes[start..stop] {
-            // List items are exempt, for the same reason they carry their own
-            // `location` instead of a `Node::Located` wrapper: the serializers
-            // batch a consecutive *run* of bare `ListItem`s into one list
-            // group, and any wrapper breaks that match, so the items silently
-            // stop being lists in JSON/DCLX while Markdown (which renders
-            // through wrappers) still looks right. Costs them word provenance.
-            if matches!(node, Node::ListItem { .. }) {
+            // A list item carries its spans itself, for the same reason it
+            // carries its own `location` instead of a `Node::Located`
+            // wrapper: the serializers batch a consecutive *run* of bare
+            // `ListItem`s into one list group, and any wrapper breaks that
+            // match, so the items would silently stop being lists in
+            // JSON/DCLX while Markdown (which renders through wrappers)
+            // still looked right.
+            if let Node::ListItem { spans: own, .. } = node {
+                *own = Some(spans.clone());
                 continue;
             }
             let inner = std::mem::replace(node, Node::PageBreak);

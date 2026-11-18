@@ -855,6 +855,7 @@ impl Flat<'_> {
                         level,
                         marker: None,
                         location: None,
+                        spans: None,
                         dclx: None,
                         href: None,
                         layer: None,

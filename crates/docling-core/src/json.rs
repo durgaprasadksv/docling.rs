@@ -2727,6 +2727,7 @@ impl Builder {
             number,
             text,
             location,
+            spans,
             ..
         } = node
         else {
@@ -2741,7 +2742,7 @@ impl Builder {
         } else {
             "-".to_string()
         };
-        self.texts.push(Item::json(json!({
+        let mut item = json!({
             "self_ref": self_ref,
             "parent": { "$ref": parent },
             "children": [],
@@ -2752,7 +2753,17 @@ impl Builder {
             "text": raw,
             "enumerated": ordered,
             "marker": marker,
-        })));
+        });
+        // The item's own word provenance (a wrapper would have broken the
+        // list run); the same opt-in `words` array as a text item's.
+        if let Some(spans) = spans {
+            self.pending_spans = Some(spans.clone());
+            if let Some(words) = self.take_words(&raw) {
+                item["words"] = words;
+            }
+            self.pending_spans = None;
+        }
+        self.texts.push(Item::json(item));
         self_ref
     }
 
@@ -3752,6 +3763,7 @@ mod tests {
             level: 0,
             marker: None,
             location: None,
+            spans: None,
             dclx: None,
             href: None,
             layer: None,
@@ -3764,6 +3776,7 @@ mod tests {
             level: 0,
             marker: None,
             location: None,
+            spans: None,
             dclx: None,
             href: None,
             layer: None,
@@ -4709,6 +4722,7 @@ mod tests {
                 level: 0,
                 marker: None,
                 location: None,
+                spans: None,
                 dclx: None,
                 href: None,
                 layer: None,
@@ -4835,6 +4849,7 @@ mod tests {
             level: 0,
             marker: None,
             location: Some([10, 10, 500, 30]),
+            spans: None,
             dclx: None,
             href: None,
             layer: None,
@@ -5047,7 +5062,35 @@ mod tests {
                 }),
             }),
         });
+        doc.push(Node::ListItem {
+            ordered: false,
+            number: 1,
+            first_in_list: true,
+            text: "first item".into(),
+            level: 1,
+            marker: None,
+            location: Some([0, 64, 512, 96]),
+            spans: Some(vec![CellSpan {
+                char_start: 6,
+                char_end: 10,
+                l: 80.0,
+                t: 130.0,
+                r: 110.0,
+                b: 142.0,
+            }]),
+            dclx: None,
+            href: None,
+            layer: None,
+        });
         let reader = doc.export_to_reader_value();
+        let item = &reader["pages"][0][1];
+        assert_eq!(item["kind"], "list_item");
+        assert_eq!(item["t"], "first item");
+        assert_eq!(
+            item["w"][0][0], 6,
+            "a list item carries its own word boxes: {item}"
+        );
+        assert_eq!(item["w"][0][1], 10);
         let chunk = &reader["pages"][0][0];
         assert_eq!(chunk["kind"], "paragraph");
         assert_eq!(chunk["t"], "hello world");

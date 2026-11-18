@@ -111,6 +111,7 @@ fn nodes_for(label: &str, inner: &str) -> Vec<Node> {
                     level: 0,
                     marker: None,
                     location: None,
+                    spans: None,
                     dclx: None,
                     href: None,
                     layer: None,

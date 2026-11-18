@@ -330,6 +330,7 @@ pub fn transcript_document(name: &str, page: &WatchPage, vtt: Option<&str>) -> D
                 level: 0,
                 marker: None,
                 location: None,
+                spans: None,
                 dclx: None,
                 href: None,
                 layer: None,

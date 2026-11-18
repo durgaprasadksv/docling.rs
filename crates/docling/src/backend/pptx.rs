@@ -1308,6 +1308,7 @@ fn handle_text_shape(sp: XmlNode, location: [u16; 4], ctx: &SlideCtx, out: &mut 
                     level: depth as u8,
                     marker,
                     location: Some(location),
+                    spans: None,
                     dclx: None,
                     href: link.map(str::to_string),
                     layer: None,

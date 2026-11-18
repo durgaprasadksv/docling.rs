@@ -2008,6 +2008,7 @@ fn push_odf_list_item(
         level: depth,
         marker,
         location: None,
+        spans: None,
         dclx,
         href: None,
         layer: None,

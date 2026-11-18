@@ -714,6 +714,7 @@ impl Parser<'_> {
             level: depth,
             marker: explicit.map(|_| item.marker.to_string()),
             location: None,
+            spans: None,
             dclx: None,
             href: None,
             layer: None,

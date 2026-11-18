@@ -822,7 +822,8 @@ mod tests {
                    {"charspan": [11, 17], "text": "Effect", "bbox": {"l": 144.0, "t": 701.6, "r": 190.0, "b": 690.0, "coord_origin": "BOTTOMLEFT"}}
                  ]},
                 {"self_ref": "#/texts/2", "parent": {"$ref": "#/groups/0"}, "label": "list_item", "marker": "(a)", "enumerated": true,
-                 "text": "MgCl2", "prov": [{"page_no": 2, "bbox": {"l": 90.0, "t": 654.0, "r": 140.0, "b": 644.0, "coord_origin": "BOTTOMLEFT"}}]},
+                 "text": "MgCl2", "prov": [{"page_no": 2, "bbox": {"l": 90.0, "t": 654.0, "r": 140.0, "b": 644.0, "coord_origin": "BOTTOMLEFT"}}],
+                 "words": [{"charspan": [0, 5], "text": "MgCl2", "bbox": {"l": 92.0, "t": 654.0, "r": 138.0, "b": 644.0, "coord_origin": "BOTTOMLEFT"}}]},
                 {"self_ref": "#/texts/3", "parent": {"$ref": "#/groups/0"}, "label": "list_item", "marker": "(b)", "enumerated": true,
                  "text": "KOH", "prov": [{"page_no": 2, "bbox": {"l": 90.0, "t": 634.0, "r": 140.0, "b": 624.0, "coord_origin": "BOTTOMLEFT"}}]},
                 {"self_ref": "#/texts/4", "parent": {"$ref": "#/body"}, "label": "formula",
@@ -944,6 +945,7 @@ mod tests {
         assert_eq!(item["enumerated"], true);
         assert_eq!(item["list"], "#/groups/0");
         assert_eq!(item["depth"], 1);
+        assert_eq!(item["w"], json!([[0, 5, 92.0, 654.0, 138.0, 644.0]]));
         let caption = &p0[10];
         assert_eq!(caption["of"], "#/pictures/0");
         // docling's default `-` marker on an item whose text does not start

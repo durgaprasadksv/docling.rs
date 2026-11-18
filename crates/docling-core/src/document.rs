@@ -171,6 +171,11 @@ pub enum Node {
         /// item itself (rather than a [`Node::Located`] wrapper) so consecutive
         /// items still group into one `<list>`.
         location: Option<[u16; 4]>,
+        /// Per-cell word provenance (see [`Node::Spanned`]), kept on the item
+        /// itself for the same reason as `location`: a wrapper would break the
+        /// run of bare `ListItem`s the serializers group into one list. Only
+        /// the JSON export reads it (the item's `words` array).
+        spans: Option<Vec<CellSpan>>,
         /// DocLang-only override for items whose DocLang form diverges from their
         /// flat Markdown `text`. Markdown/JSON always render the fields above; the
         /// DocLang serializer, when this is `Some`, takes the list kind, marker,

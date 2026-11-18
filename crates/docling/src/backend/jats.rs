@@ -829,6 +829,7 @@ fn add_citation(out: &mut Out, parent: Option<usize>, text: &str) {
             level: 0,
             marker: None,
             location: None,
+            spans: None,
             dclx: None,
             href: None,
             layer: None,
@@ -1255,6 +1256,7 @@ fn add_list_item(out: &mut Out, parent: Option<usize>, item: XmlNode, level: u8)
             level,
             marker: shape.marker,
             location: None,
+            spans: None,
             dclx: shape.dclx.then(|| ListItemDclx {
                 ordered: enumerated,
                 marker: (!label.is_empty()).then(|| label.clone()),
@@ -1833,6 +1835,7 @@ fn add_footnote_group(out: &mut Out, parent: Option<usize>, node: XmlNode, hleve
             level: 0,
             marker: None,
             location: None,
+            spans: None,
             dclx: None,
             href: None,
             layer: None,
