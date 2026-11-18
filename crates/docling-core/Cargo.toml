@@ -42,12 +42,11 @@ tokenizers = { version = "0.20", default-features = false, features = ["onig"], 
 # Markdown parsing for the WindowChunker's heading-bounded sections (behind the
 # `chunking` feature); same flags as the docling crate's Markdown backend.
 pulldown-cmark = { version = "0.13", default-features = false, optional = true }
-# Formula verbalization (behind the `speech` feature): LaTeX -> MathML ->
-# spoken English. `latex2mathml` is pure Rust and wasm-safe; MathCAT is the
-# DAISY speech engine behind NVDA and JAWS, also written in Rust — so this
-# needs no FFI. Both optional: they pull a fair dependency tree and nothing in
-# the default build reads them.
-latex2mathml = { version = "0.2", optional = true }
+# Formula verbalization (behind the `speech` feature): LaTeX -> MathML (the
+# in-crate `mathml` port the HTML export already has) -> spoken English by
+# MathCAT, the DAISY speech engine behind NVDA and JAWS, also written in Rust —
+# so this needs no FFI. Optional: it pulls a fair dependency tree and nothing in
+# the default build reads it.
 mathcat = { version = "0.7", optional = true }
 
 # glibc's allocator controls (`memory.rs`, #669, #871).
@@ -64,4 +63,12 @@ preserve-order = ["serde_json/preserve_order"]
 chunking = ["dep:tokenizers", "dep:pulldown-cmark"]
 # Spoken-form rendering of formula items (`Node::Formula` -> the additive
 # `speech` JSON map, one entry per style). Off by default: the export is byte-identical without it.
-speech = ["dep:latex2mathml", "dep:mathcat"]
+speech = ["dep:mathcat"]
+
+[dev-dependencies]
+
+# `cargo run -p docling-core --features speech --example speak` — type LaTeX,
+# read what a formula item's `speech` map would say.
+[[example]]
+name = "speak"
+required-features = ["speech"]

@@ -50,6 +50,16 @@ type Result<T> = std::result::Result<T, Error>;
 /// plus an `<annotation encoding="TeX">` carrying the source, serialised
 /// like `unescape(tostring(el, encoding="unicode"))`; block formulas come
 /// wrapped in `<div>`. `Err` for whatever `latex2mathml` raises on.
+/// The bare `<math>` element as well-formed XML, for a MathML consumer
+/// (the speech engine) rather than the HTML export: no annotation, no
+/// wrapper, text escaped.
+#[cfg_attr(not(feature = "speech"), allow(dead_code))] // the speech chain's entry
+pub(crate) fn to_xml(latex: &str) -> Result<String> {
+    let mut conv = Converter::new("block");
+    let root = conv.convert_to_element(latex)?;
+    Ok(conv.tree.to_xml(root))
+}
+
 pub(crate) fn formula_to_mathml(latex: &str, inline: bool) -> Result<String> {
     let display = if inline { "inline" } else { "block" };
     let mut conv = Converter::new(display);
@@ -2245,11 +2255,20 @@ impl Tree {
     /// leaves only what `_escape_attrib` does beyond that.
     fn to_string(&self, el: El) -> String {
         let mut out = String::new();
-        self.write(el, &mut out);
+        self.write(el, &mut out, false);
         out
     }
 
-    fn write(&self, el: El, out: &mut String) {
+    /// The same tree as well-formed XML — text escaped — for an XML parser
+    /// rather than a browser's HTML parser.
+    #[cfg_attr(not(feature = "speech"), allow(dead_code))] // the speech chain's entry
+    fn to_xml(&self, el: El) -> String {
+        let mut out = String::new();
+        self.write(el, &mut out, true);
+        out
+    }
+
+    fn write(&self, el: El, out: &mut String, escape: bool) {
         let e = &self.nodes[el];
         out.push('<');
         out.push_str(e.tag);
@@ -2267,10 +2286,28 @@ impl Tree {
         }
         out.push('>');
         if let Some(t) = text {
-            out.push_str(t);
+            if escape {
+                // The converter writes its symbols as `&#x0002B;`-style
+                // character references, which stay references; a bare `&`
+                // (`\&`) and raw `<`/`>` are escaped.
+                let mut rest = t;
+                while let Some(i) = rest.find(['&', '<', '>']) {
+                    out.push_str(&rest[..i]);
+                    match rest.as_bytes()[i] {
+                        b'<' => out.push_str("&lt;"),
+                        b'>' => out.push_str("&gt;"),
+                        _ if rest[i + 1..].starts_with('#') => out.push('&'),
+                        _ => out.push_str("&amp;"),
+                    }
+                    rest = &rest[i + 1..];
+                }
+                out.push_str(rest);
+            } else {
+                out.push_str(t);
+            }
         }
         for &c in &e.children {
-            self.write(c, out);
+            self.write(c, out, escape);
         }
         out.push_str("</");
         out.push_str(e.tag);
