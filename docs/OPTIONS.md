@@ -389,7 +389,7 @@ models load.
 - **Outputs.** `--to` is repeatable (`--to md --to json` = `--to md,json`):
   each document converts once and is written in every format named, as
   `<stem>.<ext>` (`.md`, `.json`, `.html`, `.txt`, `.dclx`, `.chunks.json`,
-  `.tex`, `.pandoc.json`, `.vtt`); several formats need `--output`, since
+  `.tex`, `.pandoc.json`, `.vtt`, `.reader.json`); several formats need `--output`, since
   stdout carries one document. `--output-file PATH` (#611, docling's)
   writes the one result to exactly PATH — refused unless there is exactly
   one input and one format; `--images referenced` pictures land in

@@ -26,7 +26,7 @@
 //! page, `\clearpage` between them in one LaTeX document, a failed one as
 //! an `Error converting <name>: …` line in its place; the formats that
 //! cannot be joined — JSON, chunks, Pandoc, VTT (one media file's cues),
-//! dclx (a binary archive), images — answer a JSON `results` array with
+//! reader, dclx (a binary archive), images — answer a JSON `results` array with
 //! per-item status) or an `application/json` body
 //! `{"url": "https://…", "file_name"?: "override.pdf"}`.
 //! Options ride along as multipart text parts, JSON fields, or query
@@ -35,7 +35,9 @@
 //! - `to` — `md` (default) | `json` | `html` (#492) | `text` (#613: docling's plain
 //!   text, `export_to_text`) | `dclx` | `chunks` | `latex` (#317) |
 //!   `pandoc` (#515: Pandoc's AST as JSON, for `pandoc -f json`) | `vtt`
-//!   (#614: WebVTT subtitles, a cue per timed text item) | `images` (#243:
+//!   (#614: WebVTT subtitles, a cue per timed text item) | `reader` (the
+//!   page-by-page chunks a read-aloud client plays — text, role, box, word
+//!   boxes, spoken formulas; `docs/READER_FORMAT.md`) | `images` (#243:
 //!   rasterize a PDF's pages to PNG — no conversion, no models;
 //!   the JSON response is `{"pages": [{"page", "width", "height",
 //!   "png_base64"}]}`, combines with `pages` for a window, capped at
@@ -1859,6 +1861,7 @@ impl OutputNames {
             "text" => "txt",
             "pandoc" => "pandoc.json",
             "vtt" => "vtt",
+            "reader" => "reader.json",
             _ => unreachable!("validated above"),
         };
         Self {
@@ -2363,6 +2366,17 @@ fn render_stored(
             pdf_repairs: None,
             body: text_string(state, document, options).into_bytes(),
         },
+        // The reader export (docs/READER_FORMAT.md): JSON chunks for a
+        // read-aloud client, one document per response.
+        "reader" => StoredResponse {
+            errors: Vec::new(),
+            content_type: "application/json",
+            disposition: None,
+            confidence,
+            redaction: None,
+            pdf_repairs: None,
+            body: document.export_to_reader_json().into_bytes(),
+        },
         // #614: docling's `--to vtt`, a text body like Markdown.
         "vtt" => StoredResponse {
             errors: Vec::new(),
@@ -2471,6 +2485,7 @@ fn batch_item(
         "latex" => item["latex"] = json!(document.export_to_latex()),
         "text" => item["text"] = json!(text_string(state, document, options)),
         "vtt" => item["vtt"] = json!(document.export_to_vtt()),
+        "reader" => item["reader"] = document.export_to_reader_value(),
         "html" => item["html"] = json!(html_string(document, image_mode)),
         // #515: the AST inline as an object, like the docling JSON document.
         "pandoc" => {

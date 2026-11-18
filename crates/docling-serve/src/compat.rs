@@ -51,6 +51,8 @@ enum Format {
     Text,
     Doctags,
     Doclang,
+    /// This server's own: the reader export (`docs/READER_FORMAT.md`).
+    Reader,
 }
 
 impl Format {
@@ -65,6 +67,7 @@ impl Format {
             "text" | "txt" => Self::Text,
             "doctags" => Self::Doctags,
             "doclang" => Self::Doclang,
+            "reader" => Self::Reader,
             _ => return None,
         })
     }
@@ -78,6 +81,7 @@ impl Format {
             Self::Text => "text_content",
             Self::Doctags => "doctags_content",
             Self::Doclang => "doclang_content",
+            Self::Reader => "reader_content",
         }
     }
 
@@ -90,6 +94,7 @@ impl Format {
             Self::Text => "txt",
             Self::Doctags => "doctags",
             Self::Doclang => "dclg.xml",
+            Self::Reader => "reader.json",
         }
     }
 }
@@ -364,6 +369,7 @@ fn export_document(
         "text_content": null,
         "doctags_content": null,
         "doclang_content": null,
+        "reader_content": null,
     });
     let Some(doc) = document else {
         return out;
@@ -376,6 +382,7 @@ fn export_document(
             // #613: docling-core's `export_to_text`.
             Format::Text => json!(text_string(state, doc, opts)),
             Format::Doclang => json!(doc.export_to_doclang()),
+            Format::Reader => doc.export_to_reader_value(),
             Format::Doctags => Value::Null,
         };
     }

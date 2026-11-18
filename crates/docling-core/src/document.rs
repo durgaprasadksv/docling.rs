@@ -1618,6 +1618,22 @@ impl DoclingDocument {
         crate::json::to_json(self)
     }
 
+    /// The `reader` export (see [`crate::reader`]): the document as the
+    /// page-by-page chunks a read-aloud client plays — text, role, box, word
+    /// boxes and, for formulas, the spoken forms — built from the JSON export
+    /// with word provenance and speech switched on whatever the process-wide
+    /// `DOCLING_RS_WORD_PROV` / `DOCLING_RS_SPEECH` flags say.
+    pub fn export_to_reader_value(&self) -> serde_json::Value {
+        let doc = crate::json::with_reader_extras(|| crate::json::to_json(self));
+        crate::reader::from_docling_json(&doc)
+    }
+
+    /// [`Self::export_to_reader_value`], pretty-printed.
+    pub fn export_to_reader_json(&self) -> String {
+        serde_json::to_string_pretty(&self.export_to_reader_value())
+            .expect("the reader export is always serializable")
+    }
+
     /// Write the JSON of [`Self::export_to_json_value`] to `writer`, compact
     /// — byte for byte `serde_json::to_writer(writer, &doc.export_to_json_value())`
     /// — without building the `Value`: the export holds its text items in a

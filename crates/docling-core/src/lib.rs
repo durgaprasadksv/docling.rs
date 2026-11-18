@@ -34,6 +34,7 @@ pub mod metadata;
 pub mod pandoc;
 pub mod pdf_repair;
 mod pixel_digest;
+pub mod reader;
 pub mod redact;
 mod revisions;
 /// Spoken-form rendering of formula items (LaTeX -> MathML -> English).

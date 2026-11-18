@@ -1218,6 +1218,11 @@ fn render_item(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
         }
         // A CodeFormula-decoded display formula renders as docling's `$$…$$`
         // (the un-enriched pipeline emits a placeholder paragraph instead).
+        // … and an undecoded one (empty LaTeX: the layout model found a formula
+        // the enrichment did not read) is docling's placeholder comment.
+        Node::Formula { latex, .. } if latex.is_empty() => {
+            blocks.push("<!-- formula-not-decoded -->".to_string())
+        }
         Node::Formula { latex, .. } => blocks.push(format!("$${latex}$$")),
         Node::Table(table) => {
             // docling renders a table's caption as a text line before the grid.
@@ -1739,6 +1744,26 @@ fn escape_cell(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// A formula the layout model found but no model decoded keeps docling's
+    /// placeholder comment in Markdown (the PDF groundtruth's text), while
+    /// staying a formula item — with its box — in the JSON.
+    #[test]
+    fn undecoded_formula_is_doclings_placeholder() {
+        let mut doc = crate::DoclingDocument::new("t");
+        doc.push(crate::Node::Formula {
+            latex: String::new(),
+            orig: "x2".into(),
+            location: Some([0, 0, 100, 100]),
+        });
+        assert_eq!(
+            doc.export_to_markdown().trim(),
+            "<!-- formula-not-decoded -->"
+        );
+        let v: serde_json::Value = serde_json::from_str(&doc.export_to_json()).unwrap();
+        assert_eq!(v["texts"][0]["label"], "formula");
+        assert_eq!(v["texts"][0]["text"], "");
+    }
+
     use super::*;
     use crate::{PictureImage, TableCell, TableStructure};
 

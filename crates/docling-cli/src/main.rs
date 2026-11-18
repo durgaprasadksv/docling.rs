@@ -535,9 +535,11 @@ const HELP: &str = "\
 Convert documents to Markdown, JSON, plain text, DocLang, LaTeX, Pandoc AST, WebVTT or chunks.
 
 OUTPUT
-  --to md|json|html|text|dclx|chunks|images|latex|pandoc|vtt   output format (default: md); repeat
-                          it (or comma-separate) to write several — needs --output;
-                          vtt = WebVTT subtitles from a transcript's (or a .vtt's) cues
+  --to md|json|html|text|dclx|chunks|images|latex|pandoc|vtt|reader   output format (default: md);
+                          repeat it (or comma-separate) to write several — needs --output;
+                          vtt = WebVTT subtitles from a transcript's (or a .vtt's) cues;
+                          reader = page-by-page chunks for a read-aloud client (text, role,
+                          box, word boxes, spoken formulas; docs/READER_FORMAT.md)
   --strict                cleaner, more conformant Markdown (Markdown only)
   --page-break-placeholder TEXT   insert TEXT between pages (Markdown only, e.g. <!-- page break -->)
   --layers body|all|LIST  content layers md/text/html render (default body; LIST from
@@ -2742,6 +2744,8 @@ fn batch_out_path(file: &Path, base: &Path, output: &Path, to: &str) -> std::pat
         // #515: Pandoc's own extension is `.json`; the double extension keeps
         // it apart from docling's JSON when both are requested.
         "pandoc" => "pandoc.json",
+        // The reader export is JSON too; the double extension keeps it apart.
+        "reader" => "reader.json",
         "images" => "png", // a stem carrier: pages land as `<stem>_page_NNNN.png`
         _ => "md",
     };
@@ -3069,6 +3073,10 @@ fn write_batch_outputs(
                 })
                 .map_err(|e| format!("writing {}: {e}", out.display()))?,
             "chunks" => std::fs::write(&out, chunks_json(document, &cfg.chunk)?)
+                .map_err(|e| format!("writing {}: {e}", out.display()))?,
+            // The reader export: chunks with roles, boxes and word boxes for a
+            // read-aloud client (docs/READER_FORMAT.md).
+            "reader" => std::fs::write(&out, document.export_to_reader_json())
                 .map_err(|e| format!("writing {}: {e}", out.display()))?,
             // #317: the upstream CLI writes the serializer's text verbatim.
             "latex" => std::fs::write(&out, document.export_to_latex())
@@ -3569,6 +3577,12 @@ fn output_document(
         return ExitCode::SUCCESS;
     }
 
+    if to == "reader" {
+        // The reader export (docs/READER_FORMAT.md): the document as the
+        // page-by-page chunks a read-aloud client plays.
+        print!("{}", document.export_to_reader_json());
+        return ExitCode::SUCCESS;
+    }
     if to == "chunks" {
         // Chunking conformance/debug dump: a JSON object with the hierarchical
         // chunk records and, when a tokenizer is configured, the hybrid ones.

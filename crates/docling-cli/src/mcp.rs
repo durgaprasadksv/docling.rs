@@ -752,7 +752,7 @@ struct Request {
 /// `--to` (`dclx` is a ZIP and `images` page PNGs, neither of which fits a
 /// text result).
 const OUTPUTS: &[&str] = &[
-    "md", "json", "html", "text", "latex", "chunks", "vtt", "pandoc",
+    "md", "json", "html", "text", "latex", "chunks", "vtt", "pandoc", "reader",
 ];
 
 impl Request {
@@ -900,6 +900,7 @@ fn render(
         "text" => document.export_to_text(),
         "latex" => document.export_to_latex(),
         "vtt" => document.export_to_vtt(),
+        "reader" => document.export_to_reader_json(),
         "chunks" => {
             let mut warn = |msg: String| eprintln!("warning: {msg}");
             let records = docling::chunks::chunk_records(document, &mut warn);

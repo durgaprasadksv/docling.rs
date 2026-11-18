@@ -3881,6 +3881,19 @@ pub fn assemble_page(
         for c in children {
             let t = region_texts[c].trim();
             if !t.is_empty() {
+                // The child's word provenance follows its text: shifted to
+                // where it lands in the head's — after the head's own text
+                // and the suffix so far, past the joining space, minus the
+                // leading whitespace the trim took off.
+                let offset =
+                    region_texts[head].chars().count() + merge_suffix[head].chars().count() + 1;
+                let lead =
+                    region_texts[c].chars().count() - region_texts[c].trim_start().chars().count();
+                if let Some(cs) = region_spans[c].take() {
+                    region_spans[head]
+                        .get_or_insert_with(Vec::new)
+                        .extend(cs.iter().filter_map(|s| shift_span(s, lead, offset)));
+                }
                 merge_suffix[head].push(' ');
                 merge_suffix[head].push_str(t);
             }
@@ -4139,8 +4152,15 @@ pub fn assemble_page(
                     orig: text.clone(),
                     location: Some(loc),
                 }),
-                _ => nodes.push(Node::Paragraph {
-                    text: "<!-- formula-not-decoded -->".into(),
+                // Undecoded, it is still a formula with a place on the page
+                // (docling's item: label `formula`, empty text, its `prov`) —
+                // a reader needs the box to announce it; the Markdown
+                // serializer writes docling's `<!-- formula-not-decoded -->`
+                // for the empty LaTeX.
+                _ => nodes.push(Node::Formula {
+                    latex: String::new(),
+                    orig: text.clone(),
+                    location: Some(loc),
                 }),
             },
             // Code blocks: use the space-glyph-only grouping (monospace keeps its
@@ -4430,23 +4450,73 @@ fn paragraph_is_open(text: &str) -> bool {
 /// provenance wrapper (PDF body paragraphs are wrapped since they carry a
 /// `<location>`). Returns `None` for non-paragraph nodes.
 fn as_paragraph(n: &Node) -> Option<&str> {
-    match n {
+    match content(n) {
         Node::Paragraph { text } => Some(text),
-        Node::Located { inner, .. } => match inner.as_ref() {
-            Node::Paragraph { text } => Some(text),
-            _ => None,
-        },
         _ => None,
     }
 }
 
-/// Whether a node is a picture, looking through a [`Node::Located`] wrapper.
-fn is_picture_node(n: &Node) -> bool {
-    match n {
-        Node::Picture { .. } => true,
-        Node::Located { inner, .. } => matches!(inner.as_ref(), Node::Picture { .. }),
-        _ => false,
+/// The content node inside its provenance wrappers — [`Node::Spanned`]
+/// (per-cell word boxes) outside [`Node::Located`] (the layout box). Every
+/// merge helper reads through both: the span wrapper was added after these
+/// helpers were written, and while they saw only `Located`, a spanned
+/// paragraph was never "a paragraph" to the merge, so continuations across
+/// a figure or a page break silently stopped joining.
+fn content(n: &Node) -> &Node {
+    let mut n = n;
+    loop {
+        match n {
+            Node::Spanned { inner, .. } | Node::Located { inner, .. } => n = inner,
+            _ => return n,
+        }
     }
+}
+
+fn content_mut(n: &mut Node) -> &mut Node {
+    let mut n = n;
+    loop {
+        match n {
+            Node::Spanned { inner, .. } | Node::Located { inner, .. } => n = inner,
+            _ => return n,
+        }
+    }
+}
+
+/// A node's provenance wrappers: its layout box and its word spans.
+fn wrappers(n: &Node) -> (Option<[u16; 4]>, Option<&Vec<CellSpan>>) {
+    let (mut loc, mut spans) = (None, None);
+    let mut n = n;
+    loop {
+        match n {
+            Node::Spanned { spans: s, inner } => {
+                spans = Some(s);
+                n = inner;
+            }
+            Node::Located { location, inner } => {
+                loc = Some(*location);
+                n = inner;
+            }
+            _ => return (loc, spans),
+        }
+    }
+}
+
+/// A span moved to a new place in a longer text: `lead` characters were
+/// trimmed off the front of its text, which now starts `offset` characters
+/// into the merged one. Gone when nothing of it survives the trim.
+fn shift_span(s: &CellSpan, lead: usize, offset: usize) -> Option<CellSpan> {
+    let start = (s.char_start as usize).saturating_sub(lead) + offset;
+    let end = (s.char_end as usize).saturating_sub(lead) + offset;
+    (end > start).then_some(CellSpan {
+        char_start: start as u32,
+        char_end: end as u32,
+        ..*s
+    })
+}
+
+/// Whether a node is a picture, looking through its wrappers.
+fn is_picture_node(n: &Node) -> bool {
+    matches!(content(n), Node::Picture { .. })
 }
 
 /// A node a forward paragraph merge looks straight past: a figure or *table*
@@ -4455,15 +4525,16 @@ fn is_picture_node(n: &Node) -> bool {
 /// skip-labels: page_header, page_footer, table, picture, caption, footnote —
 /// 2206's "…In phase four," resumes after a full caption+table+figure block).
 fn is_merge_trailer(n: &Node) -> bool {
+    // Through the wrappers: a page header or footer carries word spans like
+    // any text region, so it arrives here as `Spanned { Located { … } }`.
     is_picture_node(n)
         || matches!(
-            n,
+            content(n),
             Node::PageFurniture { .. }
                 | Node::PageInfo { .. }
                 | Node::Table(_)
                 | Node::PictureChildren(_)
         )
-        || matches!(n, Node::Located { inner, .. } if matches!(inner.as_ref(), Node::Table(_)))
         || is_footnote_node(n)
         || as_paragraph(n).is_some_and(looks_like_caption)
 }
@@ -4473,20 +4544,25 @@ fn is_merge_trailer(n: &Node) -> bool {
 /// docling's merge skip-labels: a footnote between the two halves of a
 /// paragraph is looked past, never merged into.
 fn is_footnote_node(n: &Node) -> bool {
-    let n = match n {
-        Node::Located { inner, .. } => inner.as_ref(),
-        other => other,
-    };
-    matches!(n, Node::LabeledText { label, .. } if label == "footnote")
+    matches!(content(n), Node::LabeledText { label, .. } if label == "footnote")
 }
 
 /// Rebuild node `i` as a paragraph with `text`, preserving its `<location>`
-/// wrapper (and thus provenance) if it had one.
-fn reparagraph(node: &Node, text: String) -> Node {
-    match node {
-        Node::Located { location, .. } => located(*location, Node::Paragraph { text }),
-        _ => Node::Paragraph { text },
+/// wrapper (and thus provenance) if it had one, and carrying `spans` as its
+/// word provenance when there are any.
+fn reparagraph(node: &Node, text: String, spans: Vec<CellSpan>) -> Node {
+    let (loc, _) = wrappers(node);
+    let mut out = Node::Paragraph { text };
+    if let Some(loc) = loc {
+        out = located(loc, out);
     }
+    if !spans.is_empty() {
+        out = Node::Spanned {
+            spans,
+            inner: Box::new(out),
+        };
+    }
+    out
 }
 
 /// Whether `text` opens with a coordinating conjunction as a whole word
@@ -4508,10 +4584,7 @@ fn starts_with_conjunction(text: &str) -> bool {
 /// [`clean_text_keep_wrap`]): a word split nothing continued is just a word.
 fn strip_wrap_marks(nodes: &mut [Node]) {
     for n in nodes {
-        let n = match n {
-            Node::Located { inner, .. } => inner.as_mut(),
-            other => other,
-        };
+        let n = content_mut(n);
         if let Node::Paragraph { text } = n {
             if text.ends_with('\u{ad}') {
                 text.pop();
@@ -4568,7 +4641,9 @@ fn merge_open_paragraphs(nodes: &mut Vec<Node>) {
         });
         if cont {
             let a = as_paragraph(&nodes[i]).unwrap().trim_end().to_string();
-            let b = as_paragraph(&nodes[j]).unwrap().trim_start().to_string();
+            let b_full = as_paragraph(&nodes[j]).unwrap();
+            let b = b_full.trim_start().to_string();
+            let b_lead = b_full.chars().count() - b.chars().count();
             // A soft hyphen -- or a hard hyphen followed by a lowercase
             // continuation (guaranteed lowercase by the `cont` gate above) --
             // is a word split across the break: strip it and join without a
@@ -4581,13 +4656,30 @@ fn merge_open_paragraphs(nodes: &mut Vec<Node>) {
             // its space; docling fuses these (`Warteund`), a deliberate
             // divergence (docs/MIGRATION.md).
             let elliptical = !a.ends_with('\u{ad}') && starts_with_conjunction(&b);
-            let merged = match a.strip_suffix('\u{ad}').or_else(|| a.strip_suffix('-')) {
-                Some(stem) if !elliptical => format!("{stem}{b}"),
-                _ => format!("{a} {b}"),
+            let (head_len, merged) = match a.strip_suffix('\u{ad}').or_else(|| a.strip_suffix('-'))
+            {
+                Some(stem) if !elliptical => (stem.chars().count(), format!("{stem}{b}")),
+                _ => (a.chars().count(), format!("{a} {b}")),
             };
+            // Word provenance: the head's spans clipped to what survived of
+            // its text, then the continuation's, moved to where its text now
+            // starts — but only when both halves sit on one page. A tail
+            // from the next page has no place in this item's page geometry;
+            // its words are simply not covered.
+            let same_page = !nodes[i + 1..j]
+                .iter()
+                .any(|n| matches!(n, Node::PageInfo { .. } | Node::PageBreak));
+            let mut spans: Vec<CellSpan> = wrappers(&nodes[i]).1.cloned().unwrap_or_default();
+            clamp_spans(&mut spans, head_len);
+            if same_page {
+                let offset = merged.chars().count() - b.chars().count();
+                if let Some(bs) = wrappers(&nodes[j]).1 {
+                    spans.extend(bs.iter().filter_map(|s| shift_span(s, b_lead, offset)));
+                }
+            }
             // Keep node i's provenance wrapper; docling's merged paragraph keeps
             // the first fragment's geometry as its primary location.
-            nodes[i] = reparagraph(&nodes[i], merged);
+            nodes[i] = reparagraph(&nodes[i], merged, spans);
             nodes.remove(j);
             // Re-check i: the merged paragraph may continue further.
         } else {
@@ -5900,6 +5992,85 @@ mod tests {
         float_running_head(&mut nodes, &cells);
         assert_eq!(nodes[1], para("HEAD — 7"));
         assert_eq!(nodes[3], para("body"));
+    }
+
+    /// A paragraph continuing past a figure still merges when both halves
+    /// carry word spans, and the merged paragraph carries both halves' spans,
+    /// the continuation's moved to where its text now starts. Across a page
+    /// break the text merges but the tail's spans — geometry of another page
+    /// — are left out.
+    #[test]
+    fn merge_carries_word_spans_through_the_span_wrapper() {
+        use super::{as_paragraph, located, wrappers, CellSpan};
+        let span = |cs: u32, ce: u32| CellSpan {
+            char_start: cs,
+            char_end: ce,
+            l: cs as f32,
+            t: 10.0,
+            r: ce as f32,
+            b: 0.0,
+        };
+        let spanned = |text: &str, spans: Vec<CellSpan>| Node::Spanned {
+            spans,
+            inner: Box::new(located(
+                [0, 0, 10, 10],
+                Node::Paragraph { text: text.into() },
+            )),
+        };
+        // "In phase four," + figure + "the team grew."
+        let mut nodes = vec![
+            spanned("In phase four,", vec![span(0, 2), span(3, 8), span(9, 14)]),
+            Node::Picture {
+                caption: None,
+                caption_href: None,
+                image: None,
+                classification: None,
+                description: None,
+                caption_parent: Default::default(),
+                caption_location: None,
+            },
+            spanned(
+                " the team grew.",
+                vec![span(1, 4), span(5, 9), span(10, 15)],
+            ),
+        ];
+        merge_continuations(&mut nodes);
+        assert_eq!(nodes.len(), 2, "{nodes:?}");
+        let (loc, spans) = wrappers(&nodes[0]);
+        assert_eq!(
+            as_paragraph(&nodes[0]),
+            Some("In phase four, the team grew.")
+        );
+        assert!(loc.is_some(), "location kept");
+        let spans = spans.expect("spans kept");
+        let ranges: Vec<(u32, u32)> = spans.iter().map(|s| (s.char_start, s.char_end)).collect();
+        // The continuation's "the" was at 1..4 of " the team grew."; it now
+        // starts at 15 (after "In phase four, ").
+        assert_eq!(
+            ranges,
+            [(0, 2), (3, 8), (9, 14), (15, 18), (19, 23), (24, 29)]
+        );
+
+        // Across a page break: text joins, the next page's spans do not come.
+        let mut nodes = vec![
+            spanned("vocab-", vec![span(0, 6)]),
+            Node::PageInfo {
+                page_no: 2,
+                width: 612.0,
+                height: 792.0,
+            },
+            spanned("ulary grows.", vec![span(0, 5), span(6, 12)]),
+        ];
+        merge_continuations(&mut nodes);
+        assert_eq!(as_paragraph(&nodes[0]), Some("vocabulary grows."));
+        let (_, spans) = wrappers(&nodes[0]);
+        let ranges: Vec<(u32, u32)> = spans
+            .unwrap()
+            .iter()
+            .map(|s| (s.char_start, s.char_end))
+            .collect();
+        // "vocab-" lost its hyphen: the span is clipped to the five letters.
+        assert_eq!(ranges, [(0, 5)]);
     }
 
     #[test]

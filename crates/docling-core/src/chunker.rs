@@ -487,6 +487,8 @@ impl Walker<'_> {
             }
             // An enriched display formula chunks like docling's formula item:
             // the LaTeX is the chunk text.
+            // An undecoded formula (empty LaTeX) has nothing to retrieve.
+            Node::Formula { latex, .. } if latex.is_empty() => {}
             Node::Formula { latex, .. } => {
                 let self_ref = self.alloc.text();
                 let body = format!("$${}$$", latex);

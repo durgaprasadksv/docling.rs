@@ -271,7 +271,8 @@ the same treatment is what closes those columns.
 
 Every format in docling's pipeline converts — plus a few docling lacks — to
 Markdown, docling JSON, plain text, DocLang `.dclx`, LaTeX, HTML, Pandoc AST,
-WebVTT and chunk records, with image extraction. The extension map
+WebVTT, chunk records and the `reader` chunk list for read-aloud clients
+(`docs/READER_FORMAT.md`, an extension), with image extraction. The extension map
 (`InputFormat::from_extension`, docling's `FormatToExtensions`) picks the
 backend; a file that fails under its extension is checked by content and,
 when it is evidently another format (an RTF or HTML file saved as `.doc`),

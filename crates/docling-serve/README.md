@@ -80,7 +80,7 @@ wins). The output options belong to serve; every conversion option is a
 
 | Option | Values | Meaning |
 |---|---|---|
-| `to` | `md` (default) \| `json` \| `html` \| `text` \| `dclx` \| `latex` \| `pandoc` \| `vtt` \| `chunks` \| `images` | the output. `images` skips conversion and rasterizes a PDF's pages to PNG — `{"pages": [{"page", "width", "height", "png_base64"}]}` — honouring `pages` and `scale` (0.1–4.0 px/pt, default 2.0), at most 100 pages per request (`DOCLING_RS_MAX_RASTER_PAGES`) |
+| `to` | `md` (default) \| `json` \| `html` \| `text` \| `dclx` \| `latex` \| `pandoc` \| `vtt` \| `chunks` \| `reader` \| `images` | the output. `reader` is the page-by-page chunk list a read-aloud client plays (text, role, box, word boxes, spoken formulas; [`docs/READER_FORMAT.md`](../../docs/READER_FORMAT.md)); on `/v1/convert/file` ask for `to_formats=reader` and read `reader_content`. `images` skips conversion and rasterizes a PDF's pages to PNG — `{"pages": [{"page", "width", "height", "png_base64"}]}` — honouring `pages` and `scale` (0.1–4.0 px/pt, default 2.0), at most 100 pages per request (`DOCLING_RS_MAX_RASTER_PAGES`) |
 | `images` | `placeholder` \| `embedded` | pictures in the Markdown: `<!-- image -->` or `data:` URIs |
 | `pandoc_api_version` | `1.23`, … | the Pandoc API a `to=pandoc` caller expects |
 | `pandoc_heading_depth` | `docling` (default) \| `source` | the `Header` depth a section heading gets in the `to=pandoc` AST (#848): docling's title-reserving `n + 1`, or the source's own `n` (a DOCX `Heading 1` is `Header 1`, as `pandoc -f docx` reads it) |

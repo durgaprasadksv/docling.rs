@@ -99,6 +99,37 @@ pub(crate) fn code_language(lang: Option<&str>) -> &'static str {
     }
 }
 
+thread_local! {
+    /// Set while the reader export (`crate::reader`) runs the JSON export on
+    /// this thread: it wants the `words` arrays and the `speech` maps
+    /// regardless of the process-wide opt-in flags, which exist so that the
+    /// plain JSON stays byte-identical for consumers that never asked for
+    /// them. Thread-local, not global, because a server exports documents on
+    /// several threads at once and a plain export next door must not change.
+    static READER_EXTRAS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` with the reader extras (word boxes, speech) forced on for the JSON
+/// exports it performs on this thread.
+pub(crate) fn with_reader_extras<T>(f: impl FnOnce() -> T) -> T {
+    struct Reset(bool);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            READER_EXTRAS.with(|c| c.set(self.0));
+        }
+    }
+    let _reset = Reset(READER_EXTRAS.with(|c| c.replace(true)));
+    f()
+}
+
+fn words_wanted() -> bool {
+    READER_EXTRAS.with(|c| c.get()) || crate::env::flag("DOCLING_RS_WORD_PROV")
+}
+
+fn speech_wanted() -> bool {
+    READER_EXTRAS.with(|c| c.get()) || crate::env::flag("DOCLING_RS_SPEECH")
+}
+
 /// An item's exact provenance, written verbatim (see [`Builder::prov_json`]):
 /// a [`Node::Prov`] wrapper's top-left page box, or a tree item's
 /// [`TreeProv`](crate::tree::TreeProv).
@@ -2522,7 +2553,7 @@ impl Builder {
     /// existing consumer sees.
     fn take_words(&mut self, text: &str) -> Option<Value> {
         let spans = self.pending_spans.take()?;
-        if spans.is_empty() || self.cur_page == 0 || !crate::env::flag("DOCLING_RS_WORD_PROV") {
+        if spans.is_empty() || self.cur_page == 0 || !words_wanted() {
             return None;
         }
         // The substring each span covers, so the array can be read (and
@@ -2594,7 +2625,7 @@ impl Builder {
         // that could not be voiced carries no `speech` key at all — never the
         // raw extraction, which on a scanned page is whatever the OCR layer
         // produced and is routinely unreadable.
-        if crate::env::flag("DOCLING_RS_SPEECH") {
+        if speech_wanted() {
             if let Some(styles) = crate::speech::speak_latex(latex) {
                 item["speech"] = Value::Object(
                     styles
@@ -4985,6 +5016,50 @@ mod tests {
         } else {
             assert!(on["texts"][0].get("speech").is_none());
         }
+    }
+
+    /// The `reader` export wants the word boxes whatever the process-wide
+    /// flag says — and a plain JSON export on the same thread right after is
+    /// back to byte-identical, flag off.
+    #[test]
+    fn reader_export_forces_word_boxes_without_the_flag() {
+        let _env = env_guard();
+        std::env::remove_var("DOCLING_RS_WORD_PROV");
+        let mut doc = DoclingDocument::new("t");
+        doc.push(Node::PageInfo {
+            page_no: 1,
+            width: 612.0,
+            height: 792.0,
+        });
+        doc.push(Node::Spanned {
+            spans: vec![CellSpan {
+                char_start: 0,
+                char_end: 5,
+                l: 52.6,
+                t: 100.0,
+                r: 92.0,
+                b: 112.0,
+            }],
+            inner: Box::new(Node::Located {
+                location: [0, 0, 512, 64],
+                inner: Box::new(Node::Paragraph {
+                    text: "hello world".into(),
+                }),
+            }),
+        });
+        let reader = doc.export_to_reader_value();
+        let chunk = &reader["pages"][0][0];
+        assert_eq!(chunk["kind"], "paragraph");
+        assert_eq!(chunk["t"], "hello world");
+        assert_eq!(chunk["w"][0][0], 0);
+        assert_eq!(chunk["w"][0][1], 5);
+        assert_eq!(chunk["s"], 0);
+        assert_eq!(chunk["e"], 2);
+        let plain = doc.export_to_json_value();
+        assert!(
+            plain["texts"][0].get("words").is_none(),
+            "the plain export stays opt-in after a reader export"
+        );
     }
 
     /// An undecoded formula — the common case on a scanned page — stays silent
