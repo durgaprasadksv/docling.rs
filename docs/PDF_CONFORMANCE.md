@@ -776,6 +776,56 @@ column/page breaks, band-aware two-column reading order, **false-picture
 suppression** (empty low-confidence margin boxes on text pages), and
 **page-number-first** ordering.
 
+## OpenDataLoader's synthetic page corpus (measured)
+
+[OpenDataLoader-PDF](https://github.com/opendataloader-project/opendataloader-pdf)
+(Hancom, Apache-2.0) tests its layout heuristics with synthetic single-page
+PDFs its issue tests build and convert — a table of contents drawn column by
+column, two bulleted sections, numbered steps beside another column, a wrapped
+list item, a footer under the left column — each asserting a behaviour of the
+converted output. `tests/data/pdf/opendataloader/` holds the 170 fixtures a run
+of those tests left behind (upstream `5a7976a`, 2026-11-18), their own Markdown
+beside each, and `cases.json`: every upstream assertion with a counterpart on
+our output (ordered substrings, containment, Markdown line shape, list
+membership on the `reader` export), with the status it has against this build.
+`crates/docling/tests/opendataloader.rs` replays them (opt-in,
+`DOCLING_RS_ODL_CORPUS=1`; `scripts/conformance/opendataloader.sh`), failing on a
+regression, on an `xfail` that now passes, and on a word-recall drop;
+`scripts/conformance/opendataloader_cases.py` regenerates the file from the
+upstream sources (its README describes the scope and what was left out).
+
+Measured on this branch (fp32 layout model, no OCR needed — the pages carry a
+text layer):
+
+| | |
+|---|---|
+| cases with a counterpart check | 83 — **34 pass, 49 xfail** |
+| cases without one (assertions on OpenDataLoader's JSON shape) | 90, fixtures kept for recall |
+| word recall against OpenDataLoader's Markdown | **0.988** mean over 113 fixtures; lowest 0.50 (a struct-tree link fixture), then 0.86 |
+
+What the `xfail`s are, by cause — the reading-quality gaps this corpus
+pins down, independent of docling's fixtures:
+
+- **Bullet and numbered lines labelled as one paragraph** (issues 354, 905,
+  part of 755/876/904): the layout model boxes a run of `· item` or `1. item`
+  lines as a single `text` region, so they are one paragraph with the markers
+  inside it instead of list items. OpenDataLoader splits on the markers.
+  Twenty-odd cases; the single largest gap for a read-aloud client.
+- **Nested and wrapped list items** (755): a `o` sub-bullet line below a dash
+  item becomes its own item at the same level, and a dash-led wrapped line of
+  an item becomes a new item; the nested-list indentation in Markdown is lost.
+- **Reading order across sections and columns** (396, 920, 389): a heading or a
+  small-text block below two columns that end level is read before the second
+  column finishes; two tables of contents side by side interleave their rows.
+- **Hyperlinks in Markdown** (676): link annotations are not written as
+  `[text](url)` around the text they cover. Nine cases; irrelevant to speech.
+- **Wrapped table cells** (936): the second line of a wrapped cell is lost or
+  joins the neighbouring cell.
+
+These are deviations from OpenDataLoader, not from docling — docling's own
+pipeline makes the same layout-model calls on these pages. They are recorded
+here as measured targets; closing one updates its case to `pass`.
+
 ## Remaining blockers (model-level)
 
 These yield smaller or uncertain gains than the text-layer work already shipped.

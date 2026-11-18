@@ -191,6 +191,12 @@ path = "tests/suite/main.rs"
 name = "image_sources"
 path = "tests/image_sources.rs"
 
+# OpenDataLoader's synthetic page cases (tests/data/pdf/opendataloader/);
+# opt-in with DOCLING_RS_ODL_CORPUS=1 — scripts/conformance/opendataloader.sh.
+[[test]]
+name = "opendataloader"
+path = "tests/opendataloader.rs"
+
 [[test]]
 name = "no_ocr"
 path = "tests/no_ocr.rs"

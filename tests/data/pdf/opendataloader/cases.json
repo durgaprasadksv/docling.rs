@@ -1,0 +1,4638 @@
+{
+ "upstream": {
+  "repo": "https://github.com/opendataloader-project/opendataloader-pdf",
+  "commit": "5a7976a"
+ },
+ "counts": {
+  "xfail": 49,
+  "pass": 34,
+  "unchecked": 90
+ },
+ "cases": [
+  {
+   "id": "354/bulletsOfTwoSectionsAreTwoLists",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "bulletsOfTwoSectionsAreTwoLists",
+   "pdf": "issue-354-one-column/one-column.pdf",
+   "doc": "One column, two sections: one list for the bullets of each section, and the second title between them.",
+   "checks": {
+    "order": [
+     [
+      "Keep the small parts",
+      "While you work"
+     ],
+     [
+      "While you work",
+      "Turn off the power"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [
+     [
+      "Read all the steps",
+      "Keep the small parts",
+      "Turn off the power",
+      "Do not use force"
+     ]
+    ],
+    "in_list": [],
+    "not_in_list": [
+     "While you work"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "354/bulletsOfTwoSectionsInTwoColumnsAreFourLists",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "bulletsOfTwoSectionsInTwoColumnsAreFourLists",
+   "pdf": "issue-354-two-columns/two-columns.pdf",
+   "doc": "Two columns, two sections, with the titles drawn first in the page content: one list for each section and column, and the second title between the lists of its column.",
+   "checks": {
+    "order": [
+     [
+      "Keep the parts dry",
+      "While you work"
+     ],
+     [
+      "While you work",
+      "Turn off the power"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [
+     [
+      "Read all the steps",
+      "Keep the parts dry",
+      "Turn off the power",
+      "Do not use force"
+     ],
+     [
+      "Check that no part",
+      "Find the tools",
+      "Work in a dry room",
+      "Stop if you see smoke"
+     ]
+    ],
+    "in_list": [],
+    "not_in_list": [
+     "While you work"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "354/subtitleBetweenBulletsIsNotInTheList",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "subtitleBetweenBulletsIsNotInTheList",
+   "pdf": "issue-354-subtitle/subtitle.pdf",
+   "doc": "A subtitle at the bullets between two groups of bullets is a paragraph between two lists, not in an item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [
+     [
+      "Tag each element",
+      "Give each figure",
+      "Use Unicode",
+      "Show the document"
+     ]
+    ],
+    "in_list": [],
+    "not_in_list": [
+     "More rules:"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "354/bulletOfASectionWithOneBulletIsNotInTheListAbove",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "bulletOfASectionWithOneBulletIsNotInTheListAbove",
+   "pdf": "issue-354-one-bullet/one-bullet.pdf",
+   "doc": "A section with one bullet: the bullet does not go on in the list of the section above.",
+   "checks": {
+    "order": [
+     [
+      "After the work",
+      "Take the old parts"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "Take the old parts"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertNotNull(list, \"the list of the first section is lost: \" + document)"
+   ],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "354/bulletsOfTwoSectionsInOneColumnWithTitlesDrawnFirstAreTwoLists",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "bulletsOfTwoSectionsInOneColumnWithTitlesDrawnFirstAreTwoLists",
+   "pdf": "issue-354-one-column-titles-first/one-column-titles-first.pdf",
+   "doc": "One column, two sections, with the titles drawn first in the page content: one list for the bullets of each section, and the second title between them.",
+   "checks": {
+    "order": [
+     [
+      "Keep the parts dry",
+      "While you work"
+     ],
+     [
+      "While you work",
+      "Turn off the power"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [
+     [
+      "Read all the steps",
+      "Keep the parts dry",
+      "Turn off the power",
+      "Do not use force"
+     ]
+    ],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "354/bulletsOfTwoSectionsWithBoldTitlesInTheirSizeAreTwoLists",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "bulletsOfTwoSectionsWithBoldTitlesInTheirSizeAreTwoLists",
+   "pdf": "issue-354-bold-titles/bold-titles.pdf",
+   "doc": "Titles in the font size of the bullets, only in bold: one list for the bullets of each section.",
+   "checks": {
+    "order": [
+     [
+      "Keep the parts dry",
+      "While you work"
+     ],
+     [
+      "While you work",
+      "Turn off the power"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [
+     [
+      "Read all the steps",
+      "Keep the parts dry",
+      "Turn off the power",
+      "Do not use force"
+     ]
+    ],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "354/bulletsOfTwoSectionsWithOneBulletEachAreNotOneList",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "bulletsOfTwoSectionsWithOneBulletEachAreNotOneList",
+   "pdf": "issue-354-one-bullet-each/one-bullet-each.pdf",
+   "doc": "Two sections with one bullet each, with the titles drawn first in the page content: the two bullets are not one list, and the second title is between them.",
+   "checks": {
+    "order": [
+     [
+      "Read all the steps",
+      "After the work"
+     ],
+     [
+      "After the work",
+      "Take the old parts"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "Take the old parts"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "354/bulletsWithWrappedLinesStayOneList",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "bulletsWithWrappedLinesStayOneList",
+   "pdf": "issue-354-wrapped-lines/wrapped-lines.pdf",
+   "doc": "Guard: one list without titles, whose items have lines that start at the text of the item, stays one list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertNotNull(listWithItem(document, \"Read all the steps\"), \"the list is lost: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "354/bulletsWithLinesAtTheBulletStayOneList",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "bulletsWithLinesAtTheBulletStayOneList",
+   "pdf": "issue-354-lines-at-bullet/lines-at-bullet.pdf",
+   "doc": "Guard: a list whose items go on in lines that start at the bullets stays one list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertNotNull(listWithItem(document, \"Read all the steps\"), \"the list is lost: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "354/numberedListWithACaptionBetweenItemsStaysOneList",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "numberedListWithACaptionBetweenItemsStaysOneList",
+   "pdf": "issue-354-numbered-caption/numbered-caption.pdf",
+   "doc": "Guard: a numbered list with a caption between two items, at the numbers, stays one list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertNotNull(listWithItem(document, \"1. Find the length\"), \"the list is lost: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "354/itemWithASecondParagraphStaysInTheList",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "itemWithASecondParagraphStaysInTheList",
+   "pdf": "issue-354-second-paragraph/second-paragraph.pdf",
+   "doc": "Guard: an item with a second paragraph at the text of the item stays in one list with the items after it.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertNotNull(listWithItem(document, \"Read all the steps\"), \"the list is lost: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "354/itemParagraphAtTheBulletsStaysInTheList",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "itemParagraphAtTheBulletsStaysInTheList",
+   "pdf": "issue-354-item-paragraph/item-paragraph.pdf",
+   "doc": "Guard: a paragraph of an item in the font of the items, at the bullets and after an empty line, stays in one list with the items after it. Only a title, in a larger or a heavier font, ends the list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertNotNull(listWithItem(document, \"Read all the steps\"), \"the list is lost: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "354/listThatGoesOnInTheNextPageStaysConnected",
+   "issue": "354",
+   "test": "Issue354BulletsAcrossSectionTitlesTest",
+   "method": "listThatGoesOnInTheNextPageStaysConnected",
+   "pdf": "issue-354-next-page/next-page.pdf",
+   "doc": "Guard: a list at the end of a page that goes on at the start of the next page stays connected.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertEquals(next.path(\"id\").asInt(), list.path(\"next list id\").asInt(-1),\n            \"the list of the first page is not connected t)",
+    "assertNotNull(list, \"the list of the first page is lost: \" + document)",
+    "assertNotNull(next, \"the list of the second page is lost: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "388/headingOfAStepWithTwoLinesOfTextIsAnElementOfItsOwn",
+   "issue": "388",
+   "test": "Issue388BoldStepHeadingsTest",
+   "method": "headingOfAStepWithTwoLinesOfTextIsAnElementOfItsOwn",
+   "pdf": "issue-388-two-lines/two-lines.pdf",
+   "doc": "A step with a text of two lines: the heading is an element of its own, without the text of its step.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "388/headingOfAStepWithThreeLinesOfTextIsAnElementOfItsOwn",
+   "issue": "388",
+   "test": "Issue388BoldStepHeadingsTest",
+   "method": "headingOfAStepWithThreeLinesOfTextIsAnElementOfItsOwn",
+   "pdf": "issue-388-three-lines/three-lines.pdf",
+   "doc": "A step with a text of three lines: the heading is an element of its own.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "388/headingsOfStepsOneAfterTheOtherStayElementsOfTheirOwn",
+   "issue": "388",
+   "test": "Issue388BoldStepHeadingsTest",
+   "method": "headingsOfStepsOneAfterTheOtherStayElementsOfTheirOwn",
+   "pdf": "issue-388-steps/steps.pdf",
+   "doc": "Guard: three steps one after the other, each with a text of two lines, keep each heading as an element of its own.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "388/headingOfAStepWithOneLineOfTextStaysAnElementOfItsOwn",
+   "issue": "388",
+   "test": "Issue388BoldStepHeadingsTest",
+   "method": "headingOfAStepWithOneLineOfTextStaysAnElementOfItsOwn",
+   "pdf": "issue-388-one-line/one-line.pdf",
+   "doc": "Guard: a step with a text of one line keeps its heading as an element of its own.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "388/firstLineThatStartsWithABoldWordStaysInItsParagraph",
+   "issue": "388",
+   "test": "Issue388BoldStepHeadingsTest",
+   "method": "firstLineThatStartsWithABoldWordStaysInItsParagraph",
+   "pdf": "issue-388-bold-word/bold-word.pdf",
+   "doc": "Guard: a paragraph whose first line is indented and starts with a bold word, and then has regular words, stays one paragraph.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "388/indentedBoldFirstLineStaysInItsParagraph",
+   "issue": "388",
+   "test": "Issue388BoldStepHeadingsTest",
+   "method": "indentedBoldFirstLineStaysInItsParagraph",
+   "pdf": "issue-388-indented-bold-first-line/indented-bold-first-line.pdf",
+   "doc": "Guard: a paragraph whose first line is indented and all bold, and whose other lines are regular, stays one paragraph. The indent shows that the line starts the paragraph; a step heading is not indented from its text.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "388/indentedFirstLineStaysInItsParagraph",
+   "issue": "388",
+   "test": "Issue388BoldStepHeadingsTest",
+   "method": "indentedFirstLineStaysInItsParagraph",
+   "pdf": "issue-388-indented-first-line/indented-first-line.pdf",
+   "doc": "Guard: a paragraph in one font whose first line is indented stays one paragraph.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "389/rowsDrawnByColumnsAreOneLineEach",
+   "issue": "389",
+   "test": "Issue389TocRowsWithLeadersTest",
+   "method": "rowsDrawnByColumnsAreOneLineEach",
+   "pdf": "issue-389-columns/columns.pdf",
+   "doc": "The page content draws the columns of the rows in turn.",
+   "checks": {
+    "order": [
+     [
+      "Introduction",
+      "Background of the plan",
+      "Methods",
+      "Results of the survey",
+      "Discussion",
+      "Appendix tables"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [
+     [
+      "01",
+      "Introduction",
+      "03"
+     ],
+     [
+      "02",
+      "Background of the plan",
+      "09"
+     ],
+     [
+      "03",
+      "Methods",
+      "14"
+     ],
+     [
+      "04",
+      "Results of the survey",
+      "22"
+     ],
+     [
+      "05",
+      "Discussion",
+      "27"
+     ],
+     [
+      "06",
+      "Appendix tables",
+      "41"
+     ]
+    ],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "389/twoTablesOfContentsSideBySideKeepTheirRows",
+   "issue": "389",
+   "test": "Issue389TocRowsWithLeadersTest",
+   "method": "twoTablesOfContentsSideBySideKeepTheirRows",
+   "pdf": "issue-389-two-tables/two-tables.pdf",
+   "doc": "Two tables of contents side by side, 10 pt apart, each drawn by columns: each row has only its own texts, and the rows of the left table come first.",
+   "checks": {
+    "order": [
+     [
+      "Introduction",
+      "Background of the plan",
+      "Methods",
+      "Results of the survey",
+      "Discussion",
+      "Appendix tables"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [
+     [
+      "01",
+      "Introduction",
+      "03"
+     ],
+     [
+      "02",
+      "Background of the plan",
+      "09"
+     ],
+     [
+      "03",
+      "Methods",
+      "14"
+     ],
+     [
+      "04",
+      "Results of the survey",
+      "22"
+     ],
+     [
+      "05",
+      "Discussion",
+      "27"
+     ],
+     [
+      "06",
+      "Appendix tables",
+      "41"
+     ]
+    ],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "389/textOfAnotherColumnStaysOutOfTheRows",
+   "issue": "389",
+   "test": "Issue389TocRowsWithLeadersTest",
+   "method": "textOfAnotherColumnStaysOutOfTheRows",
+   "pdf": "issue-389-text-and-table/text-and-table.pdf",
+   "doc": "A column of text to the left of the table of contents, on the same baselines, 20 pt to 38 pt from the numbers: the text stays one paragraph, and no word of it goes into a row.",
+   "checks": {
+    "order": [
+     [
+      "Introduction",
+      "Background of the plan",
+      "Methods",
+      "Results of the survey",
+      "Discussion",
+      "Appendix tables"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [
+     [
+      "01",
+      "Introduction",
+      "03"
+     ],
+     [
+      "02",
+      "Background of the plan",
+      "09"
+     ],
+     [
+      "03",
+      "Methods",
+      "14"
+     ],
+     [
+      "04",
+      "Results of the survey",
+      "22"
+     ],
+     [
+      "05",
+      "Discussion",
+      "27"
+     ],
+     [
+      "06",
+      "Appendix tables",
+      "41"
+     ]
+    ],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "389/rowsDrawnOneAfterTheOtherStayOneLineEach",
+   "issue": "389",
+   "test": "Issue389TocRowsWithLeadersTest",
+   "method": "rowsDrawnOneAfterTheOtherStayOneLineEach",
+   "pdf": "issue-389-rows/rows.pdf",
+   "doc": "Guard: the rows of a table of contents that the page content draws one after the other stay one line each.",
+   "checks": {
+    "order": [
+     [
+      "Introduction",
+      "Background of the plan",
+      "Methods",
+      "Results of the survey",
+      "Discussion",
+      "Appendix tables"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [
+     [
+      "01",
+      "Introduction",
+      "03"
+     ],
+     [
+      "02",
+      "Background of the plan",
+      "09"
+     ],
+     [
+      "03",
+      "Methods",
+      "14"
+     ],
+     [
+      "04",
+      "Results of the survey",
+      "22"
+     ],
+     [
+      "05",
+      "Discussion",
+      "27"
+     ],
+     [
+      "06",
+      "Appendix tables",
+      "41"
+     ]
+    ],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "389/oneRowIsOneLine",
+   "issue": "389",
+   "test": "Issue389TocRowsWithLeadersTest",
+   "method": "oneRowIsOneLine",
+   "pdf": "issue-389-one-row/one-row.pdf",
+   "doc": "Guard: a table of contents of one row, drawn by columns, is one line.",
+   "checks": {
+    "order": [
+     [
+      "Introduction"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [
+     [
+      "01",
+      "Introduction",
+      "03"
+     ]
+    ],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "389/rowsOfAFormWithDottedLinesKeepTheirOrder",
+   "issue": "389",
+   "test": "Issue389TocRowsWithLeadersTest",
+   "method": "rowsOfAFormWithDottedLinesKeepTheirOrder",
+   "pdf": "issue-389-form/form.pdf",
+   "doc": "Guard: the rows of a form, each with two labels and a dotted line after each label, 26 pt apart, drawn by columns, keep the order of the rows: the labels of a row come before the labels of the next row.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(index > previous, \"the labels of the form are not in the order of the rows: \" + markdown)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "389/titlesWithSpacesOfTheirOwnHaveOneSpaceBetweenWords",
+   "issue": "389",
+   "test": "Issue389TocRowsWithLeadersTest",
+   "method": "titlesWithSpacesOfTheirOwnHaveOneSpaceBetweenWords",
+   "pdf": "issue-389-spaces/spaces.pdf",
+   "doc": "Titles whose page content draws each space as a text of its own, in another font: each row has one space between the words of its title.",
+   "checks": {
+    "order": [
+     [
+      "Introduction",
+      "Background of the plan",
+      "Methods",
+      "Results of the survey",
+      "Discussion",
+      "Appendix tables"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [
+     [
+      "01",
+      "Introduction",
+      "03"
+     ],
+     [
+      "02",
+      "Background of the plan",
+      "09"
+     ],
+     [
+      "03",
+      "Methods",
+      "14"
+     ],
+     [
+      "04",
+      "Results of the survey",
+      "22"
+     ],
+     [
+      "05",
+      "Discussion",
+      "27"
+     ],
+     [
+      "06",
+      "Appendix tables",
+      "41"
+     ]
+    ],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "389/aTableBetweenTheColumnsInThePageContentStaysBelowTheRows",
+   "issue": "389",
+   "test": "Issue389TocRowsWithLeadersTest",
+   "method": "aTableBetweenTheColumnsInThePageContentStaysBelowTheRows",
+   "pdf": "issue-389-table-between/table-between.pdf",
+   "doc": "A table with borders below the table of contents, which the page content draws after the titles and before the numbers: each row is one line, and the table comes after the rows with its cells.",
+   "checks": {
+    "order": [
+     [
+      "Introduction",
+      "Background of the plan",
+      "Methods",
+      "Results of the survey",
+      "Discussion",
+      "Appendix tables"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [
+     [
+      "01",
+      "Introduction",
+      "03"
+     ],
+     [
+      "02",
+      "Background of the plan",
+      "09"
+     ],
+     [
+      "03",
+      "Methods",
+      "14"
+     ],
+     [
+      "04",
+      "Results of the survey",
+      "22"
+     ],
+     [
+      "05",
+      "Discussion",
+      "27"
+     ],
+     [
+      "06",
+      "Appendix tables",
+      "41"
+     ]
+    ],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(lastRow < north && north < markdown.indexOf(\"East\")\n                && markdown.indexOf(\"East\") < markdown.indexOf(\"Sout)"
+   ],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "389/aNumberOfAnotherColumnStaysOutOfTheRows",
+   "issue": "389",
+   "test": "Issue389TocRowsWithLeadersTest",
+   "method": "aNumberOfAnotherColumnStaysOutOfTheRows",
+   "pdf": "issue-389-number-of-another-column/number-of-another-column.pdf",
+   "doc": "A table of contents without numbers, and a column of a form to its left, its values 20 pt before the titles: the value that is a number stays in its column, out of the row on its baseline. The rows come in their order; without numbers, the rows can be one paragraph.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(index > previous, SYMPTOM + \", or the rows are not in their order (\" + entry.row() + \"): \"\n                + markdown)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "396/columnsWithParagraphGapsAtTheSameHeightAreReadColumnByColumn",
+   "issue": "396",
+   "test": "Issue396ColumnsReadAcrossParagraphGapsTest",
+   "method": "columnsWithParagraphGapsAtTheSameHeightAreReadColumnByColumn",
+   "pdf": "issue-396-level-gaps/level-gaps.pdf",
+   "doc": "Each column has three paragraphs; only the first gaps of the two columns are at the same height.",
+   "checks": {
+    "order": [
+     [
+      "Amber",
+      "Basil",
+      "Coral",
+      "Delta",
+      "Ember",
+      "Flint"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "396/pageHeaderAcrossTheGutterDoesNotHideTheColumns",
+   "issue": "396",
+   "test": "Issue396ColumnsReadAcrossParagraphGapsTest",
+   "method": "pageHeaderAcrossTheGutterDoesNotHideTheColumns",
+   "pdf": "issue-396-header/header.pdf",
+   "doc": "Each page has a page header across the gutter, 11 pt above the columns. The paragraph gaps of the two columns are at the same height, and the gap is wider than the gap below the header.",
+   "checks": {
+    "order": [
+     [
+      "Amber",
+      "Basil",
+      "Delta",
+      "Ember",
+      "Grove",
+      "Haven",
+      "Ivory",
+      "Jewel"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "396/pageHeaderStaysOutOfTheOutputWithoutIncludeHeaderFooter",
+   "issue": "396",
+   "test": "Issue396ColumnsReadAcrossParagraphGapsTest",
+   "method": "pageHeaderStaysOutOfTheOutputWithoutIncludeHeaderFooter",
+   "pdf": "issue-396-header-out/header-out.pdf",
+   "doc": "Guard: without {@code --include-header-footer}, the page header stays out of the output.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Amber"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "396/footerBelowTheLeftColumnComesAfterBothColumns",
+   "issue": "396",
+   "test": "Issue396ColumnsReadAcrossParagraphGapsTest",
+   "method": "footerBelowTheLeftColumnComesAfterBothColumns",
+   "pdf": "issue-396-footer/footer.pdf",
+   "doc": "With {@code --include-header-footer}, a page footer below the left column, 7 pt below the end of the columns, comes after both columns. The footer is narrower than the left column, so it does not go across the gutter.",
+   "checks": {
+    "order": [
+     [
+      "Amber",
+      "Basil",
+      "Delta",
+      "Ember",
+      "1 Survey Notes",
+      "Grove",
+      "Haven",
+      "Ivory",
+      "Jewel",
+      "2 Survey Notes"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 0.978
+  },
+  {
+   "id": "396/columnsOfDifferentTextSizesAreReadColumnByColumn",
+   "issue": "396",
+   "test": "Issue396ColumnsReadAcrossParagraphGapsTest",
+   "method": "columnsOfDifferentTextSizesAreReadColumnByColumn",
+   "pdf": "issue-396-text-sizes-columns/text-sizes-columns.pdf",
+   "doc": "A column of 9 pt text and a column of 16 pt text: the gap between two paragraphs of the left column (16 pt) is inside a gap between two paragraphs of the right column (24 pt). Each gap is less than two font sizes of the text of its column, so the columns are read column by column.",
+   "checks": {
+    "order": [
+     [
+      "Amber",
+      "Basil",
+      "Delta",
+      "Ember"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "396/headingBelowColumnsThatEndAtTheSameHeightStartsANewSection",
+   "issue": "396",
+   "test": "Issue396ColumnsReadAcrossParagraphGapsTest",
+   "method": "headingBelowColumnsThatEndAtTheSameHeightStartsANewSection",
+   "pdf": "issue-396-heading/heading.pdf",
+   "doc": "Guard: a heading at the left below two columns that end at the same height starts a new section. The columns of the new section start below the heading. The gap above the heading is less than two font sizes, but the right column has no text below the gap until the new section, so the sections are read one after the other.",
+   "checks": {
+    "order": [
+     [
+      "Amber",
+      "Basil",
+      "Delta",
+      "Ember",
+      "Kelp Beds",
+      "Grove",
+      "Haven",
+      "Ivory",
+      "Jewel"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "396/sectionsWithAWideGapBetweenThemAreReadOneAfterTheOther",
+   "issue": "396",
+   "test": "Issue396ColumnsReadAcrossParagraphGapsTest",
+   "method": "sectionsWithAWideGapBetweenThemAreReadOneAfterTheOther",
+   "pdf": "issue-396-sections/sections.pdf",
+   "doc": "Guard: two sections of two columns, with 2.6 font sizes between them in both columns, are read one after the other. A gap between paragraphs is less wide.",
+   "checks": {
+    "order": [
+     [
+      "Amber",
+      "Basil",
+      "Delta",
+      "Ember",
+      "Grove",
+      "Haven",
+      "Ivory",
+      "Jewel"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "396/smallTextBelowAWideGapStartsANewSectionAlsoBelowLargerText",
+   "issue": "396",
+   "test": "Issue396ColumnsReadAcrossParagraphGapsTest",
+   "method": "smallTextBelowAWideGapStartsANewSectionAlsoBelowLargerText",
+   "pdf": "issue-396-text-sizes/text-sizes.pdf",
+   "doc": "Guard: a section of two columns of 16 pt text above a section of two columns of 9 pt text, 24 pt apart, are read one after the other. The gap is more than two font sizes of the 9 pt text at the gap. It is less than two font sizes of the 16 pt text, which has as many paragraphs as the 9 pt text.",
+   "checks": {
+    "order": [
+     [
+      "Amber",
+      "Basil",
+      "Delta",
+      "Ember",
+      "Grove",
+      "Haven",
+      "Ivory",
+      "Jewel"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "396/formWithFieldsOfOneLineIsReadRowByRow",
+   "issue": "396",
+   "test": "Issue396ColumnsReadAcrossParagraphGapsTest",
+   "method": "formWithFieldsOfOneLineIsReadRowByRow",
+   "pdf": "issue-396-form/form.pdf",
+   "doc": "Guard: a form with a field of one line in each column of each row is read row by row, as the rows of a table. The fields fill their columns with a line to write on, the gap between the columns is 15 pt, and the rows are 30 pt apart.",
+   "checks": {
+    "order": [
+     [
+      "Station",
+      "Weather",
+      "Leader",
+      "Vessel",
+      "Sample",
+      "Remark"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "396/rulesPaintedTogetherInOneArtifactDoNotHideTheGutter",
+   "issue": "396",
+   "test": "Issue396RulesPaintedTogetherTest",
+   "method": "rulesPaintedTogetherInOneArtifactDoNotHideTheGutter",
+   "pdf": "issue-396-rules-artifact/rules-artifact.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "396/rulesPaintedTogetherWithoutMarkedContentDoNotHideTheGutter",
+   "issue": "396",
+   "test": "Issue396RulesPaintedTogetherTest",
+   "method": "rulesPaintedTogetherWithoutMarkedContentDoNotHideTheGutter",
+   "pdf": "issue-396-rules-unmarked/rules-unmarked.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "396/ruleInTheRightColumnPaintedWithTheRuleAboveTheColumnsDoesNotHideTheGutter",
+   "issue": "396",
+   "test": "Issue396RulesPaintedTogetherTest",
+   "method": "ruleInTheRightColumnPaintedWithTheRuleAboveTheColumnsDoesNotHideTheGutter",
+   "pdf": "issue-396-rules-right/rules-right.pdf",
+   "doc": "Variant: the second rule is in the right column, between its first two paragraphs.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "396/rulesAboveAndBelowTheColumnsPaintedTogetherKeepTheColumnsApart",
+   "issue": "396",
+   "test": "Issue396RulesPaintedTogetherTest",
+   "method": "rulesAboveAndBelowTheColumnsPaintedTogetherKeepTheColumnsApart",
+   "pdf": "issue-396-rules-around/rules-around.pdf",
+   "doc": "Variant that main gets right: a rule across both columns below them. The box around the two rules is taller than a tenth of the page, so it is a background, and the background is not in the contents of the page.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "396/threeRulesPaintedTogetherDoNotHideTheGutter",
+   "issue": "396",
+   "test": "Issue396RulesPaintedTogetherTest",
+   "method": "threeRulesPaintedTogetherDoNotHideTheGutter",
+   "pdf": "issue-396-rules-three/rules-three.pdf",
+   "doc": "Variant: three rules, one in each column at a different height, below the rule above the columns.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "396/ruleInTheGutterPaintedWithTheRuleAboveTheColumnsKeepsTheColumnsApart",
+   "issue": "396",
+   "test": "Issue396RulesPaintedTogetherTest",
+   "method": "ruleInTheGutterPaintedWithTheRuleAboveTheColumnsKeepsTheColumnsApart",
+   "pdf": "issue-396-rules-gutter/rules-gutter.pdf",
+   "doc": "Variant that main gets right: a rule in the gutter, from the first lines of the columns to below them. The box around the two rules is a background, as above.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 0.931
+  },
+  {
+   "id": "396/rulesOfAFormDrawnTwoTimesDoNotHideTheGutter",
+   "issue": "396",
+   "test": "Issue396RulesPaintedTogetherTest",
+   "method": "rulesOfAFormDrawnTwoTimesDoNotHideTheGutter",
+   "pdf": "issue-396-rules-form/rules-form.pdf",
+   "doc": "Variant: the page draws the form of the two rules two times, the second time below the columns. The lines of the second draw have the same paint operators as the lines of the first draw.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "396/rulesPaintedInArtifactsOfTheirOwnKeepTheColumnsApart",
+   "issue": "396",
+   "test": "Issue396RulesPaintedTogetherTest",
+   "method": "rulesPaintedInArtifactsOfTheirOwnKeepTheColumnsApart",
+   "pdf": "issue-396-rules-apart/rules-apart.pdf",
+   "doc": "Variant that main gets right: each rule is a line art of its own.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "396/rulesPaintedTogetherOnAPageOfOneColumnKeepTheParagraphOrder",
+   "issue": "396",
+   "test": "Issue396RulesPaintedTogetherTest",
+   "method": "rulesPaintedTogetherOnAPageOfOneColumnKeepTheParagraphOrder",
+   "pdf": "issue-396-rules-one-column/rules-one-column.pdf",
+   "doc": "Output that must stay: on a page of one column, the paragraphs between rules keep their order.",
+   "checks": {
+    "order": [
+     [
+      "Apple",
+      "Birch",
+      "Section Two",
+      "Cedar",
+      "Daisy",
+      "Elder"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "626/titleDrawnInTheListIsAPageElementBeforeTheList",
+   "issue": "626",
+   "test": "Issue626TitleOutsideListItemTest",
+   "method": "titleDrawnInTheListIsAPageElementBeforeTheList",
+   "pdf": "issue-626-one-column/one-column.pdf",
+   "doc": "One column: the title is drawn after the line of item 2, but it is above item 1 on the page.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "626/titleOfEachColumnIsAPageElementBeforeItsList",
+   "issue": "626",
+   "test": "Issue626TitleOutsideListItemTest",
+   "method": "titleOfEachColumnIsAPageElementBeforeItsList",
+   "pdf": "issue-626-two-columns/two-columns.pdf",
+   "doc": "The layout of the issue: two columns, each with a title above its list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "626/titleBesideAShortItemLineIsAPageElementBeforeTheList",
+   "issue": "626",
+   "test": "Issue626TitleOutsideListItemTest",
+   "method": "titleBesideAShortItemLineIsAPageElementBeforeTheList",
+   "pdf": "issue-626-short-item-line/short-item-line.pdf",
+   "doc": "The right column of the issue: the line of item 2 is only its label, and the title is to the right of that line. The title is above the list and in its column, so it is not in an item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "626/quoteThatEndsBesideAnItemIsOneParagraphOutsideTheList",
+   "issue": "626",
+   "test": "Issue626TitleOutsideListItemTest",
+   "method": "quoteThatEndsBesideAnItemIsOneParagraphOutsideTheList",
+   "pdf": "issue-626-quote/quote.pdf",
+   "doc": "A quote of a magazine (PDFUA-Ref-2-01 of the PDF/UA reference suite): six lines in 13 pt, drawn after item 1. Five lines are above item 1; the last line ends beside its first line. The quote is one paragraph outside the list, also its last line.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(path != null && path.stream().noneMatch(type -> type.equals(\"list\") || type.equals(\"list item\")),\n            \"the quote)",
+    "assertTrue(end != null && path.equals(end), \"the quote is split: its last line is in another element: \"\n            + document)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "626/titleDrawnInTheListIsNotInAListItemWithoutReadingOrder",
+   "issue": "626",
+   "test": "Issue626TitleOutsideListItemTest",
+   "method": "titleDrawnInTheListIsNotInAListItemWithoutReadingOrder",
+   "pdf": "issue-626-reading-order-off/reading-order-off.pdf",
+   "doc": "Without a reading order, the title is still not in a list item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "626/markdownShowsTheTitleBeforeTheFirstItem",
+   "issue": "626",
+   "test": "Issue626TitleOutsideListItemTest",
+   "method": "markdownShowsTheTitleBeforeTheFirstItem",
+   "pdf": "issue-626-markdown/markdown.pdf",
+   "doc": "The Markdown output shows the title before the first item, as the page does.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(title >= 0 && firstItem >= 0 && title < firstItem,\n            \"the title is after the first item in the Markdown: \" + m)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "626/noteBelowAnItemStaysTheContentOfThatItem",
+   "issue": "626",
+   "test": "Issue626TitleOutsideListItemTest",
+   "method": "noteBelowAnItemStaysTheContentOfThatItem",
+   "pdf": "issue-626-note-below-item/note-below-item.pdf",
+   "doc": "Guard: a note below an item, which is not a line of the item, stays the content of that item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(item != null && containsText(item.path(\"kids\"), \"Note on the benefits\"),\n            \"the note is not the content of ite)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "626/listThatGoesOnInTheNextColumnKeepsItsItems",
+   "issue": "626",
+   "test": "Issue626TitleOutsideListItemTest",
+   "method": "listThatGoesOnInTheNextColumnKeepsItsItems",
+   "pdf": "issue-626-next-column/next-column.pdf",
+   "doc": "Guard: a list that goes on in the next column. Items 1 and 2 are at the bottom of the left column, the text of item 2 goes on at the top of the right column, and items 3 and 4 follow there. The items of each column stay one list, and no text is lost.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "the benefits go on in the next column"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(first != null && third != null, \"an item is not in a list: \" + document)",
+    "assertTrue(listThatContains(document, \"1. Scope\").toString().contains(\"2. Benefits of the special terms\"),\n            \"items 1 and)",
+    "assertTrue(listThatContains(document, \"3. Insured\").toString().contains(\"4. Rules of the special terms\"),\n            \"items 3 and )"
+   ],
+   "status": "pass",
+   "recall": null
+  },
+  {
+   "id": "626/titleDrawnBeforeTheListIsAPageElementBeforeTheList",
+   "issue": "626",
+   "test": "Issue626TitleOutsideListItemTest",
+   "method": "titleDrawnBeforeTheListIsAPageElementBeforeTheList",
+   "pdf": "issue-626-title-first/title-first.pdf",
+   "doc": "Guard: a title drawn before the list in the content stream is a page element before the list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "676/markdownWritesTheLinkOverItsText",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "markdownWritesTheLinkOverItsText",
+   "pdf": "issue-676-paragraph/paragraph.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Read the [release notes](",
+     ") before you install"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 0.877
+  },
+  {
+   "id": "676/htmlWritesTheLinkOverItsText",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "htmlWritesTheLinkOverItsText",
+   "pdf": "issue-676-paragraph-html/paragraph-html.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Read the <a href=\"",
+     "\">release notes</a> before you install"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 0.877
+  },
+  {
+   "id": "676/markdownWritesOneLinkForALinkOverTwoLines",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "markdownWritesOneLinkForALinkOverTwoLines",
+   "pdf": "issue-676-wrapped/wrapped.pdf",
+   "doc": "Word writes one annotation for each line of the link. The Markdown has one link.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Follow the steps of the [deployment guide for the cloud setup](",
+     ") before you start"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 0.936
+  },
+  {
+   "id": "676/markdownWritesTheLinkInAListItem",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "markdownWritesTheLinkInAListItem",
+   "pdf": "issue-676-list-item/list-item.pdf",
+   "doc": "The label of a list item is cut from the text by its length, before the link.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "- Download the [installer](https://example.com/installer) from the portal."
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 0.932
+  },
+  {
+   "id": "676/markdownKeepsBracketsAndParenthesesInTheLink",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "markdownKeepsBracketsAndParenthesesInTheLink",
+   "pdf": "issue-676-brackets/brackets.pdf",
+   "doc": "Brackets in the link text and parentheses in the address do not end the link.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Read the [notes \\[v2\\]](https://example.com/setup_\\(v2\\)) before you install"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 0.926
+  },
+  {
+   "id": "676/markdownLeavesPunctuationNextToTheLinkOutOfIt",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "markdownLeavesPunctuationNextToTheLinkOutOfIt",
+   "pdf": "issue-676-parentheses/parentheses.pdf",
+   "doc": "Word's link box is 2 pt wider than the link text: the parentheses next to the link stay out of it.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Open the console ([",
+     "](",
+     ")). Then sign in"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "676/linkMarkupIsTheOnlyChangeOfTheText",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "linkMarkupIsTheOnlyChangeOfTheText",
+   "pdf": "issue-676-hyphen-plain/hyphen-plain.pdf",
+   "doc": "A link that wraps after a hyphen: only the link markup is new, the text is the text without links.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertEquals(plain.markdown, withoutMarkdownLinks(linked.markdown),\n            \"the Markdown links changed the text: \" + linked.mark)",
+    "assertEquals(withoutTitle(plain.html), withoutTitle(linked.html.replaceAll(\"<a href=\\\"[^\\\"]*\\\">|</a>\", \"\")),\n            \"the HTML li)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "676/commandLineOptionWritesTheLinks",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "commandLineOptionWritesTheLinks",
+   "pdf": "issue-676-command-line/command-line.pdf",
+   "doc": "The command line: --include-links of the CLI turns the links on.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Read the [release notes](",
+     ") before you install"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 0.877
+  },
+  {
+   "id": "676/markdownEndsTheLinkBeforeAnImageInTheLine",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "markdownEndsTheLinkBeforeAnImageInTheLine",
+   "pdf": "issue-676-icon/icon.pdf",
+   "doc": "An image in the line right after a link (#642) is not in the link: the link ends before it.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "click the [Retry button](",
+     ") ![]("
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 0.865
+  },
+  {
+   "id": "676/structTreeMarkdownWritesTheLinkOverItsText",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "structTreeMarkdownWritesTheLinkOverItsText",
+   "pdf": "issue-676-struct-tree/struct-tree.pdf",
+   "doc": "The reporter's path: a tagged PDF with a {@code Link} element in a {@code P}, and --use-struct-tree.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Read the [release notes](",
+     ") before you install."
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 0.5
+  },
+  {
+   "id": "676/withoutTheOptionTheOutputHasNoLink",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "withoutTheOptionTheOutputHasNoLink",
+   "pdf": "issue-676-no-option/no-option.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Read the release notes before you install"
+    ],
+    "not_contains": [
+     "](",
+     "<a "
+    ],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "676/sanitizeWritesNoLinkAddress",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "sanitizeWritesNoLinkAddress",
+   "pdf": "issue-676-sanitize/sanitize.pdf",
+   "doc": "A link address can show text that --sanitize replaces, so the output has no address.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Read the release notes before you install"
+    ],
+    "not_contains": [
+     "example.com",
+     "example.com"
+    ],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "676/javascriptLinkStaysText",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "javascriptLinkStaysText",
+   "pdf": "issue-676-script-link/script-link.pdf",
+   "doc": "Only http, https, and mailto addresses become links.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Read the release notes before you install"
+    ],
+    "not_contains": [
+     "javascript",
+     "<a "
+    ],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "676/internalLinkStaysText",
+   "issue": "676",
+   "test": "Issue676UriLinksTest",
+   "method": "internalLinkStaysText",
+   "pdf": "issue-676-internal/internal.pdf",
+   "doc": "A link to a place in the document is not a URI link. It stays text.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Read the release notes before you install"
+    ],
+    "not_contains": [
+     "](",
+     "<a "
+    ],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "740/textOfAType3FontWithoutToUnicodeIsKept",
+   "issue": "740",
+   "test": "Issue740Type3WithoutToUnicodeTest",
+   "method": "textOfAType3FontWithoutToUnicodeIsKept",
+   "pdf": "issue-740-only-type3/issue-740-only-type3.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "740/type3LineBetweenOtherLinesKeepsItsText",
+   "issue": "740",
+   "test": "Issue740Type3WithoutToUnicodeTest",
+   "method": "type3LineBetweenOtherLinesKeepsItsText",
+   "pdf": "issue-740-type3-between-lines/issue-740-type3-between-lines.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "740/toUnicodeStillGivesTheText",
+   "issue": "740",
+   "test": "Issue740Type3WithoutToUnicodeTest",
+   "method": "toUnicodeStillGivesTheText",
+   "pdf": "issue-740-type3-tounicode/issue-740-type3-tounicode.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "740/standardGlyphNamesStillGiveTheText",
+   "issue": "740",
+   "test": "Issue740Type3WithoutToUnicodeTest",
+   "method": "standardGlyphNamesStillGiveTheText",
+   "pdf": "issue-740-type3-standard-names/issue-740-type3-standard-names.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "740/codesOutsidePrintableAsciiGiveNoText",
+   "issue": "740",
+   "test": "Issue740Type3WithoutToUnicodeTest",
+   "method": "codesOutsidePrintableAsciiGiveNoText",
+   "pdf": "issue-740-type3-control-and-high-codes/issue-740-type3-control-and-high-codes.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "755/nestedListIsIndentedInItsItem",
+   "issue": "755",
+   "test": "Issue755MarkdownListItemContentTest",
+   "method": "nestedListIsIndentedInItsItem",
+   "pdf": "issue-755-md-nested/nested.pdf",
+   "doc": "Two dash lines below an item are a nested list in the JSON; the Markdown indents them in the item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [
+     [
+      "first part of the allowance",
+      "  - "
+     ],
+     [
+      "second part of the allowance",
+      "  - "
+     ],
+     [
+      "Budget of the town",
+      "- "
+     ]
+    ],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "755/paragraphBelowAnItemIsNotIndented",
+   "issue": "755",
+   "test": "Issue755MarkdownListItemContentTest",
+   "method": "paragraphBelowAnItemIsNotIndented",
+   "pdf": "issue-755-md-note/note.pdf",
+   "doc": "Guard: a note below an item, the content of the item in the JSON, stays at the start of the line.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [
+     [
+      "Note on the benefits",
+      "Note"
+     ]
+    ],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "755/listWithoutBlocksIsNotIndented",
+   "issue": "755",
+   "test": "Issue755MarkdownListItemContentTest",
+   "method": "listWithoutBlocksIsNotIndented",
+   "pdf": "issue-755-md-no-blocks/no-blocks.pdf",
+   "doc": "Guard: a list without blocks in its items is written as before, at the start of the line.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(markdown.stream().allMatch(line -> line.startsWith(\"- \")),\n            \"a list without blocks is not at the start of the)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "755/listBelowADashLineIsInTheItemOfTheLine",
+   "issue": "755",
+   "test": "Issue755NestedListBelowBulletLineTest",
+   "method": "listBelowADashLineIsInTheItemOfTheLine",
+   "pdf": "issue-755-nest-json/json.pdf",
+   "doc": "The layout of the issue: the list is in the item of the dash line.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "kids",
+     "Approval of the minutes",
+     "kids",
+     "Budget of the town"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/listBelowADashLineIsIndentedInTheMarkdown",
+   "issue": "755",
+   "test": "Issue755NestedListBelowBulletLineTest",
+   "method": "listBelowADashLineIsIndentedInTheMarkdown",
+   "pdf": "issue-755-markdown/markdown.pdf",
+   "doc": "The Markdown of the issue layout: the items of the list are indented below the dash line.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [
+     [
+      "Approval of the minutes",
+      "  - "
+     ],
+     [
+      "Budget of the town",
+      "  - "
+     ]
+    ],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "755/listBelowABulletLineIsInTheItemOfTheLine",
+   "issue": "755",
+   "test": "Issue755NestedListBelowBulletLineTest",
+   "method": "listBelowABulletLineIsInTheItemOfTheLine",
+   "pdf": "issue-755-nest-bullet/bullet.pdf",
+   "doc": "Variant: the line starts with a bullet \"•\" in the same chunk as its text.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "kids",
+     "Approval of the minutes"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/listBelowAnUnderlinedDashLineIsInTheItemOfTheLine",
+   "issue": "755",
+   "test": "Issue755NestedListBelowBulletLineTest",
+   "method": "listBelowAnUnderlinedDashLineIsInTheItemOfTheLine",
+   "pdf": "issue-755-nest-underlined/underlined.pdf",
+   "doc": "Variant of the issue: the text of the dash line is underlined, and the underline is drawn before the list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "kids",
+     "Approval of the minutes"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/twoListsBelowADashLineAreInTheItemOfTheLine",
+   "issue": "755",
+   "test": "Issue755NestedListBelowBulletLineTest",
+   "method": "twoListsBelowADashLineAreInTheItemOfTheLine",
+   "pdf": "issue-755-nest-two-lists/two-lists.pdf",
+   "doc": "Variant: two lists follow the dash line, one after the other; both are in its item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "kids",
+     "Approval of the minutes",
+     "kids",
+     "Sale of a part of the public land"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/listThatGoesOnInTheNextPageKeepsItsLink",
+   "issue": "755",
+   "test": "Issue755NestedListBelowBulletLineTest",
+   "method": "listThatGoesOnInTheNextPageKeepsItsLink",
+   "pdf": "issue-755-nest-next-page/next-page.pdf",
+   "doc": "Guard: a list that goes on in the next page stays linked to its next part. The links between pages are made before the list goes into the item of the dash line.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "\"next list id\"",
+     "\"previous list id\""
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/lineWithoutABulletStaysAParagraph",
+   "issue": "755",
+   "test": "Issue755NestedListBelowBulletLineTest",
+   "method": "lineWithoutABulletStaysAParagraph",
+   "pdf": "issue-755-nest-no-bullet/no-bullet.pdf",
+   "doc": "Guard: a line without a bullet, above an indented list, stays a paragraph.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(itemThatContains(document, PARENT) == null, \"a line without a bullet is a list item: \"\n            + document)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "755/numberedLineIsNotAParentItem",
+   "issue": "755",
+   "test": "Issue755NestedListBelowBulletLineTest",
+   "method": "numberedLineIsNotAParentItem",
+   "pdf": "issue-755-nest-numbered/numbered.pdf",
+   "doc": "Guard: a numbered line, as a section title, above an indented list, is not a parent item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "kids",
+     "Approval of the minutes"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/listThatIsNotIndentedIsNotNested",
+   "issue": "755",
+   "test": "Issue755NestedListBelowBulletLineTest",
+   "method": "listThatIsNotIndentedIsNotNested",
+   "pdf": "issue-755-nest-not-indented/not-indented.pdf",
+   "doc": "Guard: a list whose markers are left of the text of the dash line is not nested in it.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "kids",
+     "Approval of the minutes"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/listAfterAGapIsNotNested",
+   "issue": "755",
+   "test": "Issue755NestedListBelowBulletLineTest",
+   "method": "listAfterAGapIsNotNested",
+   "pdf": "issue-755-nest-gap/gap.pdf",
+   "doc": "Guard: a list after an empty line below the dash line is not nested in it.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "kids",
+     "Approval of the minutes"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/wrappedLineThatStartsWithADashIsInTheMarkdownLineOfItsItem",
+   "issue": "755",
+   "test": "Issue755WrappedListItemLineTest",
+   "method": "wrappedLineThatStartsWithADashIsInTheMarkdownLineOfItsItem",
+   "pdf": "issue-755-markdown/markdown.pdf",
+   "doc": "The layout of the issue: the third item wraps, and its second line starts with a dash.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "at the regional"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertEquals(1, withLine.size(), \"the wrapped line is a separate Markdown line: \" + markdown)"
+   ],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "755/wrappedLineThatStartsWithADashIsATextLineOfItsItem",
+   "issue": "755",
+   "test": "Issue755WrappedListItemLineTest",
+   "method": "wrappedLineThatStartsWithADashIsATextLineOfItsItem",
+   "pdf": "issue-755-nest-json/json.pdf",
+   "doc": "The JSON of the issue layout: five items, and the wrapped line is a line of the third item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "(one member and one deputy)",
+     "kids"
+    ]
+   },
+   "list_items": 5,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/wrappedLineOfTheLastItemThatStartsWithADashIsATextLineOfItsItem",
+   "issue": "755",
+   "test": "Issue755WrappedListItemLineTest",
+   "method": "wrappedLineOfTheLastItemThatStartsWithADashIsATextLineOfItsItem",
+   "pdf": "issue-755-last-item/last-item.pdf",
+   "doc": "Variant: the wrapped item is the last item of the list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "(one member and one deputy)"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/dashLinesBelowAShortItemLineStayOutOfItsText",
+   "issue": "755",
+   "test": "Issue755WrappedListItemLineTest",
+   "method": "dashLinesBelowAShortItemLineStayOutOfItsText",
+   "pdf": "issue-755-short-line/short-line.pdf",
+   "doc": "Guard: lines with a dash at the start of the item text, below a short line, are not a wrap of that line. They can be the items of a nested list, so they do not go into the text of the item.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "first part of the allowance",
+     "second part of the allowance"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "part of the allowance"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/dashLineBelowTheWidestShortItemStaysOutOfItsText",
+   "issue": "755",
+   "test": "Issue755WrappedListItemLineTest",
+   "method": "dashLineBelowTheWidestShortItemStaysOutOfItsText",
+   "pdf": "issue-755-widest-short-item/widest-short-item.pdf",
+   "doc": "Guard: in a list of short items, the widest item is not a full line. A body line above the list ends at the right margin, so one dash line below the widest item is not a wrap of its line.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "part of the allowance"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "part of the allowance"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/wrappedLineWithoutALabelIsATextLineOfItsItem",
+   "issue": "755",
+   "test": "Issue755WrappedListItemLineTest",
+   "method": "wrappedLineWithoutALabelIsATextLineOfItsItem",
+   "pdf": "issue-755-no-label/no-label.pdf",
+   "doc": "Guard: a wrapped line without a label stays a line of its item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "energy board of the county"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/itemAfterAFullLineIsANewItem",
+   "issue": "755",
+   "test": "Issue755WrappedListItemLineTest",
+   "method": "itemAfterAFullLineIsANewItem",
+   "pdf": "issue-755-full-line/full-line.pdf",
+   "doc": "Guard: the next item after a full line is a new item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "Choice of one member"
+    ]
+   },
+   "list_items": 5,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "755/dashLineAtTheMarkersAfterAFullLineStaysOutOfTheItemText",
+   "issue": "755",
+   "test": "Issue755WrappedListItemLineTest",
+   "method": "dashLineAtTheMarkersAfterAFullLineStaysOutOfTheItemText",
+   "pdf": "issue-755-dash-at-markers/dash-at-markers.pdf",
+   "doc": "Guard: a dash line at the place of the markers, after a full line, is not a wrap of that line.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "(one member and one deputy)"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "(one member and one deputy)"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "827/hashItemIsOneBulletWithTheWholeText",
+   "issue": "827",
+   "test": "Issue827ListItemMarkerTest",
+   "method": "hashItemIsOneBulletWithTheWholeText",
+   "pdf": "issue-827-hash/hash.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertEquals(List.of(\"- \\\\# of users in the plan\", \"- Plan of the site office\", \"- Cost of the plan\"),\n            markdownLines(\"has)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "827/numberedItemIsOneBulletWithTheWholeText",
+   "issue": "827",
+   "test": "Issue827ListItemMarkerTest",
+   "method": "numberedItemIsOneBulletWithTheWholeText",
+   "pdf": "issue-827-number/number.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertEquals(List.of(\"- 1\\\\. Introduction to the plan\", \"- Plan of the site office\", \"- Cost of the plan\"),\n            markdownLines)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "827/otherHeadingAndListMarkersAreEscaped",
+   "issue": "827",
+   "test": "Issue827ListItemMarkerTest",
+   "method": "otherHeadingAndListMarkersAreEscaped",
+   "pdf": "issue-827-markers/markers.pdf",
+   "doc": "The other heading and list markers of CommonMark; the last item is only the marker.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertEquals(List.of(\n                \"- \\\\## of users in the plan\",\n                \"- 1\\\\) Introduction to the plan\",\n             )"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "827/hashItemIsOneBulletWithTheWholeTextInMarkdownWithHtml",
+   "issue": "827",
+   "test": "Issue827ListItemMarkerTest",
+   "method": "hashItemIsOneBulletWithTheWholeTextInMarkdownWithHtml",
+   "pdf": "issue-827-hash-html/hash-html.pdf",
+   "doc": "{@code --markdown-with-html} writes lists with the same code.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertEquals(List.of(\"- \\\\# of users in the plan\", \"- Plan of the site office\", \"- Cost of the plan\"),\n            markdownLines(\"has)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "827/textThatDoesNotStartABlockStaysAsItIs",
+   "issue": "827",
+   "test": "Issue827ListItemMarkerTest",
+   "method": "textThatDoesNotStartABlockStaysAsItIs",
+   "pdf": "issue-827-not-markers/not-markers.pdf",
+   "doc": "No space after the marker, seven \"#\", or a number of ten digits: CommonMark does not start a block, so the text stays as it is.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertEquals(List.of(\n                \"- #hashtag of the plan\",\n                \"- 1.5 million users of the plan\",\n                \"-)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "827/orderedListKeepsItsNumbers",
+   "issue": "827",
+   "test": "Issue827ListItemMarkerTest",
+   "method": "orderedListKeepsItsNumbers",
+   "pdf": "issue-827-ordered/ordered.pdf",
+   "doc": "An ordered list keeps its numbers in the item text. This fix does not change it.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertEquals(List.of(\"- 1. Introduction to the plan\", \"- 2. Plan of the site office\", \"- 3. Cost of the plan\"),\n            markdownL)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "876/titleAboveALineAfterAnEmptyLineIsAHeading",
+   "issue": "876",
+   "test": "Issue876LastListItemBeforeAnEmptyLineTest",
+   "method": "titleAboveALineAfterAnEmptyLineIsAHeading",
+   "pdf": "issue-876-list-titles/titles.pdf",
+   "doc": "The layout of page 3: title A, an empty line, and a paragraph of one line. Title A is a heading.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "heading",
+     "type"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(line != null, \"the line after the empty line is missing: \" + document)",
+    "assertTrue(elements.indexOf(title) < elements.indexOf(line),\n            \"the line after the empty line is before the title: \" + do)"
+   ],
+   "status": "pass",
+   "recall": null
+  },
+  {
+   "id": "876/lineAfterAnEmptyLineIsNotInTheLastItemOfThePage",
+   "issue": "876",
+   "test": "Issue876LastListItemBeforeAnEmptyLineTest",
+   "method": "lineAfterAnEmptyLineIsNotInTheLastItemOfThePage",
+   "pdf": "issue-876-list-vote/vote.pdf",
+   "doc": "The layout of page 8: the line \"Vote :\" after an empty line below the last item of a list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(item != null && vote != null, \"a line of the page is missing: \" + document)",
+    "assertTrue(\"list item\".equals(item.path(\"type\").asText()),\n            \"the line before the empty line is not a list item: \" + docu)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "876/titleAboveAParagraphOfTwoLinesIsAHeading",
+   "issue": "876",
+   "test": "Issue876LastListItemBeforeAnEmptyLineTest",
+   "method": "titleAboveAParagraphOfTwoLinesIsAHeading",
+   "pdf": "issue-876-list-titles/titles.pdf",
+   "doc": "Guard: title B, above a paragraph of two lines after an empty line, is a heading on main too.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "heading",
+     "type"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(elementThatContains(elements, PARAGRAPH_B) != null, \"the paragraph is missing: \" + document)"
+   ],
+   "status": "pass",
+   "recall": null
+  },
+  {
+   "id": "876/wrappedLastItemKeepsItsSecondLine",
+   "issue": "876",
+   "test": "Issue876LastListItemBeforeAnEmptyLineTest",
+   "method": "wrappedLastItemKeepsItsSecondLine",
+   "pdf": "issue-876-list-wrapped-item/wrapped-item.pdf",
+   "doc": "Guard: the second line of the last item of the page, 12.3 pt below the first, stays in the item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "goes on in a second line"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "876/doubleSpacedLastItemKeepsItsSecondLine",
+   "issue": "876",
+   "test": "Issue876LastListItemBeforeAnEmptyLineTest",
+   "method": "doubleSpacedLastItemKeepsItsSecondLine",
+   "pdf": "issue-876-list-double-spaced-item/double-spaced-item.pdf",
+   "doc": "Guard: on a page with all its lines 24.6 pt apart, the second line of the last item stays in the item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "goes on in a second line"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": null
+  },
+  {
+   "id": "876/fullLineOfTheLastItemContinuesBelow",
+   "issue": "876",
+   "test": "Issue876LastListItemBeforeAnEmptyLineTest",
+   "method": "fullLineOfTheLastItemContinuesBelow",
+   "pdf": "issue-876-list-full-item-line/full-item-line.pdf",
+   "doc": "Guard: on a page with single spacing, a full line of the last item continues on the line 24.6 pt below it. The lines of the paragraph are filled with words to a width of 250 pt, and the lines of the item to 300 pt, so that the first line of the item is the longest line of the page.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "876/lineAfterAnEmptyLineBelowATitleIsNotInTheTitle",
+   "issue": "876",
+   "test": "Issue876LinesAfterAnEmptyLineTest",
+   "method": "lineAfterAnEmptyLineBelowATitleIsNotInTheTitle",
+   "pdf": "issue-876-title-vote/title-vote.pdf",
+   "doc": "The layout of page 2: a bold title, an empty line, and a line of body text are not one paragraph.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(elementThatContains(document, VOTE) != null, \"the line after the empty line is missing: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "876/twoTitlesWithAnEmptyLineBetweenThemAreNotOneParagraph",
+   "issue": "876",
+   "test": "Issue876LinesAfterAnEmptyLineTest",
+   "method": "twoTitlesWithAnEmptyLineBetweenThemAreNotOneParagraph",
+   "pdf": "issue-876-two-titles/two-titles.pdf",
+   "doc": "The layout of page 3: two bold titles with an empty line between them are not one paragraph.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(elementThatContains(document, APPROVAL) != null, \"the second title is missing: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "876/lineAfterAnEmptyLineIsNotInTheTitleOnAPageOfShortParagraphs",
+   "issue": "876",
+   "test": "Issue876LinesAfterAnEmptyLineTest",
+   "method": "lineAfterAnEmptyLineIsNotInTheTitleOnAPageOfShortParagraphs",
+   "pdf": "issue-876-short-paragraphs/short-paragraphs.pdf",
+   "doc": "The composition of page 2 of the issue: most paragraphs have one line, so the lines 24 or 25 pt apart are more than the lines 12 pt apart. The title and the line \"Vote :\" are still not one paragraph.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(elementThatContains(document, VOTE) != null, \"the line after the empty line is missing: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "876/linesOfAParagraphStayOneParagraph",
+   "issue": "876",
+   "test": "Issue876LinesAfterAnEmptyLineTest",
+   "method": "linesOfAParagraphStayOneParagraph",
+   "pdf": "issue-876-paragraph/paragraph.pdf",
+   "doc": "Guard: the lines of a paragraph, 12 pt apart, stay one paragraph.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "signs the minutes of the day"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": null
+  },
+  {
+   "id": "876/linesOfADoubleSpacedParagraphStayOneParagraph",
+   "issue": "876",
+   "test": "Issue876LinesAfterAnEmptyLineTest",
+   "method": "linesOfADoubleSpacedParagraphStayOneParagraph",
+   "pdf": "issue-876-double-spaced/double-spaced.pdf",
+   "doc": "Guard: in a page with all its lines 24 pt apart, the lines of a paragraph stay one paragraph.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "signs the minutes of the day"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": null
+  },
+  {
+   "id": "876/linesOfADoubleSpacedParagraphStayOneParagraphOnAPageWithSingleSpacing",
+   "issue": "876",
+   "test": "Issue876LinesAfterAnEmptyLineTest",
+   "method": "linesOfADoubleSpacedParagraphStayOneParagraphOnAPageWithSingleSpacing",
+   "pdf": "issue-876-double-spaced-below-single/double-spaced-below-single.pdf",
+   "doc": "Guard: a double-spaced paragraph stays one paragraph on a page that also has a single-spaced paragraph in the same font size, at the same x. Each line of the two paragraphs is filled with words to a width of 300 pt.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "876/paragraphsOfASectionWithAnEmptyLineBetweenThemAreSeparate",
+   "issue": "876",
+   "test": "Issue876ListItemContentAfterAnEmptyLineTest",
+   "method": "paragraphsOfASectionWithAnEmptyLineBetweenThemAreSeparate",
+   "pdf": "issue-876-content-section/section.pdf",
+   "doc": "The layout of page 7: two short paragraphs, with an empty line between them, in the text of section F.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(report != null && decision != null, \"a line of the section is missing: \" + document)",
+    "assertTrue(report != decision,\n            \"the paragraphs with an empty line between them in the section are one paragraph: \" + do)",
+    "assertTrue(elements.indexOf(report) < elements.indexOf(decision),\n            \"the paragraphs of the section are out of the reading)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "876/paragraphsOfAListItemWithAnEmptyLineBetweenThemAreSeparate",
+   "issue": "876",
+   "test": "Issue876ListItemContentAfterAnEmptyLineTest",
+   "method": "paragraphsOfAListItemWithAnEmptyLineBetweenThemAreSeparate",
+   "pdf": "issue-876-content-item/item.pdf",
+   "doc": "A bulleted item with paragraphs below it: two paragraphs of one line, with an empty line between them.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(second != null && third != null, \"a paragraph of the item is missing: \" + document)",
+    "assertTrue(second != third,\n            \"the paragraphs with an empty line between them in the list item are one paragraph: \" + doc)",
+    "assertTrue(elements.indexOf(second) < elements.indexOf(third),\n            \"the paragraphs of the list item are out of the reading )"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "876/linesOfAParagraphInAListItemStayOneParagraph",
+   "issue": "876",
+   "test": "Issue876ListItemContentAfterAnEmptyLineTest",
+   "method": "linesOfAParagraphInAListItemStayOneParagraph",
+   "pdf": "issue-876-content-item-paragraph/item-paragraph.pdf",
+   "doc": "Guard: the lines of a paragraph in a list item, 12.3 pt apart, stay one paragraph.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "goes on in a second line"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": null
+  },
+  {
+   "id": "876/fullLineInAListItemContinuesBelow",
+   "issue": "876",
+   "test": "Issue876ListItemContentAfterAnEmptyLineTest",
+   "method": "fullLineInAListItemContinuesBelow",
+   "pdf": "issue-876-content-item-full-line/item-full-line.pdf",
+   "doc": "Guard: on a page with single spacing, a full line in a list item continues on the line 24.6 pt below it. The lines of the paragraph are filled with words to a width of 300 pt.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "878/rolesOfTheTwoColumnsAreNotOneElement",
+   "issue": "878",
+   "test": "Issue878SignatureBlockColumnsTest",
+   "method": "rolesOfTheTwoColumnsAreNotOneElement",
+   "pdf": "issue-878-json/json.pdf",
+   "doc": "The layout of the issue: the two roles are not one element.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(role == elementThatContains(document, LEFT_NAME)\n                && elementThatContains(document, RIGHT_ROLE) == element)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "878/eachRoleComesWithItsName",
+   "issue": "878",
+   "test": "Issue878SignatureBlockColumnsTest",
+   "method": "eachRoleComesWithItsName",
+   "pdf": "issue-878-markdown/markdown.pdf",
+   "doc": "The Markdown of the issue layout: each role comes with its name, the left column first.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(leftRole >= 0 && leftRole < leftName && leftName < rightRole && rightRole < rightName,\n            \"a role does not come)",
+    "assertTrue(paragraphThatContains(markdown, LEFT_ROLE).contains(LEFT_NAME)\n                && paragraphThatContains(markdown, RIGHT_)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "878/aMarkOverTheLeftRoleKeepsItInTheLeftColumn",
+   "issue": "878",
+   "test": "Issue878SignatureBlockColumnsTest",
+   "method": "aMarkOverTheLeftRoleKeepsItInTheLeftColumn",
+   "pdf": "issue-878-mark-over-role/mark-over-role.pdf",
+   "doc": "Guard (review of #885): a small mark drawn over a word of the left role, as a footnote mark, keeps the word with its role: the word comes before the name below it, not after it in the right column.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(word >= 0 && word < markdown.indexOf(LEFT_NAME),\n            \"a word of the left role is not in the left column: \" + mar)"
+   ],
+   "status": "unchecked",
+   "recall": 0.96
+  },
+  {
+   "id": "878/linesOfATableOfContentsStayOneLine",
+   "issue": "878",
+   "test": "Issue878SignatureBlockColumnsTest",
+   "method": "linesOfATableOfContentsStayOneLine",
+   "pdf": "issue-878-toc/toc.pdf",
+   "doc": "Guard: the lines of a table of contents, a title and its page number far apart, stay one line each.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "878/rowsOfAFormStayOneLine",
+   "issue": "878",
+   "test": "Issue878SignatureBlockColumnsTest",
+   "method": "rowsOfAFormStayOneLine",
+   "pdf": "issue-878-form/form.pdf",
+   "doc": "Guard: the rows of a form, a label and its value far apart, one row below the other, stay one line each.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "878/linesOfATableOfContentsWithPageLabelsStayOneLine",
+   "issue": "878",
+   "test": "Issue878SignatureBlockColumnsTest",
+   "method": "linesOfATableOfContentsWithPageLabelsStayOneLine",
+   "pdf": "issue-878-toc-labels/toc-labels.pdf",
+   "doc": "Guard (review of #885): the lines of a table of contents with page labels that have letters, as {@code ix} and {@code A-12}, far from their titles, 26 pt apart, stay one line each.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "878/pageLabelsNextToOtherRowsStayWithTheirTitles",
+   "issue": "878",
+   "test": "Issue878SignatureBlockColumnsTest",
+   "method": "pageLabelsNextToOtherRowsStayWithTheirTitles",
+   "pdf": "issue-878-toc-label-forms/toc-label-forms.pdf",
+   "doc": "Guard (review of #885): each page label of a table of contents stays with its title, also when the next row has a word far from its title. The labels are a word with a digit ({@code A-12}), a letter ({@code A}), two words of a page reference ({@code p. 12} and {@code B 7}), labels with a period ({@code iv.} and {@code A.}), and a letter with a roman numeral ({@code A-IV}). A line without a gap separates the groups, so that each label is the only one that can make its row a row of two columns.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "878/anImageBetweenTheRowsKeepsItsPlace",
+   "issue": "878",
+   "test": "Issue878SignatureBlockColumnsTest",
+   "method": "anImageBetweenTheRowsKeepsItsPlace",
+   "pdf": "issue-878-image-between/image-between.pdf",
+   "doc": "Guard (review of #885): an image between the two rows of the signature block, in the order of the page content, keeps its place in the output: after the roles and before the names.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(role >= 0 && role < image && image < name,\n            \"the image between the rows is not after the roles and before the)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "878/linesWithDrawnBulletsKeepTheirBullets",
+   "issue": "878",
+   "test": "Issue878SignatureBlockColumnsTest",
+   "method": "linesWithDrawnBulletsKeepTheirBullets",
+   "pdf": "issue-878-drawn-bullets/drawn-bullets.pdf",
+   "doc": "Guard (review of #885): two lines with a bullet drawn as a square before each, a text, and a far value, 26 pt apart, keep their bullets: each line stays one element with its value, and it has a list level.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "Adopted by the board",
+     "level",
+     "Rejected by the board",
+     "level"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": null
+  },
+  {
+   "id": "888/titlesBetweenTheItemsOfABulletedListAreHeadings",
+   "issue": "888",
+   "test": "Issue888ListBetweenTheItemsOfAnotherListTest",
+   "method": "titlesBetweenTheItemsOfABulletedListAreHeadings",
+   "pdf": "issue-888-titles/titles.pdf",
+   "doc": "The layout of page 7: titles F and G, with a bulleted item above F and a bulleted item between them.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(element != null && \"heading\".equals(element.path(\"type\").asText()) && isOnThePage(document, element),\n                \"t)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "888/partsBetweenTheChaptersOfATableOfContentsAreNotInAChapter",
+   "issue": "888",
+   "test": "Issue888ListBetweenTheItemsOfAnotherListTest",
+   "method": "partsBetweenTheChaptersOfATableOfContentsAreNotInAChapter",
+   "pdf": "issue-888-table-of-contents/table-of-contents.pdf",
+   "doc": "A table of contents: the list of the parts starts between two chapters, and it is not in a chapter.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "list item",
+     "type",
+     "\\d+\\. .*"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(elementThatContains(elements, \"2. Core and periphery of the town\") != null,\n            \"a line of the table of contents)",
+    "assertTrue(part != null, \"a line of the table of contents is missing: \" + document)"
+   ],
+   "status": "pass",
+   "recall": null
+  },
+  {
+   "id": "888/indentedListBelowABulletedItemStaysInTheItem",
+   "issue": "888",
+   "test": "Issue888ListBetweenTheItemsOfAnotherListTest",
+   "method": "indentedListBelowABulletedItemStaysInTheItem",
+   "pdf": "issue-888-nested-list/nested-list.pdf",
+   "doc": "Guard: a numbered list below a bulleted item, with its numbers after the bullet, stays in the item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "888/indentedListThatGoesOnBelowTheNextItemStaysInTheItem",
+   "issue": "888",
+   "test": "Issue888ListBetweenTheItemsOfAnotherListTest",
+   "method": "indentedListThatGoesOnBelowTheNextItemStaysInTheItem",
+   "pdf": "issue-888-nested-list-goes-on/nested-list-goes-on.pdf",
+   "doc": "Guard: a numbered list below a bulleted item, with its numbers after the bullet, stays in the item, also when its numbers go on below the next bulleted item (review of #890).",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "888/paragraphBetweenTwoBulletedItemsStaysInTheFirstItem",
+   "issue": "888",
+   "test": "Issue888ListBetweenTheItemsOfAnotherListTest",
+   "method": "paragraphBetweenTwoBulletedItemsStaysInTheFirstItem",
+   "pdf": "issue-888-paragraph-in-item/paragraph-in-item.pdf",
+   "doc": "Guard: a paragraph between two bulleted items, with no other list, stays in the first item.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "904/stepsDrawnOutOfOrderAreOneListInOrder",
+   "issue": "904",
+   "test": "Issue904StepsDrawnOutOfOrderTest",
+   "method": "stepsDrawnOutOfOrderAreOneListInOrder",
+   "pdf": "issue-904-out-of-order/out-of-order.pdf",
+   "doc": "Steps of two lines drawn in the order (1), (3), (2), (4): one list of the four steps, in their order.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "904/stepsOfOneLineDrawnOutOfOrderAreOneListInOrder",
+   "issue": "904",
+   "test": "Issue904StepsDrawnOutOfOrderTest",
+   "method": "stepsOfOneLineDrawnOutOfOrderAreOneListInOrder",
+   "pdf": "issue-904-one-line-out-of-order/one-line-out-of-order.pdf",
+   "doc": "Steps of one line drawn in the order (1), (3), (2), (4): one list of the four steps, in their order.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "904/noteBelowAStepDrawnOutOfOrderStaysBelowItsStep",
+   "issue": "904",
+   "test": "Issue904StepsDrawnOutOfOrderTest",
+   "method": "noteBelowAStepDrawnOutOfOrderStaysBelowItsStep",
+   "pdf": "issue-904-note-out-of-order/note-out-of-order.pdf",
+   "doc": "A note below the step (2), at the text of the steps, drawn after (2) in the order (1), (3), (2), (4): one list of the four steps, and the note between (2) and (3).",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(text.indexOf(\"(2) Read\") < text.indexOf(\"Keep 10 cm free\")\n                && text.indexOf(\"Keep 10 cm free\") < text.ind)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "904/sixStepsDrawnOutOfOrderAreOneListInOrder",
+   "issue": "904",
+   "test": "Issue904StepsDrawnOutOfOrderTest",
+   "method": "sixStepsDrawnOutOfOrderAreOneListInOrder",
+   "pdf": "issue-904-six-out-of-order/six-out-of-order.pdf",
+   "doc": "Six steps drawn in the order (1), (5), (3), (2), (4), (6): one list of the six steps, in their order.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "904/indentedListThatGoesOnWithTheNumbersIsNotOneListWithTheSteps",
+   "issue": "904",
+   "test": "Issue904StepsDrawnOutOfOrderTest",
+   "method": "indentedListThatGoesOnWithTheNumbersIsNotOneListWithTheSteps",
+   "pdf": "issue-904-indented-goes-on/indented-goes-on.pdf",
+   "doc": "Guard: an indented list below the last step that goes on with the numbers of the steps, drawn in the step (1), is not one list with the steps.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [
+     "(1) Open the box"
+    ],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertNotNull(indented, \"the indented list is lost: \" + document)"
+   ],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "904/stepsDrawnInOrderStayOneListInOrder",
+   "issue": "904",
+   "test": "Issue904StepsDrawnOutOfOrderTest",
+   "method": "stepsDrawnInOrderStayOneListInOrder",
+   "pdf": "issue-904-in-order/in-order.pdf",
+   "doc": "Guard: steps drawn in their order stay one list of the four steps, in their order.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "904/indentedListBelowAStepStaysAfterTheStep",
+   "issue": "904",
+   "test": "Issue904StepsDrawnOutOfOrderTest",
+   "method": "indentedListBelowAStepStaysAfterTheStep",
+   "pdf": "issue-904-indented-list/indented-list.pdf",
+   "doc": "Guard: a list below a step, indented and numbered from 1 again, stays a list of two items after that step.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": 2,
+   "unparsed": [
+    "assertTrue(text.indexOf(\"(1) Open the box\") < text.indexOf(\"(1) Cut the tape\")\n                && text.indexOf(\"(2) Lift the cover\")",
+    "assertNotNull(list, \"the indented list is lost: \" + document)"
+   ],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "905/numberedTitlesDrawnFirstComeBeforeTheirText",
+   "issue": "905",
+   "test": "Issue905NumberedSectionTitlesTest",
+   "method": "numberedTitlesDrawnFirstComeBeforeTheirText",
+   "pdf": "issue-905-titles-first/titles-first.pdf",
+   "doc": "Two numbered titles drawn first, and the text of each section after them: each title comes before the text of its section, and the titles are not one list.",
+   "checks": {
+    "order": [
+     [
+      "1) Daily checks",
+      "Q1. Did you use"
+     ],
+     [
+      "Empty the tray",
+      "2) Cleaning"
+     ],
+     [
+      "2) Cleaning",
+      "Clean the body"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "2) Cleaning"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "905/numberedTitlesWithTextBetweenTwoOfThemComeBeforeAndAfterIt",
+   "issue": "905",
+   "test": "Issue905NumberedSectionTitlesTest",
+   "method": "numberedTitlesWithTextBetweenTwoOfThemComeBeforeAndAfterIt",
+   "pdf": "issue-905-four-titles/four-titles.pdf",
+   "doc": "Four numbered titles drawn first, and text only between the titles (2) and (3): the title (3) comes after that text, and the lists of the titles before and after it are not one list again.",
+   "checks": {
+    "order": [
+     [
+      "2) Weekly checks",
+      "Look at the filter"
+     ],
+     [
+      "so that it does not run over",
+      "3) Cleaning"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "905/numberedListWithACaptionDrawnBetweenItemsStaysOneList",
+   "issue": "905",
+   "test": "Issue905NumberedSectionTitlesTest",
+   "method": "numberedListWithACaptionDrawnBetweenItemsStaysOneList",
+   "pdf": "issue-905-caption/caption.pdf",
+   "doc": "Guard: a numbered list with a caption that the content stream draws between two items stays one list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [
+     [
+      "1. Find the length",
+      "2. Find the area",
+      "3. Find the volume",
+      "4. Find the mass"
+     ]
+    ],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "905/numberedListWithLinesAtTheNumbersStaysOneList",
+   "issue": "905",
+   "test": "Issue905NumberedSectionTitlesTest",
+   "method": "numberedListWithLinesAtTheNumbersStaysOneList",
+   "pdf": "issue-905-lines-at-numbers/lines-at-numbers.pdf",
+   "doc": "Guard: a numbered list whose items go on in lines at the numbers, drawn in their order, stays one list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [
+     [
+      "1. Read all the steps",
+      "2. Put the parts",
+      "3. Keep the small parts"
+     ]
+    ],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "905/numberedListBesideTheTextOfAnotherColumnStaysOneList",
+   "issue": "905",
+   "test": "Issue905NumberedSectionTitlesTest",
+   "method": "numberedListBesideTheTextOfAnotherColumnStaysOneList",
+   "pdf": "issue-905-two-columns/two-columns.pdf",
+   "doc": "Guard: a numbered list in the left column of a page with two columns, where the content stream draws the text of the right column after the list, stays one list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [
+     [
+      "1. Read all the steps",
+      "2. Put the parts",
+      "3. Keep the parts dry"
+     ]
+    ],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "906/rowsOfALegendDrawnByColumnsAreOneElementEach",
+   "issue": "906",
+   "test": "Issue906NumberedTableRowsTest",
+   "method": "rowsOfALegendDrawnByColumnsAreOneElementEach",
+   "pdf": "issue-906-legend/legend.pdf",
+   "doc": "A legend of ten rows drawn by columns, with centered numbers: one element for each row, in order.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "906/rowWithADescriptionOfTwoLinesStaysBeforeTheNextRow",
+   "issue": "906",
+   "test": "Issue906NumberedTableRowsTest",
+   "method": "rowWithADescriptionOfTwoLinesStaysBeforeTheNextRow",
+   "pdf": "issue-906-two-line-cell/two-line-cell.pdf",
+   "doc": "A legend drawn by columns whose description of row 2 has two lines: one element for each row, and the second line of the description between row 2 and row 3.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(text.indexOf(NAMES[1]) < text.indexOf(\"The mode stays\")\n                && text.indexOf(\"The mode stays\") < text.indexOf)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "906/rowsOfALegendDrawnFromTheBottomComeInTheOrderOfTheirNumbers",
+   "issue": "906",
+   "test": "Issue906NumberedTableRowsTest",
+   "method": "rowsOfALegendDrawnFromTheBottomComeInTheOrderOfTheirNumbers",
+   "pdf": "issue-906-bottom-up/bottom-up.pdf",
+   "doc": "A legend whose columns the page content draws from the bottom up, with the reading order off: the rows come in the order of their numbers.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "906/rowsOfTwoLegendsWithNumbersThatGoOnAreOneElementEach",
+   "issue": "906",
+   "test": "Issue906NumberedTableRowsTest",
+   "method": "rowsOfTwoLegendsWithNumbersThatGoOnAreOneElementEach",
+   "pdf": "issue-906-two-legends/two-legends.pdf",
+   "doc": "Two legends on one page, far apart, whose numbers go on from the first to the second, and whose columns are at other places: each row of each legend is one element.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "906/firstLineOfASmallDescriptionIsInItsRow",
+   "issue": "906",
+   "test": "Issue906NumberedTableRowsTest",
+   "method": "firstLineOfASmallDescriptionIsInItsRow",
+   "pdf": "issue-906-small-descriptions/small-descriptions.pdf",
+   "doc": "A legend with numbers in 16 pt and descriptions in 6 pt, the first two of two lines 7 pt apart: the first line of each description is in its row.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(element.path(\"content\").asText().startsWith((i + 1) + \" \"),\n                SYMPTOM + \" (the first line of row \" + (i + )",
+    "assertNotNull(element, \"the description of row \" + (i + 1) + \" is lost: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "906/legendWithAHeaderIsNotJoinedInPart",
+   "issue": "906",
+   "test": "Issue906NumberedTableRowsTest",
+   "method": "legendWithAHeaderIsNotJoinedInPart",
+   "pdf": "issue-906-header/header.pdf",
+   "doc": "Guard: a legend with a header just above its column of descriptions is not joined in part: no row has its number and its name without its description.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertNotNull(element, \"the name of row \" + (i + 1) + \" is lost: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "906/legendWithACellOfTwoColumnsIsNotJoinedInPart",
+   "issue": "906",
+   "test": "Issue906NumberedTableRowsTest",
+   "method": "legendWithACellOfTwoColumnsIsNotJoinedInPart",
+   "pdf": "issue-906-cell-of-two-columns/cell-of-two-columns.pdf",
+   "doc": "Guard: a legend whose name and description of row 1 the page content draws one after the other, so that they are one line already, is not joined in part: no row has its number and its name without its description.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertNotNull(element, \"the name of row \" + (i + 1) + \" is lost: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "906/textOfAnotherColumnIsNotInTheRows",
+   "issue": "906",
+   "test": "Issue906NumberedTableRowsTest",
+   "method": "textOfAnotherColumnIsNotInTheRows",
+   "pdf": "issue-906-two-columns/two-columns.pdf",
+   "doc": "Guard: on a page with two columns, the text of the right column, which goes on above and below the rows of a numbered list of the left column, is not in the rows of that list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": [
+     "The right column"
+    ]
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertNotNull(element, \"the item is lost (\" + item + \"): \" + document)"
+   ],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "906/numberedListOfLinesStaysOneList",
+   "issue": "906",
+   "test": "Issue906NumberedTableRowsTest",
+   "method": "numberedListOfLinesStaysOneList",
+   "pdf": "issue-906-numbered-list/numbered-list.pdf",
+   "doc": "Guard: a numbered list whose lines start with their numbers stays one list.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertNotNull(list, \"the list is lost: \" + document)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "913/labelPaintedBeforeAHeadingOfTheNextColumnStaysWithItsItem",
+   "issue": "913",
+   "test": "Issue913ListLabelAndHeadingTest",
+   "method": "labelPaintedBeforeAHeadingOfTheNextColumnStaysWithItsItem",
+   "pdf": "issue-913-label-before-heading/label-before-heading.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [
+     "4. Willow notes:"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "913/itemOfALabelPaintedBeforeAHeadingOfTheNextColumnStaysInTheList",
+   "issue": "913",
+   "test": "Issue913ListLabelAndHeadingTest",
+   "method": "itemOfALabelPaintedBeforeAHeadingOfTheNextColumnStaysInTheList",
+   "pdf": "issue-913-label-in-list/label-in-list.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [
+     "- 3. Cedar notes:",
+     "- 4. Willow notes:"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "913/headingOnTheRowOfALabelOfTheOtherColumnStartsItsColumn",
+   "issue": "913",
+   "test": "Issue913ListLabelAndHeadingTest",
+   "method": "headingOnTheRowOfALabelOfTheOtherColumnStartsItsColumn",
+   "pdf": "issue-913-heading-on-label-row/heading-on-label-row.pdf",
+   "doc": "",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "913/labelsOfTwoColumnsPaintedBeforeAHeadingOfTheThirdStayWithTheirItems",
+   "issue": "913",
+   "test": "Issue913ListLabelAndHeadingTest",
+   "method": "labelsOfTwoColumnsPaintedBeforeAHeadingOfTheThirdStayWithTheirItems",
+   "pdf": "issue-913-labels-of-two-columns/labels-of-two-columns.pdf",
+   "doc": "Variant: three columns, each 150 pt wide. The page paints the labels of the first two columns and a heading of the third column on one row, one after the other, and later the text of each item with the paragraph below it.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(hasLine(markdown, \"4. Willow notes:\") && hasLine(markdown, \"7. Rowan notes:\"),\n            ITEM + \":\\n\" + markdown)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "913/labelPaintedWithItsTextKeepsTheColumnsApart",
+   "issue": "913",
+   "test": "Issue913ListLabelAndHeadingTest",
+   "method": "labelPaintedWithItsTextKeepsTheColumnsApart",
+   "pdf": "issue-913-label-with-text/label-with-text.pdf",
+   "doc": "Variant that main gets right: the page paints the label just before the text of its item.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "4. Willow notes:"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": 1.0
+  },
+  {
+   "id": "913/labelFarFromItsTextStaysWithItsText",
+   "issue": "913",
+   "test": "Issue913ListLabelAndHeadingTest",
+   "method": "labelFarFromItsTextStaysWithItsText",
+   "pdf": "issue-913-label-far-from-text/label-far-from-text.pdf",
+   "doc": "Output that must stay: on a page of one column, the text of a list item starts more than 6 font sizes after its label, and no other text is on the row. The label and its text stay one line.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "919/underlinedYearOfAHeaderIsNotALeader",
+   "issue": "919",
+   "test": "Issue919UnderlinedHeaderTest",
+   "method": "underlinedYearOfAHeaderIsNotALeader",
+   "pdf": "issue-919-headers/headers.pdf",
+   "doc": "Each header keeps its own year, and no line has the years of two columns.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(line.indexOf(\"FY \") == line.lastIndexOf(\"FY \"),\n                \"the underline is read as a leader (one line has two yea)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "919/thinRectangleBetweenATitleAndItsPageNumberIsALeader",
+   "issue": "919",
+   "test": "Issue919UnderlinedHeaderTest",
+   "method": "thinRectangleBetweenATitleAndItsPageNumberIsALeader",
+   "pdf": "issue-919-leaders/leaders.pdf",
+   "doc": "Guard: a thin filled rectangle between a title and its page number is a leader, also in rows drawn by columns.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(index > previous, \"a row of the table of contents is not one row in order (\\\"\" + expected\n                + \"\\\"): \" + te)"
+   ],
+   "status": "unchecked",
+   "recall": null
+  },
+  {
+   "id": "920/sectionThatGoesOnBelowTheGapIsReadAfterTheOtherColumn",
+   "issue": "920",
+   "test": "Issue920ColumnSectionsTest",
+   "method": "sectionThatGoesOnBelowTheGapIsReadAfterTheOtherColumn",
+   "pdf": "issue-920-left-column-new-section/left-column-new-section.pdf",
+   "doc": "The left column has sections 3 and 4; the right column has section 5, which goes on below the gap. The order is 3, 4, 5, and the rest of 5.",
+   "checks": {
+    "order": [
+     [
+      "Renewal",
+      "Alpha",
+      "Loss",
+      "Bravo",
+      "Main points",
+      "Charlie",
+      "Delta"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": null
+  },
+  {
+   "id": "920/leftSectionThatGoesOnBelowTheGapIsReadBeforeTheRightColumn",
+   "issue": "920",
+   "test": "Issue920ColumnSectionsTest",
+   "method": "leftSectionThatGoesOnBelowTheGapIsReadBeforeTheRightColumn",
+   "pdf": "issue-920-right-column-new-section/right-column-new-section.pdf",
+   "doc": "The same layout, mirrored: the left column goes on below the gap, and the right column starts section 6 there. The order is 3, the rest of 3, 5, 6.",
+   "checks": {
+    "order": [
+     [
+      "Renewal",
+      "Alpha",
+      "Bravo",
+      "Main points",
+      "Charlie",
+      "Rules",
+      "Delta"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "pass",
+   "recall": null
+  },
+  {
+   "id": "920/gridOfSectionsIsReadRowByRow",
+   "issue": "920",
+   "test": "Issue920ColumnSectionsTest",
+   "method": "gridOfSectionsIsReadRowByRow",
+   "pdf": "issue-920-grid/grid.pdf",
+   "doc": "Guard: both columns start a new section below the gap, as in a grid of four boxes. The page is read part by part: the top row, then the bottom row.",
+   "checks": {
+    "order": [
+     [
+      "First box",
+      "Alpha",
+      "Second box",
+      "Bravo",
+      "Third box",
+      "Charlie",
+      "Fourth box",
+      "Delta"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "920/headingOfANewPartBelowTextInBothColumnsStartsTheNewPart",
+   "issue": "920",
+   "test": "Issue920ColumnSectionsTest",
+   "method": "headingOfANewPartBelowTextInBothColumnsStartsTheNewPart",
+   "pdf": "issue-920-new-part/new-part.pdf",
+   "doc": "Guard: text that goes across both columns above the gap, then a heading of a new part in the left column only, as on a banner that goes across the page. The text above the gap has no heading in the right column, so the page is read part by part: the text above, then the new part.",
+   "checks": {
+    "order": [
+     [
+      "Alpha",
+      "Bravo",
+      "Practice questions",
+      "Charlie",
+      "Delta"
+     ]
+    ],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "xfail",
+   "recall": null
+  },
+  {
+   "id": "936/wrappedCellsOfRowsDrawnFromTheRightKeepTheirLines",
+   "issue": "936",
+   "test": "Issue936WrappedCellColumnWordTest",
+   "method": "wrappedCellsOfRowsDrawnFromTheRightKeepTheirLines",
+   "pdf": "issue-936-right-to-left/right-to-left.pdf",
+   "doc": "The page draws each row from the right, as the reported pages do: the lines of each text stay together.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "936/wrappedCellsWithTheResultBeforeTheirLastLinesKeepTheirLines",
+   "issue": "936",
+   "test": "Issue936WrappedCellColumnWordTest",
+   "method": "wrappedCellsWithTheResultBeforeTheirLastLinesKeepTheirLines",
+   "pdf": "issue-936-result-after-first-line/result-after-first-line.pdf",
+   "doc": "The page draws the result after the first line of the text: the lines of each text stay together.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "936/cellOfThreeLinesKeepsItsLines",
+   "issue": "936",
+   "test": "Issue936WrappedCellColumnWordTest",
+   "method": "cellOfThreeLinesKeepsItsLines",
+   "pdf": "issue-936-three-lines/three-lines.pdf",
+   "doc": "A text of three lines, in a row drawn from the right: its three lines stay together.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "936/twoWrappedCellsOfARowKeepTheirLines",
+   "issue": "936",
+   "test": "Issue936WrappedCellColumnWordTest",
+   "method": "twoWrappedCellsOfARowKeepTheirLines",
+   "pdf": "issue-936-two-wrapped-cells/two-wrapped-cells.pdf",
+   "doc": "A row with two wrapped cells, a name of three lines in the first column and a text of two lines in the second. The page draws the first lines of the row, then the other lines of the name, then the other line of the text: the lines of each cell stay together, and the result comes after them.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Item number one",
+     "Approve the plan of Pat Doe"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(result > text.indexOf(\"Pat Doe\") && result < text.indexOf(\"Approve the budget\"),\n            SYMPTOM + \" (the result is )"
+   ],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "936/wrappedCellBesideALongerWrappedCellKeepsItsLines",
+   "issue": "936",
+   "test": "Issue936WrappedCellColumnWordTest",
+   "method": "wrappedCellBesideALongerWrappedCellKeepsItsLines",
+   "pdf": "issue-936-longer-wrapped-cell/longer-wrapped-cell.pdf",
+   "doc": "The first row of a table, with a name of four lines and a text of two lines. The page draws the first lines of the row, then the other lines of the name, then the other line of the text. The next row is below the name, more than four font sizes below the second line of the text: the lines of the text stay together too.",
+   "checks": {
+    "order": [],
+    "contains": [
+     "Approve the plan of Pat Doe"
+    ],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(result > text.indexOf(\"Pat Doe\") && result < text.indexOf(\"Approve the budget\"),\n            SYMPTOM + \" (the result is )"
+   ],
+   "status": "xfail",
+   "recall": 1.0
+  },
+  {
+   "id": "936/wrappedCellsDrawnFromTheLeftStayInOrder",
+   "issue": "936",
+   "test": "Issue936WrappedCellColumnWordTest",
+   "method": "wrappedCellsDrawnFromTheLeftStayInOrder",
+   "pdf": "issue-936-left-to-right/left-to-right.pdf",
+   "doc": "Guard: the page draws the result after all the lines of the text. The base keeps this order.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "936/wrappedResultInTheLastColumnStaysInOrder",
+   "issue": "936",
+   "test": "Issue936WrappedCellColumnWordTest",
+   "method": "wrappedResultInTheLastColumnStaysInOrder",
+   "pdf": "issue-936-wrapped-result/wrapped-result.pdf",
+   "doc": "Guard: the result wraps, in the last column. Its second line comes after its first line.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(first >= 0 && second > first && text.indexOf(\"Approve the budget\") > second,\n            \"the lines of the result are no)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  },
+  {
+   "id": "936/lineBelowTheLeftPartOfOneFormRowStaysAfterTheRow",
+   "issue": "936",
+   "test": "Issue936WrappedCellColumnWordTest",
+   "method": "lineBelowTheLeftPartOfOneFormRowStaysAfterTheRow",
+   "pdf": "issue-936-form-row/form-row.pdf",
+   "doc": "Guard: one row of a form, with a gap between its two parts, and a line below its left part. No other row has these columns, so this is not a table: the line below stays after the row.",
+   "checks": {
+    "order": [],
+    "contains": [],
+    "not_contains": [],
+    "line_starts": [],
+    "same_line": [],
+    "one_list": [],
+    "in_list": [],
+    "not_in_list": []
+   },
+   "list_items": null,
+   "unparsed": [
+    "assertTrue(date >= 0 && address > date, \"the line below the form row moved: \" + text)"
+   ],
+   "status": "unchecked",
+   "recall": 1.0
+  }
+ ]
+}
