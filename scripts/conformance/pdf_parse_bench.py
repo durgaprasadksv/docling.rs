@@ -18,7 +18,8 @@ Each ground-truth element gets a status:
 - inline formula: `found` when its visible characters appear in order in our
   text, else `missing` (inline math is read as text today: this measures that
   nothing is lost, not that its structure is kept);
-- display formula: `exact` / `near` / `wrong` / `refused` / `no region` — see
+- display formula: `exact` / `wrong` (anything else: a near miss read aloud
+  is wrong) / `refused` / `no region` — see
   `formula_text_eval.py` (the text-layer reconstruction, model off);
 - table: `exact` (same grid, every cell equal), `good` (cell F1 >= 0.9),
   `partial` (>= 0.5), `missing`.
@@ -281,7 +282,8 @@ def cell_f1(a, b):
 RANK = {
     "text": {"found": 2, "partial": 1, "missing": 0},
     "inline": {"found": 1, "missing": 0},
-    "display": {"exact": 4, "near": 3, "refused": 2, "no region": 2, "wrong": 1},
+    # a wrong formula is worse than one left to the model
+    "display": {"exact": 3, "refused": 2, "no region": 2, "wrong": 1},
     "table": {"exact": 3, "good": 2, "partial": 1, "missing": 0},
 }
 

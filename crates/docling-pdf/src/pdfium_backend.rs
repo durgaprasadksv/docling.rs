@@ -1538,6 +1538,10 @@ pub(crate) struct Glyph {
     /// it has one) is what `formula_text` reads instead.
     pub(crate) unmapped_math: bool,
     pub(crate) program_name: Option<std::sync::Arc<str>>,
+    /// A glyph the text layer cannot read but `formula_text` can (by
+    /// `program_name`): kept for the formula layer, dropped before any cell
+    /// is built, so the text output is what it was.
+    pub(crate) formula_only: bool,
 }
 
 impl Glyph {

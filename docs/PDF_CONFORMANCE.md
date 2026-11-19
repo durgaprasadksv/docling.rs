@@ -886,27 +886,35 @@ that got worse than `tests/data/pdf/pdf_parse_bench/expected.json`.
 |---|---|---|
 | Text passage | 5,921 | 5,897 found word for word, 24 partial |
 | Inline formula | 2,824 | 2,573 with every character in the text, 251 missing some |
-| Display formula | 1,298 | 643 exact, 77 near, 125 wrong, 166 left to the model, 287 never boxed as a formula |
+| Display formula | 1,298 | 907 correct, 23 wrong, 225 left to the model, 143 never boxed as a formula |
 | Table | 451 | 103 exact grid, 138 cell F1 ≥ 0.9, 142 ≥ 0.5, 68 below |
 
-Display formulas are scored after canonicalising both sides
-(`scripts/conformance/formula_text_eval.py`: `\left`, spacing and font
-switches dropped, synonyms unified); of the 1,011 the layout model boxed, the
-text layer rebuilt 845 (84%), 76% of those exactly and 15% wrong. Every one
-of the 1,011 regions is frozen in `tests/data/pdf/formula_text/cases.json`
-and replayed by a unit test with no PDF or model.
+A display formula counts as correct only when our LaTeX equals the ground
+truth after canonicalising both sides (`scripts/conformance/formula_text_eval.py`:
+`\left`, spacing and font switches dropped, synonyms unified, and pairs the
+page cannot tell apart — `\bigcap`/`\cap`, `\Longrightarrow`/`\Rightarrow`,
+`\tilde{Q_s}`/`\tilde{Q}_s` — treated as one); anything else is wrong, a
+near miss included. The reconstruction is built to be right or silent: what
+it cannot vouch for — matrices and multi-row blocks, stacked notation, an
+unread glyph, a tall bracket without its partner, a script with no base, an
+unpaired bracket — goes to the model. Every one of the 1,155 boxed formulas
+is frozen in `tests/data/pdf/formula_text/cases.json` and replayed by a unit
+test with no PDF or model.
 
-What the misses are, as measured:
+What is left, as measured:
 
-- **Display formulas never boxed** (287): the layout model labels them text
-  or merges them into a paragraph; nothing downstream sees them.
-- **Wrong rebuilds** (125): mostly matrices and `aligned` blocks read as
-  rows without their columns, a region that swallowed a neighbouring
-  formula, and a few binomials and stacked operators.
+- **Display formulas never boxed** (143): the layout model labels them text
+  or merges them into a paragraph; nothing downstream sees them. A
+  glyph-based formula detector is the planned fix.
+- **Wrong** (23): mostly a formula cut at the layout box's edge (an
+  `\overline`, an `\int_D`, the tail of a sum outside the box) and two
+  chemistry formulas in `\ce{…}` notation that the scorer cannot compare
+  (ours are right). Delimiting formulas from their own glyphs addresses the
+  first.
 - **Inline formulas missing characters** (251): math-italic Greek in running
-  text dropped or misread by the text layer (`χ` lost, `π` read as `9`),
-  and inline formulas the layout model boxed that the reconstruction
-  refused (with the VLM off they leave only the placeholder).
+  text dropped or misread by the text layer, and inline formulas the layout
+  model boxed that the reconstruction refused (with the VLM off they leave
+  only the placeholder).
 - **Tables** below F1 0.5 (68): TableFormer merging several rows into one
   cell, rows shifted by one, and a calligraphic letter extracted as a
   private-use character.

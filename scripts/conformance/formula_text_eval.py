@@ -35,7 +35,9 @@ TOKEN = re.compile(r"\\[a-zA-Z]+\*?|\\.|[^\s]")
 
 
 def tokens(latex):
-    return TOKEN.findall(latex)
+    # a lone backslash is what is left of a trailing `\ ` space once the
+    # formula is trimmed
+    return [t for t in TOKEN.findall(latex) if t != "\\"]
 
 
 DROP = {
@@ -56,6 +58,23 @@ UNWRAP = {
 }
 # Commands that draw nothing: they go with their argument.
 INVISIBLE = {r"\vphantom", r"\phantom", r"\hphantom"}
+# Typographic variants of one symbol — a size (`\bigcap`/`\cap`, a long
+# arrow), a wide accent, a letterform (`\varkappa`) — which the page cannot
+# tell apart from the spelling the author typed and which are spoken alike.
+VARIANTS = {
+    r"\widehat": r"\hat", r"\widetilde": r"\tilde", r"\bigcap": r"\cap",
+    r"\bigcup": r"\cup", r"\bigoplus": r"\oplus", r"\bigotimes": r"\otimes",
+    r"\bigvee": r"\vee", r"\bigwedge": r"\wedge", r"\bigsqcup": r"\sqcup",
+    r"\Longleftrightarrow": r"\Leftrightarrow", r"\Longrightarrow": r"\Rightarrow",
+    r"\Longleftarrow": r"\Leftarrow", r"\longrightarrow": r"\rightarrow",
+    r"\longleftarrow": r"\leftarrow", r"\longleftrightarrow": r"\leftrightarrow",
+    r"\longmapsto": r"\mapsto", r"\varkappa": r"\kappa", r"\varpi": r"\pi",
+    r"\parallel": r"\|", r"\lVert": r"\|", r"\rVert": r"\|", r"\Vert": r"\|",
+    r"\dotsm": "...", r"\dotsi": "...", r"\vdots": "...",
+    r"\vDash": r"\models", r"\geqslant": r"\geq", r"\leqslant": r"\leq",
+    r"\bot": r"\perp", r"\bigtriangleup": r"\triangle", r"\varnothing": r"\emptyset",
+    r"\backepsilon": r"\ni",
+}
 SYN = {
     r"\le": r"\leq", r"\ge": r"\geq", r"\ne": r"\neq", r"\to": r"\rightarrow",
     r"\gets": r"\leftarrow", r"\lbrace": r"\{", r"\rbrace": r"\}", r"\lvert": "|",
@@ -75,6 +94,8 @@ FUNCS = {
     "det", "deg", "gcd", "sup", "inf", "arcsin", "arccos", "arctan", "sinh", "cosh",
     "tanh", "dim", "ker", "arg", "Pr", "hom", "lg", "liminf", "limsup", "mod",
 }
+ACCENTS = {r"\hat", r"\tilde", r"\bar", r"\overline", r"\vec", r"\dot", r"\ddot",
+           r"\check", r"\acute", r"\grave", r"\breve"}
 ARGS = {r"\frac": 2, r"\binom": 2, r"\sqrt": 1, r"\overline": 1, r"\underline": 1,
         r"\hat": 1, r"\tilde": 1, r"\vec": 1, r"\dot": 1, r"\ddot": 1, r"\check": 1,
         r"\acute": 1, r"\grave": 1, r"\breve": 1, r"\widehat": 1, r"\widetilde": 1,
@@ -129,6 +150,8 @@ def canon(seq):
             i += 1
             continue
         t = SYN.get(t, t)
+        t = VARIANTS.get(t, t)
+        t = SYN.get(t, t)
         if t in DROP:
             i += 1
             continue
@@ -138,9 +161,22 @@ def canon(seq):
             continue
         if t in (r"\begin", r"\end"):
             # the environment name goes; rows (`\\`) and cells (`&`) stay
-            # comparable through the row breaks the text layer also sees
-            _, i = arg(seq, i + 1)
+            # comparable through the row breaks the text layer also sees —
+            # except the brackets a matrix environment draws
+            env, i = arg(seq, i + 1)
+            name = "".join(x for x in env if isinstance(x, str))
+            fence = {"bmatrix": "[]", "pmatrix": "()", "vmatrix": "||", "Bmatrix": ["\\{", "\\}"]}.get(name)
+            if fence:
+                out.append(fence[0] if t == r"\begin" else fence[1])
             continue
+        if t == r"\not" and i + 1 < len(seq) and isinstance(seq[i + 1], str):
+            neg = {"=": r"\neq", r"\in": r"\notin", r"\equiv": r"\not\equiv",
+                   "<": r"\nless", ">": r"\ngtr", r"\subset": r"\not\subset"}
+            nxt = SYN.get(seq[i + 1], seq[i + 1])
+            if nxt in neg:
+                out.append(neg[nxt])
+                i += 2
+                continue
         if t in INVISIBLE:
             _, i = arg(seq, i + 1)
             continue
@@ -166,7 +202,14 @@ def canon(seq):
             # collect a run of scripts and order sub before sup; primes are
             # superscripts (`d'_{i}` = `d_{i}^{\prime}`)
             scripts = {}
-            while i < len(seq) and isinstance(seq[i], str) and seq[i] in ("^", "_", "'"):
+            while i < len(seq) and (
+                (isinstance(seq[i], str) and seq[i] in ("^", "_", "'"))
+                # an empty group staggering indices (`\Gamma^{k}{}_{ij}`)
+                or (seq[i] == [] and i + 1 < len(seq) and seq[i + 1] in ("^", "_"))
+            ):
+                if seq[i] == []:
+                    i += 1
+                    continue
                 if seq[i] == "'":
                     scripts.setdefault("^", []).append(r"\prime")
                     i += 1
@@ -187,6 +230,14 @@ def canon(seq):
             a, i = arg(seq, j + 1)
             out.extend([r"\sqrt", "["] + idx + ["]", "{"] + canon(a) + ["}"])
             continue
+        if t in ACCENTS and i + 1 < len(seq) and isinstance(seq[i + 1], list):
+            # `\tilde{Q_{s}}` and `\tilde{Q}_{s}` print alike: the accent
+            # takes the first atom, the scripts follow it
+            inner = canon(seq[i + 1])
+            if len(inner) > 1 and inner[1] in ("_", "^"):
+                out.extend([t, "{", inner[0], "}"] + inner[1:])
+                i += 2
+                continue
         if t in ARGS:
             i += 1
             out.append(t)
@@ -263,7 +314,10 @@ def replay(dirs):
     repo = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
     cmd = ["cargo", "run", "-q", "--release", "-p", "docling-pdf", "--example",
            "formula_text_replay", "--"] + dirs
-    out = subprocess.run(cmd, cwd=repo, capture_output=True, text=True, check=True).stdout
+    proc = subprocess.run(cmd, cwd=repo, capture_output=True, text=True)
+    if proc.returncode != 0:
+        sys.exit("formula_text_replay failed:\n" + proc.stderr[-3000:])
+    out = proc.stdout
     got = {}
     for line in out.splitlines():
         r = json.loads(line)
@@ -303,7 +357,9 @@ def evaluate(bench, out_dir, replayed=None, label=""):
                 ours = canonical(rec["latex"])
                 row["ours_canon"] = ours
                 row["sim"] = similarity(ours, gt_c[bi])
-                row["status"] = "exact" if ours == gt_c[bi] else ("near" if row["sim"] >= 0.9 else "wrong")
+                # Anything but an exact match is wrong: a near miss read aloud
+                # is a wrong formula. `sim` stays for diagnosis only.
+                row["status"] = "exact" if ours == gt_c[bi] else "wrong"
             else:
                 row["status"] = "refused"
                 row["why"] = re.sub(r"[\d.]+", "#", rec.get("error") or "")[:70]
@@ -316,12 +372,11 @@ def evaluate(bench, out_dir, replayed=None, label=""):
 
 def report(rows):
     st = Counter(r["status"] for r in rows)
-    regions = sum(st[k] for k in ("exact", "near", "wrong", "refused"))
-    rebuilt = sum(st[k] for k in ("exact", "near", "wrong"))
+    regions = sum(st[k] for k in ("exact", "wrong", "refused"))
+    rebuilt = sum(st[k] for k in ("exact", "wrong"))
     print("display formulas with a matched region:", regions)
     print("  rebuilt from the text layer:", rebuilt, f"({100*rebuilt/max(regions,1):.1f}%)")
     print("    exact after canonicalisation:", st["exact"], f"({100*st['exact']/max(rebuilt,1):.1f}% of rebuilt)")
-    print("    near (token similarity >= 0.9):", st["near"])
     print("    wrong:", st["wrong"], f"({100*st['wrong']/max(rebuilt,1):.1f}% of rebuilt)")
     sims = [r["sim"] for r in rows if "sim" in r]
     if sims:
@@ -364,7 +419,7 @@ def write_fixtures(rows, dst):
         else:
             ours, gt = canonical(latex), canonical(c["gt"])
             sim = similarity(ours, gt)
-            c["status"] = "exact" if ours == gt else ("near" if sim >= 0.9 else "wrong")
+            c["status"] = "exact" if ours == gt else "wrong"
     with open(path, "w") as fh:
         json.dump(cases, fh, ensure_ascii=False, indent=0)
     print(f"wrote {len(cases)} fixtures to {path}: {dict(Counter(c['status'] for c in cases))}")
@@ -396,7 +451,7 @@ if __name__ == "__main__":
     report(rows)
     if "--show" in flag:
         for r in rows:
-            if r["status"] in ("wrong", "near"):
+            if r["status"] == "wrong":
                 print("---", r["pdf"], r["status"], f"{r.get('sim', 0):.2f}")
                 print("  gt:  ", r["gt"])
                 print("  ours:", r["rec"]["latex"])

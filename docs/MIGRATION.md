@@ -2511,9 +2511,9 @@ These are deliberate or unavoidable divergences, not bugs.
    vinculum, stacked full-size glyphs (a matrix), rotated text, and a
    formula drawn as vector outlines (MathJax output printed to PDF), which
    has no glyphs at all. A document whose formulas all rebuild never loads
-   the model. On pdf-parse-bench's born-digital PDFs it rebuilds 84% of the
-   display formulas the layout model boxes, 76% of those exactly as the
-   ground truth (docs/PDF_CONFORMANCE.md). `DOCLING_RS_FORMULA_TEXT_LAYER=0`
+   the model. On pdf-parse-bench's born-digital PDFs, of the 1,155 display
+   formulas the layout model boxes it reads 907 exactly as the ground truth,
+   gets 23 wrong and leaves 225 to the model (docs/PDF_CONFORMANCE.md). `DOCLING_RS_FORMULA_TEXT_LAYER=0`
    sends every formula to the model.
 
 ## 5. Not migrated / out of scope

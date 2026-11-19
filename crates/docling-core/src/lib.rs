@@ -58,6 +58,7 @@ pub use labels::DocItemLabel;
 pub use latex::escape_latex;
 pub use limits::LimitExceeded;
 pub use markdown::{code_fence, code_span, longest_backtick_run, ImageMode, MarkdownStreamer};
+pub use mathml::latex_command;
 pub use metadata::{DocumentMetadata, GpsPosition, MetadataOutput};
 pub use pdf_repair::PdfRepair;
 pub use redact::{

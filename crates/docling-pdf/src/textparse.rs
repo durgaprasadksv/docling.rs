@@ -1446,7 +1446,11 @@ impl PageTextParser {
             return PageParserCells::default();
         };
         let (_w, h) = page_size(&self.doc, pid);
-        let (glyphs, inks) = page_glyphs_and_inks(&self.doc, pid, &mut self.caches);
+        let (mut glyphs, inks) = page_glyphs_and_inks(&self.doc, pid, &mut self.caches);
+        // The formula layer sees every glyph; the text cells never the
+        // formula-only ones (see `show_text`).
+        let math = crate::formula_text::MathLayer::new(&glyphs, &inks, h);
+        glyphs.retain(|g| !g.formula_only);
         let (prose, words) =
             crate::dp_lines::line_and_word_cells_with(&glyphs, h, true, self.word_gap);
         PageParserCells {
@@ -1454,7 +1458,7 @@ impl PageTextParser {
             words,
             code: crate::pdfium_backend::code_cells_from_glyphs(&glyphs, h),
             checkboxes: crate::checkbox::find(&inks, h),
-            math: crate::formula_text::MathLayer::new(&glyphs, &inks, h),
+            math,
         }
     }
 
@@ -1476,6 +1480,9 @@ impl PageTextParser {
             }
             None => (0.0, 0.0, Default::default()),
         };
+        let math = crate::formula_text::MathLayer::new(&glyphs, &inks, h);
+        let mut glyphs = glyphs;
+        glyphs.retain(|g| !g.formula_only);
         let (mut prose, mut words) =
             crate::dp_lines::line_and_word_cells_with(&glyphs, h, true, self.word_gap);
         drop_overpainted_cells(&mut prose);
@@ -1491,7 +1498,7 @@ impl PageTextParser {
             code_cells: crate::pdfium_backend::code_cells_from_glyphs(&glyphs, h),
             word_cells: words,
             checkboxes: crate::checkbox::find(&inks, h),
-            math: crate::formula_text::MathLayer::new(&glyphs, &inks, h),
+            math,
             #[cfg(feature = "ocr-prep")]
             image: image::RgbImage::new(1, 1),
             links: Vec::new(),
@@ -1687,7 +1694,9 @@ fn page_glyphs_cached(
     page_id: lopdf::ObjectId,
     caches: &mut DocCaches,
 ) -> Vec<Glyph> {
-    page_glyphs_and_inks(doc, page_id, caches).0
+    let mut glyphs = page_glyphs_and_inks(doc, page_id, caches).0;
+    glyphs.retain(|g| !g.formula_only);
+    glyphs
 }
 
 /// [`page_glyphs_cached`] plus the small painted path pieces the same walk
@@ -2290,7 +2299,13 @@ fn show_text(
         } else {
             None
         };
-        if let Some(s) = text {
+        // Whether the code put any glyph on the text layer: a code that
+        // decodes to nothing or only to NUL (a base-encoding slot below the
+        // printable range) is invisible to the text cells either way.
+        let visible = text
+            .as_deref()
+            .is_some_and(|s| s.chars().any(|c| c != '\u{0}'));
+        if let Some(s) = text.filter(|_| visible) {
             // A run may map one code to multiple chars (ligature/fraction); share box.
             for ch in s.chars() {
                 if ch != '\u{0}' {
@@ -2310,9 +2325,33 @@ fn show_text(
                         math_font: font.math,
                         unmapped_math,
                         program_name: program_name.clone(),
+                        formula_only: false,
                     });
                 }
             }
+        } else if let Some(name) = program_name.clone().filter(|_| unmapped_math) {
+            // Nothing decodes (no ToUnicode, a name — `u1D707` — the text
+            // layer does not read): the text cells skip the glyph as they
+            // always did, but `formula_text` reads the name, so keep it for
+            // the formula layer alone (the cell builders drop it).
+            out.push(Glyph {
+                ch: char::REPLACEMENT_CHARACTER,
+                l: left as f32,
+                b: bot as f32,
+                r: right as f32,
+                t: top as f32,
+                ll: left as f32,
+                lb: bot as f32,
+                lr: right as f32,
+                lt: top as f32,
+                font: font.hash,
+                quad,
+                pen,
+                math_font: font.math,
+                unmapped_math,
+                program_name: Some(name),
+                formula_only: true,
+            });
         }
         // Advance the text matrix. Word spacing applies to single-byte code 32.
         let is_space = !font.two_byte && code == 32;

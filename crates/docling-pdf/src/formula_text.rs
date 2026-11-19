@@ -143,9 +143,16 @@ impl MathLayer {
     /// The layer of a page whose glyphs and painted pieces the text parser
     /// walked (`h`: page height, for the y-flip).
     pub(crate) fn new(glyphs: &[Glyph], inks: &[Ink], h: f32) -> Self {
+        // Whitespace is dropped after the glyph's name is read, not before:
+        // a code whose base-encoding guess is a space can be a `ψ`
+        // (`u1D713`) — dropping it first lost the symbol silently.
         let glyphs = glyphs
             .iter()
-            .filter(|g| !g.ch.is_whitespace() && g.ll.is_finite() && g.lt.is_finite())
+            .filter(|g| g.ll.is_finite() && g.lt.is_finite())
+            .filter(|g| {
+                let named = g.unmapped_math && g.program_name.is_some();
+                named || !g.ch.is_whitespace()
+            })
             .map(|g| {
                 let (base, size) = match g.pen {
                     Some([_, y, size]) => (h - y, size),
@@ -177,6 +184,7 @@ impl MathLayer {
                 }
                 .with_true_extent()
             })
+            .filter(|m| !m.ch.is_whitespace())
             .collect();
         let rules = inks
             .iter()
@@ -224,10 +232,8 @@ pub fn dump_json(
     let inside =
         |x: f32, y: f32| x >= l - SLACK && x <= r + SLACK && y >= t - SLACK && y <= b + SLACK;
     let r2 = |v: f32| (v * 100.0).round() / 100.0;
-    let glyphs: Vec<serde_json::Value> = layer
-        .glyphs
+    let glyphs: Vec<serde_json::Value> = select(layer, bbox)
         .iter()
-        .filter(|g| inside((g.l + g.r) / 2.0, (g.t + g.b) / 2.0))
         .map(|g| {
             serde_json::json!([
                 g.ch.to_string(),
@@ -315,17 +321,51 @@ pub fn enabled() -> bool {
 /// The formula in `bbox` (`[l, t, r, b]`, top-left page points) as LaTeX in
 /// the CodeFormula model's spelling, or why it cannot be rebuilt with
 /// confidence (see the module docs) — the caller then asks the model.
-pub fn explain(layer: &MathLayer, bbox: [f32; 4]) -> Result<String, String> {
+/// The glyphs of the formula in `bbox`: those centred inside it, plus a
+/// tall (TeX extension) bracket hanging just outside its left or right edge
+/// on its rows — the layout box is drawn to the ink of the formula's body
+/// and routinely leaves out the `\left(` before it or the `\right)` after.
+fn select(layer: &MathLayer, bbox: [f32; 4]) -> Vec<MathGlyph> {
     const SLACK: f32 = 1.0;
     let [l, t, r, b] = bbox;
     let inside =
         |x: f32, y: f32| x >= l - SLACK && x <= r + SLACK && y >= t - SLACK && y <= b + SLACK;
-    let glyphs: Vec<MathGlyph> = layer
+    layer
         .glyphs
         .iter()
-        .filter(|g| inside((g.l + g.r) / 2.0, (g.t + g.b) / 2.0))
+        .filter(|g| {
+            let (xc, yc) = ((g.l + g.r) / 2.0, (g.t + g.b) / 2.0);
+            inside(xc, yc)
+                || (g.hangs()
+                    && delimiter(g.ch)
+                    && yc >= t
+                    && yc <= b
+                    && ((g.r <= l + SLACK && l - g.r < 0.6 * g.size)
+                        || (g.l >= r - SLACK && g.l - r < 0.6 * g.size)))
+        })
         .cloned()
-        .collect();
+        .collect()
+}
+
+/// Whether the tall brackets among `glyphs` pair up: a `\Big)` without a
+/// `\Big(` means part of the formula is missing.
+fn tall_brackets_pair(glyphs: &[MathGlyph]) -> bool {
+    let side = |g: &MathGlyph| -> i32 {
+        match g.name.as_deref() {
+            Some(n) if g.hangs() && (n.contains("left") || n.starts_with("angbracketleft")) => 1,
+            Some(n) if g.hangs() && n.contains("right") => -1,
+            _ => 0,
+        }
+    };
+    glyphs.iter().map(side).filter(|&s| s > 0).count()
+        == glyphs.iter().map(side).filter(|&s| s < 0).count()
+}
+
+pub fn explain(layer: &MathLayer, bbox: [f32; 4]) -> Result<String, String> {
+    let glyphs = select(layer, bbox);
+    if !tall_brackets_pair(&glyphs) {
+        return Err("a tall bracket without its partner (part of the formula is missing)".into());
+    }
     if glyphs.is_empty() {
         return Err("no glyphs in the region (drawn as outlines, or an image)".into());
     }
@@ -347,10 +387,14 @@ pub fn explain(layer: &MathLayer, bbox: [f32; 4]) -> Result<String, String> {
     if let Some(g) = glyphs.iter().find(|g| token(g.ch).is_none()) {
         return Err(format!("unmapped glyph {:?} (U+{:04X})", g.ch, g.ch as u32));
     }
+    let [l, t, r, b] = bbox;
     let rules: Vec<Rule> = layer
         .rules
         .iter()
-        .filter(|ru| inside((ru.l + ru.r) / 2.0, (ru.t + ru.b) / 2.0))
+        .filter(|ru| {
+            let (x, y) = ((ru.l + ru.r) / 2.0, (ru.t + ru.b) / 2.0);
+            x >= l - 1.0 && x <= r + 1.0 && y >= t - 1.0 && y <= b + 1.0
+        })
         .copied()
         .collect();
     let tex = Builder::new(glyphs, rules).run()?;
@@ -449,6 +493,7 @@ impl Builder {
     }
 
     fn run(mut self) -> Result<String, String> {
+        self.joins()?;
         self.accents();
         // Narrowest rule first: an inner fraction or root is always narrower
         // than the one around it, so by the time a rule is read every
@@ -471,8 +516,136 @@ impl Builder {
         }
         self.word_limits();
         self.limits();
-        rows(std::mem::take(&mut self.atoms))
-            .ok_or_else(|| "stacked full-size glyphs (a matrix, an array)".into())
+        let tex = rows(std::mem::take(&mut self.atoms))
+            .ok_or_else(|| "stacked or unreadable structure (a matrix, a binomial)".to_string())?;
+        // Several rows are a multi-line display only when every row is an
+        // equation (has a relation); rows of bare entries are a matrix, an
+        // array or `cases`, whose columns this reader does not rebuild —
+        // read as rows they come out wrong, so they go to the model.
+        if tex.contains(" \\\\ ") && !tex.split(" \\\\ ").all(has_relation) {
+            return Err("rows that are not all equations (a matrix, an array, cases)".into());
+        }
+        // Even rows that are all equations are, measured on pdf-parse-bench,
+        // more often a neighbouring formula the layout box took in than one
+        // multi-line display (27 wrong to 6 right): until formulas are
+        // delimited from the glyphs themselves, several rows go to the model.
+        if tex.contains(" \\\\ ") {
+            return Err("several rows (one display, or a neighbour in the box)".into());
+        }
+        incomplete(&tex)?;
+        Ok(tex)
+    }
+
+    /// Glyphs TeX overlays or abuts to draw one symbol, joined into it:
+    /// `\mapsto` (a zero-width bar + `→`), `\longrightarrow` (`−` + `→`),
+    /// `\Longleftrightarrow` (`⇐` + `⇒`), and a negation slash over a
+    /// relation (`≠`, `∉`). A negation slash over anything else is
+    /// unexplained.
+    fn joins(&mut self) -> Result<(), String> {
+        const NEGATION: char = '\u{0338}';
+        loop {
+            let mut order: Vec<usize> = (0..self.atoms.len()).collect();
+            order.sort_by(|&x, &y| self.atoms[x].l.total_cmp(&self.atoms[y].l));
+            let mut hit = None;
+            for w in order.windows(2) {
+                let (a, b) = (&self.atoms[w[0]], &self.atoms[w[1]]);
+                let (Some(ca), Some(cb)) = (a.ch, b.ch) else {
+                    continue;
+                };
+                let touching = b.l <= a.r + 0.12 * a.size.max(b.size)
+                    && (a.base - b.base).abs() < 0.15 * a.size.max(b.size);
+                if !touching {
+                    continue;
+                }
+                let joined = match (ca, cb) {
+                    ('↦', '→') | ('↦', '⟶') => Some('↦'),
+                    ('−', '→') | ('-', '→') => Some('⟶'),
+                    ('←', '−') => Some('⟵'),
+                    ('=', '⇒') => Some('⟹'),
+                    ('⇐', '=') => Some('⟸'),
+                    ('⇐', '⇒') => Some('⟺'),
+                    ('←', '→') => Some('⟷'),
+                    ('↦', '−') => Some('↦'),
+                    ('|', '=') => Some('⊨'),
+                    _ => None,
+                };
+                if let Some(c) = joined {
+                    hit = Some((w[0], w[1], c));
+                    break;
+                }
+            }
+            // Symbols TeX stacks: `\cong` is `∼` set over `=`.
+            if hit.is_none() {
+                for (i, a) in self.atoms.iter().enumerate() {
+                    if a.ch != Some('∼') {
+                        continue;
+                    }
+                    let under = self.atoms.iter().position(|g| {
+                        g.ch == Some('=')
+                            && g.l.max(a.l) < g.r.min(a.r)
+                            && (g.r.min(a.r) - g.l.max(a.l)) > 0.6 * (g.r - g.l).min(a.r - a.l)
+                            && a.base < g.base
+                            && g.base - a.base < 0.6 * g.size
+                    });
+                    if let Some(j) = under {
+                        hit = Some((i, j, '≅'));
+                        break;
+                    }
+                }
+            }
+            // A negation slash overlapping a relation: the negated relation.
+            if hit.is_none() {
+                if let Some(si) = self.atoms.iter().position(|a| a.ch == Some(NEGATION)) {
+                    let s = self.atoms[si].clone();
+                    let under = (0..self.atoms.len()).find(|&j| {
+                        let g = &self.atoms[j];
+                        j != si && g.l < s.r && s.l < g.r && (g.base - s.base).abs() < 0.3 * s.size
+                    });
+                    let negated = under.and_then(|j| {
+                        Some(match self.atoms[j].ch? {
+                            '=' => '≠',
+                            '∈' => '∉',
+                            '≡' => '≢',
+                            '<' => '≮',
+                            '>' => '≯',
+                            '⊂' => '⊄',
+                            '⊆' => '⊈',
+                            '∼' => '≁',
+                            '≤' => '≰',
+                            '≥' => '≱',
+                            _ => return None,
+                        })
+                    });
+                    match (under, negated) {
+                        (Some(j), Some(c)) => hit = Some((si, j, c)),
+                        _ => return Err("a negation slash over no relation".into()),
+                    }
+                }
+            }
+            let Some((i, j, c)) = hit else { return Ok(()) };
+            let (a, b) = (self.atoms[i].clone(), self.atoms[j].clone());
+            let (hi, lo) = (i.max(j), i.min(j));
+            self.atoms.remove(hi);
+            self.atoms.remove(lo);
+            // The joined symbol sits on the row of the glyph that carries
+            // it: the relation under a negation slash or under the `∼` of `≅`.
+            let host = if a.ch == Some(NEGATION) || c == '≅' {
+                &b
+            } else {
+                &a
+            };
+            self.atoms.push(Atom {
+                l: a.l.min(b.l),
+                t: a.t.min(b.t),
+                r: a.r.max(b.r),
+                b: a.b.max(b.b),
+                base: host.base,
+                size: host.size.max(b.size),
+                tex: token(c).ok_or_else(|| format!("no reading for joined {c:?}"))?,
+                ch: Some(c),
+                structure: false,
+            });
+        }
     }
 
     /// An accent glyph sitting on a glyph below it becomes `\hat { x }`.
@@ -494,14 +667,22 @@ impl Builder {
                             // for `x`, a quarter em for `W`), so the test is
                             // the accent's middle against the glyph's, not
                             // a fixed lift.
-                            && a.yc() < g.yc()
+                            // (the box can mislead: a `\vec` arrow mapped
+                            // to U+20D7 keeps a box below the letter's
+                            // middle — its raised baseline still shows it)
+                            && (a.yc() < g.yc() || a.base < g.base - 0.1 * g.size)
                             && a.base <= g.base + 0.05 * g.size
                             && a.base > g.base - 1.6 * g.size
                     })
+                    // The full-size letter under it before a script beside
+                    // that letter (`\bar{\xi_1}`'s bar is over the ξ, not
+                    // the 1), then the nearest.
                     .min_by(|x, y| {
-                        (x.1.xc() - a.xc())
-                            .abs()
-                            .total_cmp(&(y.1.xc() - a.xc()).abs())
+                        y.1.size.total_cmp(&x.1.size).then(
+                            (x.1.xc() - a.xc())
+                                .abs()
+                                .total_cmp(&(y.1.xc() - a.xc()).abs()),
+                        )
                     })?
                     .0;
                 Some((i, below, cmd))
@@ -517,7 +698,9 @@ impl Builder {
                 base: base.base,
                 size: base.size,
                 tex: format!("{cmd} {{ {} }}", base.tex),
-                ch: None,
+                // Still its letter for the row's baseline (an accented
+                // letter is a full-size glyph on the line, not a structure).
+                ch: base.ch,
                 structure: false,
             };
             let (hi, lo) = (i.max(j), i.min(j));
@@ -547,7 +730,12 @@ impl Builder {
             // sign's foot — a subscript in the body reaches below a text
             // radical's nominal box — but never past a wider rule below the
             // root (the bar of a fraction the root sits in).
-            let floor = sign.b.max(sign.base + 0.5 * sign.size);
+            // (A text-size `√` hangs from its baseline like the extension
+            // ones but keeps the generic box: measure from the vinculum.)
+            let floor = sign
+                .b
+                .max(sign.base + 0.5 * sign.size)
+                .max(ry + 1.4 * sign.size);
             let walled = |a: &Atom| {
                 wider.iter().any(|w| {
                     let wy = (w.t + w.b) / 2.0;
@@ -567,11 +755,18 @@ impl Builder {
             if body.is_empty() {
                 return Some(false);
             }
+            // The index (`\sqrt[3]{…}`): small, up and to the left inside
+            // the sign's crook — raised against the body's baseline (a
+            // radical's own baseline is its top: it hangs).
+            let row = median(body.iter().map(|a| a.base).collect());
             let index = self.take_where(|a| {
-                a.r <= sign.l + 0.6 * (sign.r - sign.l)
+                // inside the crook: from the sign's left edge (an exponent
+                // of whatever precedes the root ends left of it), ending
+                // before the sign's middle
+                a.l >= sign.l - 0.15 * sign.size
+                    && a.xc() < sign.xc()
                     && a.size < 0.85 * sign.size
-                    && a.base < sign.base - 0.25 * sign.size
-                    && a.r >= sign.l - 0.5 * sign.size
+                    && (a.base < row - 0.25 * sign.size || a.base < sign.base - 0.25 * sign.size)
             });
             let ri = self
                 .atoms
@@ -584,13 +779,29 @@ impl Builder {
                 false => format!("\\sqrt [ {} ] {{ {inner} }}", rows(index)?),
             };
             let (_, t, r, b) = union(&body);
+            // The root sits on its body's baseline: a large radical sign
+            // hangs from its own, which reads an em too high and made the
+            // whole root a superscript (`\frac{1}{60} ^ { \sqrt{5} }`).
+            let body_base = {
+                let main = main_size(&body);
+                let on_line: Vec<f32> = body
+                    .iter()
+                    .filter(|a| a.size >= 0.85 * main)
+                    .map(|a| a.base)
+                    .collect();
+                if on_line.is_empty() {
+                    sign.base
+                } else {
+                    median(on_line)
+                }
+            };
             self.atoms.push(Atom {
                 l: sign.l,
                 t: t.min(rule.t),
                 r: r.max(rule.r),
                 b: b.max(sign.b),
-                base: sign.base,
-                size: sign.size,
+                base: body_base,
+                size: main_size(&body).max(sign.size * 0.85),
                 tex,
                 ch: None,
                 structure: true,
@@ -611,7 +822,11 @@ impl Builder {
         let above = self.band(&rule, true, &in_span, &fenced);
         let below = self.band(&rule, false, &in_span, &fenced);
         let (num, den) = (!above.is_empty(), !below.is_empty());
-        if !num && !den {
+        // A rule with glyphs only above it reads as an underline, which in
+        // display math is almost never what it is: measured, it was the bar
+        // of a fraction whose numerator carries an overline
+        // (`\frac{\overline{AM}}{\overline{MH}}`), read wrong. Unexplained.
+        if !den {
             return Some(false);
         }
         let take_ids = |ids: &[usize], atoms: &mut Vec<Atom>| -> Vec<Atom> {
@@ -632,16 +847,15 @@ impl Builder {
         let tex = match (num, den) {
             (true, true) => format!("\\frac {{ {} }} {{ {} }}", rows(top)?, rows(bottom)?),
             (false, true) => format!("\\overline {{ {} }}", rows(bottom.clone())?),
-            (true, false) => format!("\\underline {{ {} }}", rows(top.clone())?),
-            (false, false) => unreachable!(),
+            (_, false) => unreachable!("refused above"),
         };
         // A fraction sits on the math axis, about a quarter em above the
-        // baseline; an over/underlined run keeps its own baseline.
+        // baseline; an overlined run keeps its own baseline.
         let base = match (num, den) {
             (true, true) => ry + 0.25 * size,
-            (false, true) => bottom_base,
-            _ => top_base,
+            _ => bottom_base,
         };
+        let _ = top_base;
         let base = if base.is_finite() {
             base
         } else {
@@ -737,15 +951,21 @@ impl Builder {
             letters.sort_by(|&x, &y| self.atoms[x].l.total_cmp(&self.atoms[y].l));
             let mut found = None;
             'scan: for start in 0..letters.len() {
+                // The word's letters: those on this letter's baseline, from
+                // it rightwards — the limit's own letters below (`s → 1`)
+                // fall between them in x and must not interleave.
+                let head = &self.atoms[letters[start]];
+                let line_ids: Vec<usize> = letters[start..]
+                    .iter()
+                    .copied()
+                    .filter(|&i| (self.atoms[i].base - head.base).abs() < 0.1 * head.size)
+                    .collect();
                 for word in WORDS {
                     let len = word.len();
-                    if start + len > letters.len() {
+                    if len > line_ids.len() {
                         continue;
                     }
-                    let run: Vec<&Atom> = letters[start..start + len]
-                        .iter()
-                        .map(|&i| &self.atoms[i])
-                        .collect();
+                    let run: Vec<&Atom> = line_ids[..len].iter().map(|&i| &self.atoms[i]).collect();
                     let first = run[0];
                     let spelled: String = run.iter().filter_map(|a| a.ch).collect();
                     let tight = run.windows(2).all(|w| {
@@ -759,7 +979,7 @@ impl Builder {
                     let under: Vec<usize> = (0..self.atoms.len())
                         .filter(|&i| {
                             let a = &self.atoms[i];
-                            !letters[start..start + len].contains(&i)
+                            !line_ids[..len].contains(&i)
                                 && a.xc() >= l - 0.3 * first.size
                                 && a.xc() <= r + 0.3 * first.size
                                 && a.base > first.base + 0.35 * first.size
@@ -768,7 +988,7 @@ impl Builder {
                         })
                         .collect();
                     if !under.is_empty() {
-                        found = Some((letters[start..start + len].to_vec(), under, word));
+                        found = Some((line_ids[..len].to_vec(), under, word));
                         break 'scan;
                     }
                 }
@@ -830,6 +1050,35 @@ impl Builder {
                 })
                 .collect();
             if below_ids.is_empty() && above_ids.is_empty() {
+                continue;
+            }
+            // A limit wider than the operator (`(g-3)/2` over a `∑`) is one
+            // run: grow each from what sits over the operator to the glyphs
+            // on its baseline that touch it, so its ends are not left as
+            // scripts of the neighbours.
+            let grow = |seed: Vec<usize>, atoms: &[Atom]| -> Vec<usize> {
+                let mut set = seed;
+                loop {
+                    let next = (0..atoms.len()).find(|&j| {
+                        j != oi
+                            && !set.contains(&j)
+                            && atoms[j].size < 0.9 * op.size
+                            && set.iter().any(|&m| {
+                                let (a, b) = (&atoms[m], &atoms[j]);
+                                (a.base - b.base).abs() < 0.15 * a.size
+                                    && b.l - a.r < 0.4 * a.size
+                                    && a.l - b.r < 0.4 * a.size
+                            })
+                    });
+                    match next {
+                        Some(j) => set.push(j),
+                        None => return set,
+                    }
+                }
+            };
+            let below_ids = grow(below_ids, &self.atoms);
+            let above_ids = grow(above_ids, &self.atoms);
+            if below_ids.iter().any(|i| above_ids.contains(i)) {
                 continue;
             }
             let mut ids: Vec<usize> = below_ids
@@ -937,6 +1186,71 @@ fn rows(atoms: Vec<Atom>) -> Option<String> {
     Some(parts?.join(" \\\\ "))
 }
 
+/// The shapes a formula with a missing piece leaves — measured on
+/// pdf-parse-bench, where the layout box cut a glyph off a formula's edge:
+/// a script with nothing to attach to (`{ } _ { 0 } = …`, the `μ` of `μ_0`
+/// lost) and brackets that do not pair (a `\{ … \}` whose outer braces
+/// fell outside). Each is refused: the model reads the region from its
+/// pixels instead. (Tried and dropped: refusing a formula that opens on a
+/// relation — continuation lines `= \lim …` do that honestly more often than
+/// a cut-off does — and unpaired angle brackets, which bra-ket `|ψ⟩` has by
+/// design.)
+fn incomplete(tex: &str) -> Result<(), String> {
+    let toks: Vec<&str> = tex.split_whitespace().collect();
+    if tex.contains("{ } _") || tex.contains("{ } ^") {
+        return Err("a script with no base (a glyph is missing)".into());
+    }
+    let count = |t: &str| toks.iter().filter(|&&x| x == t).count();
+    for (open, close) in [("(", ")"), ("[", "]"), ("\\{", "\\}")] {
+        if count(open) != count(close) {
+            // A half-open interval (`[0, 1)`) is the one honest exception;
+            // it is rare enough in display math to leave to the model.
+            return Err(format!(
+                "unpaired {open} {close} (part of the formula is missing)"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Whether a row of output holds a relation — what makes it an equation
+/// rather than a row of a matrix.
+fn has_relation(row: &str) -> bool {
+    const RELATIONS: [&str; 30] = [
+        "=",
+        "<",
+        ">",
+        "\\leq",
+        "\\geq",
+        "\\neq",
+        "\\approx",
+        "\\equiv",
+        "\\sim",
+        "\\simeq",
+        "\\cong",
+        "\\propto",
+        "\\rightarrow",
+        "\\leftarrow",
+        "\\Rightarrow",
+        "\\Leftarrow",
+        "\\Leftrightarrow",
+        "\\leftrightarrow",
+        "\\longrightarrow",
+        "\\Longrightarrow",
+        "\\Longleftrightarrow",
+        "\\mapsto",
+        "\\in",
+        "\\notin",
+        "\\subset",
+        "\\subseteq",
+        "\\supset",
+        "\\supseteq",
+        "\\ll",
+        "\\gg",
+    ];
+    row.split_whitespace().any(|t| RELATIONS.contains(&t))
+}
+
 fn main_size(atoms: &[Atom]) -> f32 {
     let sizes: Vec<f32> = atoms
         .iter()
@@ -987,7 +1301,9 @@ fn line(mut atoms: Vec<Atom>) -> Option<String> {
         // (the fraction's axis put back a quarter em): only one raised or
         // lowered well clear of the row — a fraction in an exponent — is a
         // script.
-        if a.structure {
+        // (A root or limit in script size, though, is a script by its
+        // baseline like any glyph: `\beta _ { \sqrt { s } }`.)
+        if a.structure && (big || a.tex.starts_with("\\frac")) {
             let shift = a.base - base;
             return if shift < -0.35 * main {
                 Level::Sup
@@ -1018,10 +1334,27 @@ fn line(mut atoms: Vec<Atom>) -> Option<String> {
         sub: Vec<Atom>,
         sup: Vec<Atom>,
         ch: Option<char>,
+        /// The script group the last script atom joined, and its right edge.
+        last: Option<(Level, f32)>,
     }
     let mut items: Vec<Item> = Vec::new();
     for a in atoms {
-        match level(&a) {
+        let mut lv = level(&a);
+        // A script-size atom back near the baseline right after a script is
+        // that script's own script (`Δ _ { S ^ { n - 1 } }`: the
+        // superscript of a subscript sits about where the base line is).
+        if lv == Level::Base && a.size < 0.85 * main && !a.structure {
+            if let Some(Item {
+                last: Some((kind, r)),
+                ..
+            }) = items.last()
+            {
+                if a.l - r < 0.3 * a.size {
+                    lv = *kind;
+                }
+            }
+        }
+        match lv {
             Level::Base => {
                 if let Some(last) = items.last() {
                     // Two full-size atoms stacked on one another — a matrix
@@ -1042,6 +1375,7 @@ fn line(mut atoms: Vec<Atom>) -> Option<String> {
                     sub: Vec::new(),
                     sup: Vec::new(),
                     ch: a.ch,
+                    last: None,
                 });
             }
             lv => {
@@ -1053,9 +1387,17 @@ fn line(mut atoms: Vec<Atom>) -> Option<String> {
                         sub: Vec::new(),
                         sup: Vec::new(),
                         ch: None,
+                        last: None,
                     });
                 }
                 let it = items.last_mut().unwrap();
+                // A script standing over its base rather than after it is
+                // stacked notation — `\overset`, `\binom`, `\underset` —
+                // which reads wrong as a script.
+                if it.ch.is_some() && a.xc() < it.r - 0.15 * it.size && it.last.is_none() {
+                    return None;
+                }
+                it.last = Some((lv, it.last.map_or(a.r, |(_, r)| r.max(a.r))));
                 if lv == Level::Sup {
                     it.sup.push(a);
                 } else {
@@ -1091,11 +1433,14 @@ fn line(mut atoms: Vec<Atom>) -> Option<String> {
             out.push(s);
             continue;
         }
+        // A script group that reads as nothing (an accent that found no
+        // letter) is a misreading, not an empty script.
+        let script = |v: Vec<Atom>| line(v).filter(|t| !t.trim().is_empty());
         if !it.sub.is_empty() {
-            s.push_str(&format!(" _ {{ {} }}", line(it.sub)?));
+            s.push_str(&format!(" _ {{ {} }}", script(it.sub)?));
         }
         if !it.sup.is_empty() {
-            s.push_str(&format!(" ^ {{ {} }}", line(it.sup)?));
+            s.push_str(&format!(" ^ {{ {} }}", script(it.sup)?));
         }
         out.push(s);
     }
@@ -1140,6 +1485,9 @@ fn function_names(letters: &[Option<char>], scripted: &[bool]) -> Vec<(usize, St
 /// for a character with no confident reading (the region is then left to the
 /// model).
 fn token(c: char) -> Option<String> {
+    // A styled letter from the text layer (𝑥 from a ToUnicode map) reads
+    // as the letter.
+    let c = fold_math_alphanumeric(c);
     if c.is_ascii_alphanumeric() {
         return Some(c.to_string());
     }
@@ -1147,6 +1495,7 @@ fn token(c: char) -> Option<String> {
         '+' | '=' | '(' | ')' | '[' | ']' | '<' | '>' | '/' | '|' | '!' | ',' | '.' | ';' | ':'
         | '\'' | '*' | '?' => return Some(c.to_string()),
         '-' | '−' | '–' => "-",
+        '∶' => ":", // RATIO, how unicode-math fonts draw `:` in math
         '{' => "\\{",
         '}' => "\\}",
         '%' => "\\%",
@@ -1223,6 +1572,10 @@ fn token(c: char) -> Option<String> {
         '⌈' => "\\lceil",
         '⌉' => "\\rceil",
         '⊙' => "\\odot",
+        '≜' => "\\triangleq",
+        'ℜ' => "\\Re",
+        'ℑ' => "\\Im",
+        '⊨' => "\\models",
         '\u{2126}' => "\\Omega", // OHM SIGN
         'ℏ' => "\\hbar",
         'ℓ' => "\\ell",
@@ -1263,7 +1616,17 @@ fn token(c: char) -> Option<String> {
         // Accent glyphs read as accents in `accents`; one left over is not
         // understood.
         _ if accent(c).is_some() => return Some(String::new()),
-        _ => return None,
+        // A negation slash: read with the relation it crosses (`joins`).
+        '\u{0338}' => return Some(String::new()),
+        // A piece of an extensible bracket, brace or integral (`⎛`, `⎜`,
+        // `⎝`, `⌠`, …): a tall delimiter this reader does not assemble.
+        '\u{2320}' | '\u{2321}' | '\u{239B}'..='\u{23B3}' => return None,
+        // Any other symbol the LaTeX → MathML converter (and the speech
+        // chain behind it) knows: its own name for it, from its symbol
+        // table. The names above win where TeX's and unicode-math's
+        // disagree (`ε` is `\epsilon` to docling's model, `\varepsilon` to
+        // unicode-math). Nothing known: the region goes to the model.
+        _ => return docling_core::latex_command(c).map(str::to_string),
     };
     Some(t.to_string())
 }
@@ -1285,7 +1648,89 @@ fn read_name(name: &str, shown: char) -> char {
     })
 }
 
+/// A Unicode-named glyph (`u1D45B`, `uni03B1`, `u1D463.alt` — the
+/// convention OpenType-derived math fonts use) as its character, a
+/// mathematical alphanumeric folded to the plain letter, digit or Greek
+/// letter it is a style of (𝑛 → n, 𝜃 → θ): the style is a typeface the
+/// reading does not carry.
+fn unicode_glyph_name(name: &str) -> Option<char> {
+    let base = name.split('.').next().unwrap_or(name);
+    let hex = base
+        .strip_prefix("uni")
+        .or_else(|| base.strip_prefix('u'))?;
+    if !(4..=6).contains(&hex.len()) || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let cp = u32::from_str_radix(hex, 16).ok()?;
+    Some(fold_math_alphanumeric(char::from_u32(cp)?))
+}
+
+/// The plain character a Mathematical Alphanumeric Symbols code point
+/// (U+1D400–U+1D7FF) styles; any other character unchanged.
+fn fold_math_alphanumeric(c: char) -> char {
+    const GREEK: &str = "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡϴΣΤΥΦΧΨΩ∇αβγδεζηθικλμνξοπρςστυφχψω∂ϵϑϰϕϱϖ";
+    // Greek capitals drawn like Latin ones read as the Latin letter.
+    let latin_look = |g: char| match g {
+        'Α' => 'A',
+        'Β' => 'B',
+        'Ε' => 'E',
+        'Ζ' => 'Z',
+        'Η' => 'H',
+        'Ι' => 'I',
+        'Κ' => 'K',
+        'Μ' => 'M',
+        'Ν' => 'N',
+        'Ο' => 'O',
+        'Ρ' => 'P',
+        'Τ' => 'T',
+        'Χ' => 'X',
+        'ϴ' => 'Θ',
+        g => g,
+    };
+    let cp = c as u32;
+    match cp {
+        0x210E => 'h', // ℎ, the italic h the block leaves out
+        // The Letterlike Symbols the block leaves out: double-struck
+        // (ℂ ℍ ℕ ℙ ℚ ℝ ℤ), script (ℬ ℰ ℱ ℋ ℐ ℒ ℳ ℛ ℯ ℊ ℴ) and Fraktur (ℭ ℌ ℑ ℜ ℨ).
+        0x2102 | 0x212D => 'C',
+        0x210B..=0x210D => 'H', // ℋ ℌ ℍ
+        0x2115 => 'N',
+        0x2119 => 'P',
+        0x211A => 'Q',
+        // (ℜ and ℑ are the real- and imaginary-part operators, not
+        // letters: they keep their own reading.)
+        0x211D | 0x211B => 'R',
+        0x2124 | 0x2128 => 'Z',
+        0x212C => 'B',
+        0x2130 => 'E',
+        0x2131 => 'F',
+        0x2110 => 'I',
+        0x2112 => 'L',
+        0x2133 => 'M',
+        0x212F => 'e',
+        0x210A => 'g',
+        0x2134 => 'o',
+        0x1D400..=0x1D6A3 => {
+            let k = ((cp - 0x1D400) % 52) as u8;
+            if k < 26 {
+                (b'A' + k) as char
+            } else {
+                (b'a' + k - 26) as char
+            }
+        }
+        0x1D6A8..=0x1D7C9 => GREEK
+            .chars()
+            .nth(((cp - 0x1D6A8) % 58) as usize)
+            .map_or(c, latin_look),
+        0x1D7CE..=0x1D7FF => (b'0' + ((cp - 0x1D7CE) % 10) as u8) as char,
+        _ => c,
+    }
+}
+
 fn tex_glyph_name(name: &str) -> Option<char> {
+    if let Some(c) = unicode_glyph_name(name) {
+        return Some(c);
+    }
     // Blackboard and calligraphic capitals (AMS `Rbbb`, `Fcal`): the plain
     // letter — the alphabet is a typeface the reading does not carry.
     for suffix in ["bbb", "cal"] {
@@ -1339,7 +1784,8 @@ fn tex_glyph_name(name: &str) -> Option<char> {
         "prime" => Some('′'),
         "asteriskmath" => Some('∗'),
         "minus" => Some('−'),
-        "mapsto" => Some('↦'),
+        "mapsto" | "mapstochar" => Some('↦'),
+        "negationslash" => Some('\u{0338}'),
         "nequal" => Some('≠'),
         "nelement" => Some('∉'),
         "radicallow" => Some('√'),
@@ -1351,17 +1797,19 @@ fn tex_glyph_name(name: &str) -> Option<char> {
 }
 
 fn accent(c: char) -> Option<&'static str> {
+    // Spacing accents, and the combining marks unicode-math fonts map them
+    // to (U+0300 block, U+20D7).
     Some(match c {
-        'ˆ' | '^' => "\\hat",
-        '˜' | '~' => "\\tilde",
-        '¯' | 'ˉ' => "\\bar",
+        'ˆ' | '^' | '\u{0302}' => "\\hat",
+        '˜' | '~' | '\u{0303}' => "\\tilde",
+        '¯' | 'ˉ' | '\u{0304}' | '\u{0305}' => "\\bar",
         '⃗' => "\\vec",
-        '˙' => "\\dot",
-        '¨' => "\\ddot",
-        'ˇ' => "\\check",
-        '´' => "\\acute",
-        '`' => "\\grave",
-        '˘' => "\\breve",
+        '˙' | '\u{0307}' => "\\dot",
+        '¨' | '\u{0308}' => "\\ddot",
+        'ˇ' | '\u{030C}' => "\\check",
+        '´' | '\u{0301}' => "\\acute",
+        '`' | '\u{0300}' => "\\grave",
+        '˘' | '\u{0306}' => "\\breve",
         _ => return None,
     })
 }
@@ -1505,6 +1953,38 @@ mod tests {
     }
 
     #[test]
+    fn unicode_named_and_styled_letters_read_as_plain_letters() {
+        use super::{tex_glyph_name, token};
+        assert_eq!(tex_glyph_name("u1D45B"), Some('n')); // 𝑛
+        assert_eq!(tex_glyph_name("u1D463.alt"), Some('v'));
+        assert_eq!(tex_glyph_name("u1D6FC"), Some('α')); // 𝛼
+        assert_eq!(tex_glyph_name("u1D703"), Some('θ')); // 𝜃
+        assert_eq!(tex_glyph_name("uni03B1"), Some('α'));
+        assert_eq!(tex_glyph_name("u1D7D0"), Some('2')); // 𝟐
+        assert_eq!(token('𝑥').as_deref(), Some("x"));
+        assert_eq!(token('ℎ').as_deref(), Some("h"));
+        assert_eq!(token('𝛤').as_deref(), Some("\\Gamma"));
+    }
+
+    /// Symbols outside the hand-written table read through the speech
+    /// converter's own symbol table, so every one is a command it knows.
+    #[test]
+    fn rarer_symbols_read_through_the_converters_table() {
+        use super::token;
+        for (c, want) in [
+            ('⊢', "\\vdash"),
+            ('∴', "\\therefore"),
+            ('⊊', "\\subsetneq"),
+            ('ℵ', "\\aleph"),
+        ] {
+            assert_eq!(token(c).as_deref(), Some(want), "{c}");
+        }
+        // The hand-written names still win.
+        assert_eq!(token('ε').as_deref(), Some("\\epsilon"));
+        assert_eq!(token('≤').as_deref(), Some("\\leq"));
+    }
+
+    #[test]
     fn what_cannot_be_read_is_left_to_the_model() {
         // An unmapped glyph (a TeX extensible-delimiter piece).
         let gs = vec![g('⎛', 100.0, 200.0, 10.0), g('x', 108.0, 200.0, 10.0)];
@@ -1530,10 +2010,12 @@ mod tests {
     }
 
     #[test]
-    fn rows_of_a_display_join_with_a_line_break() {
+    fn rows_of_a_display_are_left_to_the_model_for_now() {
         let mut gs = run("x=1", 100.0, 200.0, 10.0);
         gs.extend(run("y=2", 100.0, 216.0, 10.0));
-        assert_eq!(rebuild(gs, vec![]).as_deref(), Some("x = 1 \\\\ y = 2"));
+        // Several rows are left to the model until formulas are delimited
+        // from their own glyphs (see `Builder::run`).
+        assert_eq!(rebuild(gs, vec![]), None);
     }
 
     /// Every display formula of the pdf-parse-bench corpus whose region the

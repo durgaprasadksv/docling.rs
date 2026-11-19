@@ -1310,6 +1310,7 @@ mod tests {
             math_font: false,
             unmapped_math: false,
             program_name: None,
+            formula_only: false,
         }
     }
 
@@ -1407,6 +1408,7 @@ mod tests {
             math_font: false,
             unmapped_math: false,
             program_name: None,
+            formula_only: false,
         };
         let mut g = Vec::new();
         let mut run = |text: &str, edges: &[f32], font: u64| {
@@ -1468,6 +1470,7 @@ mod tests {
             math_font: math,
             unmapped_math: false,
             program_name: None,
+            formula_only: false,
             ..glyph(ch, l, l + 0.5 * size)
         };
         let line = |rise: f32, math: bool, pen: bool| {

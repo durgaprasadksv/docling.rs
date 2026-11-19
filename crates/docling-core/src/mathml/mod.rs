@@ -60,6 +60,47 @@ pub(crate) fn to_xml(latex: &str) -> Result<String> {
     Ok(conv.tree.to_xml(root))
 }
 
+/// The LaTeX command this converter reads as `c` — the inverse of its
+/// symbol table (`unicode-math`'s names, 3,975 of them), so a producer of
+/// LaTeX (`docling_pdf`'s formula reconstruction) spells any symbol the
+/// converter, and the speech chain behind it, understands. Among aliases
+/// the shortest name wins (`\therefore`, not a package's
+/// `\wasytherefore`; `\le` and `\leq` read alike); letters and digits,
+/// which are themselves, and the styled-alphabet names (`\mitalpha`,
+/// `\mbfA`, …) are left out.
+pub fn latex_command(c: char) -> Option<&'static str> {
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
+    static INVERSE: OnceLock<HashMap<char, &'static str>> = OnceLock::new();
+    let map = INVERSE.get_or_init(|| {
+        const STYLED: [&str; 11] = [
+            "\\mup", "\\mit", "\\mbf", "\\msans", "\\mtt", "\\Bbb", "\\mfrak", "\\mscr", "\\mcal",
+            "\\mbb", "\\mathbb",
+        ];
+        let mut map: HashMap<char, &'static str> = HashMap::new();
+        for &(name, hex) in symbols::SYMBOLS {
+            if !name.starts_with('\\') || STYLED.iter().any(|p| name.starts_with(p)) {
+                continue;
+            }
+            let Some(ch) = u32::from_str_radix(hex, 16).ok().and_then(char::from_u32) else {
+                continue;
+            };
+            if ch.is_ascii_alphanumeric() {
+                continue;
+            }
+            map.entry(ch)
+                .and_modify(|best| {
+                    if (name.len(), name) < (best.len(), *best) {
+                        *best = name;
+                    }
+                })
+                .or_insert(name);
+        }
+        map
+    });
+    map.get(&c).copied()
+}
+
 pub(crate) fn formula_to_mathml(latex: &str, inline: bool) -> Result<String> {
     let display = if inline { "inline" } else { "block" };
     let mut conv = Converter::new(display);
