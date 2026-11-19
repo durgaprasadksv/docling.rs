@@ -1,0 +1,83 @@
+{
+  "file name" : "four-titles.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 737.72, 154.82, 769.62 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 757.72, 144.26, 769.62 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 10.0,
+      "text color" : "[0.0]",
+      "content" : "1) Daily checks",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 737.72, 154.82, 749.62 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 10.0,
+      "text color" : "[0.0]",
+      "content" : "2) Weekly checks",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 1,
+    "bounding box" : [ 72.0, 679.975, 301.635, 718.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Look at the filter and at the tray of the product each week. Change the filter when the display shows the filter icon. Empty the tray, so that it does not run over."
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 4,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 617.72, 125.9, 649.62 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 637.72, 125.9, 649.62 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 10.0,
+      "text color" : "[0.0]",
+      "content" : "3) Cleaning",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 617.72, 120.9, 629.62 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 10.0,
+      "text color" : "[0.0]",
+      "content" : "4) Storage",
+      "kids" : [ ]
+    } ]
+  } ]
+}

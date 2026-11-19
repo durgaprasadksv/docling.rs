@@ -1,0 +1,29 @@
+{
+  "file name" : "script-link.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 72.0, 668.3, 441.54, 711.172 ],
+    "font" : "Helvetica",
+    "font size" : 12.0,
+    "text color" : "[0.0]",
+    "content" : "The server keeps the settings of each test in one file on the disk. Read the release notes before you install the new version of it. The notes give the changes, the known problems, and the fixed bugs."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 72.0, 615.3, 458.88, 658.172 ],
+    "font" : "Helvetica",
+    "font size" : 12.0,
+    "text color" : "[0.0]",
+    "content" : "Each test writes a report at the end of the run. The report gives the time, the number of the checks, and the result of each check. Keep the reports of the last month, so that you can compare the results of two runs."
+  } ]
+}

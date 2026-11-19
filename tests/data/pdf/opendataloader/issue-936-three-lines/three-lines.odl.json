@@ -1,0 +1,62 @@
+{
+  "file name" : "three-lines.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 20.5, 645.704, 488.241, 706.291 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 20.5, 679.404, 149.669, 706.291 ],
+      "font" : "Helvetica",
+      "font size" : 6.65,
+      "text color" : "[0.0]",
+      "content" : "1 Approve the plan of Pat Doe and of Sam Roe",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 1,
+        "bounding box" : [ 462.0, 698.504, 489.724, 706.191 ],
+        "font" : "Helvetica",
+        "font size" : 6.65,
+        "text color" : "[0.0]",
+        "content" : "Accepted"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 20.5, 663.704, 488.241, 671.491 ],
+      "font" : "Helvetica",
+      "font size" : 6.65,
+      "text color" : "[0.0]",
+      "content" : "2 Approve the budget Rejected",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 20.5, 645.704, 487.869, 653.491 ],
+      "font" : "Helvetica",
+      "font size" : 6.65,
+      "text color" : "[0.0]",
+      "content" : "3 Elect the members Deferred",
+      "kids" : [ ]
+    } ]
+  } ]
+}

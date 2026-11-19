@@ -1,0 +1,31 @@
+{
+  "file name" : "two-lines.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 698.176, 128.456, 707.696 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "(1) Fill the tank"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 84.0, 670.2, 255.208, 691.948 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Open the cover of the tank and pour clean water up to the line on the side."
+  } ]
+}

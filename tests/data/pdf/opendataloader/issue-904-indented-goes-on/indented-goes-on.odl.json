@@ -1,0 +1,65 @@
+{
+  "file name" : "indented-goes-on.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 300.0, 697.975, 427.575, 708.379 ],
+    "heading level" : 1,
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "(1) Open the box of the product."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 5,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 300.0, 657.975, 398.55, 668.379 ],
+    "heading level" : 1,
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "(2) Take out the product."
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 2,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 314.0, 605.975, 448.064, 628.379 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 314.0, 617.975, 448.064, 628.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "(3) Keep the box for a later move.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 314.0, 605.975, 437.57, 616.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "(4) Keep the papers in the box.",
+      "kids" : [ ]
+    } ]
+  } ]
+}

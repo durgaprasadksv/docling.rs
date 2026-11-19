@@ -1,0 +1,21 @@
+{
+  "file name" : "toc-labels.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 645.586, 522.662, 709.99 ],
+    "heading level" : 1,
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Preface of the book iv Introduction to the plan ix Appendix of the tables A-12"
+  } ]
+}

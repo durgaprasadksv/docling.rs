@@ -24,9 +24,17 @@ read-aloud client depends on, independent of docling's own fixtures.
   `status` — `pass`, `xfail` (fails today, kept as a measured gap) or
   `unchecked` (the upstream assertion is on OpenDataLoader's own JSON shape and
   has no counterpart here; the fixture still counts for word recall) — and
-  each fixture its measured `recall`. `crates/docling/tests/opendataloader.rs`
-  re-runs every case and fails on a `pass` that fails, an `xfail` that passes
-  (update the status), or a recall that drops more than five points.
+  each fixture its measured `recall` and `structure`. `structure` is the
+  structural parity with OpenDataLoader's own JSON (`<name>.odl.json`): both
+  outputs flattened to (role, text, box) in reading order, body content only,
+  and compared as `elements` (share of their elements with a server element of
+  the same text), `roles` (same role among those), `order` (same relative
+  order) and `boxes` (mean overlap) — the measure of "the same structure
+  whether a page is parsed on the device or here".
+  `crates/docling/tests/opendataloader.rs` re-runs every case and fails on a
+  `pass` that fails, an `xfail` that passes (update the status), a recall that
+  drops more than five points, or a structural measure that drops more than
+  ten; it reports measures that rose so the file can be regenerated.
 
 Out of scope, not copied: upstream tests of its hybrid backend (mocked server
 responses), file and resource handling, tagged-PDF structure trees and form

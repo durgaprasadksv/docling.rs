@@ -1,0 +1,61 @@
+{
+  "file name" : "vote.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 660.686, 367.297, 709.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The council elects one member and one deputy member of the board of the energy union of the area, as its rules set it. After the vote, the council takes note of the candidates:"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 2,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 623.786, 239.664, 648.49 ],
+    "numbering style" : "unordered",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 636.086, 204.47, 648.49 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "- One member of the council",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 623.786, 239.664, 636.19 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "- One deputy member of the council",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 537.686, 346.438, 611.59 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Vote : Adopted by all the votes. The mayor closes this point of the agenda, and the council goes on with the next point of the day."
+  } ]
+}

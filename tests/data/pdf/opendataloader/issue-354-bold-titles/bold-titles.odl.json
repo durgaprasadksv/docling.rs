@@ -1,0 +1,119 @@
+{
+  "file name" : "bold-titles.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 757.948, 141.012, 768.658 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Before you start"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 2,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 711.975, 173.214, 750.379 ],
+    "numbering style" : "unordered",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 739.975, 169.191, 750.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "• Read all the steps first.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 725.975, 173.214, 736.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "• Put the parts on a table.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 711.975, 153.693, 722.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "• Keep the parts dry.",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 6,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 679.948, 138.015, 690.658 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "While you work"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 7,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 633.975, 174.708, 672.379 ],
+    "numbering style" : "unordered",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 8,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 661.975, 153.189, 672.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "• Turn off the power.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 9,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 647.975, 174.708, 658.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "• Use the tools of the box.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 10,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 633.975, 146.187, 644.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "• Do not use force.",
+      "kids" : [ ]
+    } ]
+  } ]
+}

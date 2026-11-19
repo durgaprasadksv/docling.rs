@@ -799,11 +799,38 @@ text layer):
 
 | | |
 |---|---|
-| cases with a counterpart check | 78 — **41 pass, 37 xfail** |
-| cases without one (assertions on OpenDataLoader's JSON shape, or on one element's content) | 95, fixtures kept for recall |
+| cases with a counterpart check | 78 — **38 pass, 40 xfail** |
+| cases without one (assertions on OpenDataLoader's JSON shape, or on one element's content) | 95, fixtures kept for recall and parity |
 | word recall against OpenDataLoader's Markdown | **0.988** mean over 113 fixtures; lowest 0.50 (a struct-tree link fixture), then 0.86 |
+| structural parity with OpenDataLoader's JSON, mean over 170 fixtures | elements matched **0.79**, same role **0.72**, same order **0.83**, box overlap **0.67** |
 
-The first measurement was 34 pass / 49 xfail. The list-run split
+**Structural parity** is the measure of the property a read-aloud client
+needs when a page may be parsed on the device (TalkingText's Dart port of
+OpenDataLoader) or here: the same sequence of spoken units with the same
+roles, not the same bytes. Both outputs are flattened to (role, normalized
+text, box) in reading order, body content only, and compared per fixture:
+the share of OpenDataLoader's elements that have a server element of the same
+text, the share of those with the same role, how many keep their relative
+order, and the mean box overlap. The `reader` export's mapping itself follows
+OpenDataLoader's `DoclingSchemaTransformer` (its 34 unit tests are ported to
+`docling-core/src/reader.rs`), so the differences the measure reports are in
+what the pipelines *see*, not in how they name it. Where the two disagree
+most today, all fixtures scoring zero on element match:
+
+- **A table of contents drawn column by column** (389, 878, 888): one `text`
+  region whose cells arrive in content-stream order, so the entry text comes
+  out as all numbers, then all titles, then all page numbers — one paragraph
+  where OpenDataLoader reads rows. Three cases that had passed on a weak
+  same-line check moved to xfail when the check learned to require order.
+- **Numbered section titles under a heading** (626) and **steps with a note
+  between them** (904): boxed together by the layout model and joined in
+  content-stream order; the list-run split does not fire because the first
+  line is not a marker line, or the lines are not one marker family.
+- **Type 3 fonts without `ToUnicode`** (740): the words come out without the
+  spaces between them.
+
+The first measurement was 34 pass / 49 xfail (three of the passes spurious,
+see the contents-table item below). The list-run split
 (`assemble::list_run_items`, docs/MIGRATION.md §4: a `text` region whose lines
 are a run of `· item` / `1. item` lines becomes those items, the wrapped
 continuation lines joined to theirs) took the bullet and numbered-step cases

@@ -1,0 +1,85 @@
+{
+  "file name" : "rows.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 100.0, 608.2, 340.0, 707.948 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 6,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 698.2, 340.0, 707.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "01 Introduction 03",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 680.2, 340.0, 689.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "02 Background of the plan 09",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 662.2, 340.0, 671.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "03 Methods 14",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 8,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 644.2, 340.0, 653.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "04 Results of the survey 22",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 10,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 626.2, 340.0, 635.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "05 Discussion 27",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 12,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 608.2, 340.0, 617.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "06 Appendix tables 41",
+      "kids" : [ ]
+    } ]
+  } ]
+}

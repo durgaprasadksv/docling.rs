@@ -1,0 +1,21 @@
+{
+  "file name" : "leaders.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 554.038, 318.0, 600.082 ],
+    "heading level" : 1,
+    "font" : "Times-Roman",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Introduction p. 3 Methods of the survey p. 14 Results p. 22"
+  } ]
+}

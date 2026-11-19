@@ -1,0 +1,85 @@
+{
+  "file name" : "caption.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 757.72, 118.7, 769.62 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Exercises"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 2,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 659.975, 240.093, 750.379 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 4,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 739.975, 230.103, 750.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "1. Find the length of the side of the box.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 725.975, 219.6, 736.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "2. Find the area of the top of the box.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 711.975, 240.093, 722.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "3. Find the volume of the box in the figure.",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 6,
+        "page number" : 1,
+        "bounding box" : [ 72.0, 685.975, 164.034, 696.379 ],
+        "font" : "Helvetica",
+        "font size" : 9.0,
+        "text color" : "[0.0]",
+        "content" : "Figure 2 for exercise 3."
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 7,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 659.975, 237.078, 670.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "4. Find the mass of the box when it is full.",
+      "kids" : [ ]
+    } ]
+  } ]
+}

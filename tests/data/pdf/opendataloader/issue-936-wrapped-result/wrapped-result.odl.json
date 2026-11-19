@@ -1,0 +1,41 @@
+{
+  "file name" : "wrapped-result.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 20.5, 673.304, 496.746, 706.291 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 20.5, 688.904, 496.746, 706.291 ],
+      "font" : "Helvetica",
+      "font size" : 6.65,
+      "text color" : "[0.0]",
+      "content" : "1 Approve the plan Accepted in full",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 20.5, 673.304, 488.241, 681.091 ],
+      "font" : "Helvetica",
+      "font size" : 6.65,
+      "text color" : "[0.0]",
+      "content" : "2 Approve the budget Rejected",
+      "kids" : [ ]
+    } ]
+  } ]
+}

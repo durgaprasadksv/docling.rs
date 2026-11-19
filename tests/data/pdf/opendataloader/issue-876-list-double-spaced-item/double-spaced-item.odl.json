@@ -1,0 +1,51 @@
+{
+  "file name" : "double-spaced-item.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 672.986, 365.548, 709.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The members of the board meet in the town hall on the first day of each month, and the agenda has two points:"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 2,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 549.986, 317.221, 660.79 ],
+    "numbering style" : "unordered",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 648.386, 227.131, 660.79 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "- The first item of the list of points",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 549.986, 317.221, 636.19 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "- The second item of the list of points, which goes on in a second line of the item. The mayor opens the meeting and gives the agenda of the day to the members of the board.",
+      "kids" : [ ]
+    } ]
+  } ]
+}

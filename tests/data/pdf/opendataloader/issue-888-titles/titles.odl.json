@@ -1,0 +1,145 @@
+{
+  "file name" : "titles.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 685.286, 358.949, 709.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "After this report, the council decides by all the votes or by the majority of the votes:"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 2,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 660.686, 356.567, 673.09 ],
+    "numbering style" : "unordered",
+    "number of list items" : 1,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 660.686, 356.567, 673.09 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "- To elect one member and one deputy member of the board",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 4,
+        "page number" : 1,
+        "bounding box" : [ 69.1, 623.786, 355.967, 648.49 ],
+        "font" : "Helvetica",
+        "font size" : 10.73,
+        "text color" : "[0.0]",
+        "content" : "This decision replaces the decision of the last meeting of the council, which elected two members."
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 5,
+        "page number" : 1,
+        "bounding box" : [ 69.1, 599.186, 97.137, 611.59 ],
+        "font" : "Helvetica",
+        "font size" : 10.73,
+        "text color" : "[0.0]",
+        "content" : "Vote :"
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 6,
+        "page number" : 1,
+        "bounding box" : [ 69.1, 574.586, 186.604, 586.99 ],
+        "font" : "Helvetica",
+        "font size" : 10.73,
+        "text color" : "[0.0]",
+        "content" : "Adopted by all the votes."
+      } ]
+    } ]
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 7,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 549.954, 264.665, 562.722 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "2026-04-F-Members of the water union"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 513.086, 412.042, 537.79 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The mayor recalls that the town is a member of the water union, and that the union asks each town for one member and one deputy member."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "level" : "2",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 488.486, 351.192, 500.89 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "- To elect one other member and one other deputy member"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 463.886, 97.137, 476.29 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Vote :"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 439.286, 186.604, 451.69 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Adopted by all the votes."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 13,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 414.654, 273.614, 427.422 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "2026-04-G-Members of the energy union"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 15,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 353.186, 392.363, 402.49 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Considering the elections of the town council of this year, Considering that the town is a member of the energy union, and that the union asks each town for one member."
+  } ]
+}

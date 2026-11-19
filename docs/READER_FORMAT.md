@@ -76,12 +76,28 @@ boxes after it move back). A reader would otherwise voice them for seconds and
 a sentence splitter would cut at every period. A genuine ellipsis (`...`)
 survives.
 
-### Nothing is dropped
+### Nothing on the page is dropped
 
 Running headers and footers, text inside figures, table cells, undecoded
 formulas, checkboxes: every item is a chunk with its `kind`. The client decides
 what to skip and how to voice each role, and can change its mind without
-converting again.
+converting again. An item with no `prov` at all is on no page and is left out.
+
+### The mapping is OpenDataLoader's
+
+The rules follow OpenDataLoader-PDF's `DoclingSchemaTransformer`, the class a
+client of that family applies to docling JSON when it does not receive this
+export, so the two agree: an item without `prov` is skipped; a heading's
+`level` is docling's integer, 1 when absent or unusable, clamped to 1–6; an
+empty `text` falls back to `orig`; a picture's `description` is
+`meta.description.text`, else its `description` annotation, and is the
+picture's `t`; a table without `data` is skipped, its cells carry `rowspan` /
+`colspan` when above 1, a cell without a box takes its share of the table's,
+and when no cell carries a header flag the first row is the header. Where that
+class flattens every other label to a paragraph, this export keeps the role.
+When the JSON has no `body` tree, items are read from the `texts`, `tables`
+and `pictures` arrays and ordered per page top to bottom, left to right, as
+that class orders them; with a `body`, docling's reading order is kept.
 
 ## Roles
 
@@ -97,10 +113,10 @@ converting again.
 | `code` | `language` or `null` | docling's `code` label; `t` keeps line breaks |
 | `formula` | `latex`, `orig`, `speech` | `speech` maps style → text (`clearspeak`, `simplespeak`); `t` is the ClearSpeak form; `orig` the raw glyph text, routinely unreadable on scans; an undecoded formula has `latex: ""`, `speech: null`, `t: ""` and still its box |
 | `checkbox` | `checked` | `t` is the option's label |
-| `picture` | `captions` (refs) | `t` is `""`; the box is the figure's |
+| `picture` | `captions` (refs), `description` | `t` is the description when docling produced one, else `""`; the box is the figure's |
 | `picture_text` | `of` (the picture's ref) | text docling found inside a figure: axis labels, legends, scanned text in an image |
 | `table` | `rows`, `cols`, `captions` (refs) | `t` is `""`; one chunk per table, before its cells |
-| `table_cell` | `table` (ref), `row`, `col`, `header` | row-major, empty cells omitted; `header` for a column or row header |
+| `table_cell` | `table` (ref), `row`, `col`, `header`, `rowspan` / `colspan` when above 1 | row-major, empty cells omitted; `header` for a column or row header, or the first row when the data flags none |
 | `toc_entry` | `table` (ref), `row`, `page` | a contents table, row by row: the layout model's `document_index`, or a table of one or two columns whose rows end in page numbers; `page` when the row does |
 | `key_value`, `form` | — | docling's key-value and form items, their cells' text joined |
 

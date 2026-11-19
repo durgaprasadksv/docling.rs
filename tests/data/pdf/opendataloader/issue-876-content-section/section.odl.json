@@ -1,0 +1,93 @@
+{
+  "file name" : "section.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 685.286, 370.28, 709.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The members of the board meet in the town hall on the first day of each month, and the agenda of the day has two points."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 2,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 660.654, 264.665, 673.422 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "2026-04-F-Members of the water union"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 623.786, 412.042, 648.49 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The mayor recalls that the town is a member of the water union, and that the union asks each town for one member and one deputy member."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 599.186, 239.664, 611.59 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "After this report, the council decides"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 574.586, 274.848, 586.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "It decides by all the votes or by the majority"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 549.986, 186.604, 562.39 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Adopted by all the votes."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 8,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 525.354, 273.614, 538.122 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "2026-04-G-Members of the energy union"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 463.886, 392.363, 513.19 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Considering the elections of the town council of this year, Considering that the town is a member of the energy union, and that the union asks each town for one member."
+  } ]
+}

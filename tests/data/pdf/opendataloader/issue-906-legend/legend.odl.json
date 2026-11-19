@@ -1,0 +1,129 @@
+{
+  "file name" : "legend.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 71.552, 572.176, 346.744, 707.696 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 10,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 698.176, 280.04, 707.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "1 Clock Touch to set the clock.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 684.176, 297.392, 693.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "2 Mode button Touch to change the mode.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 670.176, 293.832, 679.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "3 More button Touch to set the functions.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 656.176, 298.712, 665.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "4 Rinse water Touch to let rinse water out.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 642.176, 317.416, 651.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "5 Pure water Touch, then touch the out button.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 7,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 628.176, 339.208, 637.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "6 Cold water Touch, then touch the out button again.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 8,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 614.176, 314.744, 623.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "7 Hot water Touch again to change the heat.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 9,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 600.176, 309.4, 609.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "8 Alkaline water Touch again to change the pH.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 10,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 586.176, 328.072, 595.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "9 Cold alkaline water Touch again to change the pH level.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 11,
+      "page number" : 1,
+      "bounding box" : [ 71.552, 572.176, 346.744, 581.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "10 Amount button Touch for two seconds to set the amount.",
+      "kids" : [ ]
+    } ]
+  } ]
+}

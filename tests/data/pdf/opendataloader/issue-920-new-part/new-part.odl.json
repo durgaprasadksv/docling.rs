@@ -1,0 +1,61 @@
+{
+  "file name" : "new-part.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 48.0, 419.975, 373.188, 478.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Alpha text of this part of the column starts here, and it goes on for a few lines, and each of these lines is about as wide as the column on the page in the issue, so that the gap between the two columns is as small as the gap on that page, and the gap between two parts of a column is larger than it, as it is on that page. The last line of this part of the column ends here, a bit before the column end."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 396.0, 431.975, 721.188, 478.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Bravo text of this part of the column starts here, and it goes on for a few lines, and each of these lines is about as wide as the column on the page in the issue, so that the gap between the two columns is as small as the gap on that page, and the gap between two parts of a column is larger than it, as it is on that page."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 3,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 48.0, 369.492, 145.812, 382.582 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 11.0,
+    "text color" : "[0.0]",
+    "content" : "Practice questions"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 1,
+    "bounding box" : [ 48.0, 313.975, 373.188, 360.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Charlie text of this part of the column starts here, and it goes on for a few lines, and each of these lines is about as wide as the column on the page in the issue, so that the gap between the two columns is as small as the gap on that page, and the gap between two parts of a column is larger than it, as it is on that page."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 1,
+    "bounding box" : [ 396.0, 326.975, 721.188, 373.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Delta text of this part of the column starts here, and it goes on for a few lines, and each of these lines is about as wide as the column on the page in the issue, so that the gap between the two columns is as small as the gap on that page, and the gap between two parts of a column is larger than it, as it is on that page."
+  } ]
+}

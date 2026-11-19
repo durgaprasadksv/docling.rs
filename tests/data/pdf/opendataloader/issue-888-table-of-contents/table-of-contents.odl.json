@@ -1,0 +1,147 @@
+{
+  "file name" : "table-of-contents.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 697.586, 134.113, 709.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Introduction 7"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 2,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 672.986, 243.259, 697.69 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 685.286, 237.293, 697.69 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "1. Changing practices of the town 7",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 672.986, 243.259, 685.39 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "2. Core and periphery of the town 12",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 5,
+    "level" : "2",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 623.786, 294.537, 673.09 ],
+    "numbering style" : "roman numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 660.686, 254.579, 673.09 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "Part I: New streets, different houses 21",
+      "kids" : [ {
+        "type" : "list",
+        "pdfua_tag" : "L",
+        "id" : 7,
+        "level" : "1",
+        "page number" : 1,
+        "bounding box" : [ 69.1, 636.086, 211.659, 660.79 ],
+        "numbering style" : "arabic numbers",
+        "number of list items" : 2,
+        "list items" : [ {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "id" : 8,
+          "page number" : 1,
+          "bounding box" : [ 69.1, 648.386, 203.289, 660.79 ],
+          "font" : "Helvetica",
+          "font size" : 10.73,
+          "text color" : "[0.0]",
+          "content" : "3. The street as a market 26",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "id" : 9,
+          "page number" : 1,
+          "bounding box" : [ 69.1, 636.086, 211.659, 648.49 ],
+          "font" : "Helvetica",
+          "font size" : 10.73,
+          "text color" : "[0.0]",
+          "content" : "4. The houses of the street 30",
+          "kids" : [ ]
+        } ]
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 10,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 623.786, 294.537, 636.19 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "Part II: From one town to a network of towns 45",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 11,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 586.886, 236.703, 623.89 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 12,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 611.486, 208.075, 623.89 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "5. The bridges of the town 50",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 13,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 586.886, 236.703, 611.59 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "6. The roads between the towns 58 Notes 137",
+      "kids" : [ ]
+    } ]
+  } ]
+}

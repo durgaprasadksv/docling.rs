@@ -1,0 +1,41 @@
+{
+  "file name" : "issue-740-type3-between-lines.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 72.0, 737.3, 242.76, 751.172 ],
+    "font" : "Helvetica",
+    "font size" : 12.0,
+    "text color" : "[0.0]",
+    "content" : "The next line uses a Type3 font."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 2,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 700.0, 264.0, 718.0 ],
+    "heading level" : 1,
+    "font" : null,
+    "font size" : 24.0,
+    "text color" : "[0.0]",
+    "content" : "abba baab"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 1,
+    "bounding box" : [ 72.0, 657.3, 264.744, 671.172 ],
+    "font" : "Helvetica",
+    "font size" : 12.0,
+    "text color" : "[0.0]",
+    "content" : "This line comes after the Type3 line."
+  } ]
+}

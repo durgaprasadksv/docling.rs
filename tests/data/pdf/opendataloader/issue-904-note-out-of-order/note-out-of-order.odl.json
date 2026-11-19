@@ -1,0 +1,74 @@
+{
+  "file name" : "note-out-of-order.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 300.0, 577.975, 448.572, 708.379 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 4,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 300.0, 685.975, 442.583, 708.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "(1) Connect the power cable when the setup of the product is done.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 300.0, 645.975, 448.572, 668.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "(2) Read the message on the screen, and touch the button below it.",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 4,
+        "level" : "2",
+        "page number" : 1,
+        "bounding box" : [ 314.0, 633.975, 496.601, 644.379 ],
+        "font" : "Helvetica",
+        "font size" : 9.0,
+        "text color" : "[0.0]",
+        "content" : "- Keep 10 cm free at each side of the product."
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 300.0, 593.975, 424.574, 628.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "(3) Touch the start button to fill the tank with water. Note: do not stop the setup.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 300.0, 577.975, 424.542, 588.379 ],
+      "font" : "Helvetica",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "(4) The main screen comes up.",
+      "kids" : [ ]
+    } ]
+  } ]
+}

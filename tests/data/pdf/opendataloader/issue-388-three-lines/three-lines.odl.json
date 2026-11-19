@@ -1,0 +1,31 @@
+{
+  "file name" : "three-lines.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 698.176, 139.568, 707.696 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "(1) Clean the filter"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 84.0, 657.7, 245.864, 691.948 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Take the filter out of the machine, and rinse it under cold water for one minute. Then put the filter back, and push it until it stops."
+  } ]
+}

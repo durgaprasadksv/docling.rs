@@ -4,8 +4,8 @@
   "commit": "5a7976a"
  },
  "counts": {
-  "pass": 41,
-  "xfail": 37,
+  "pass": 38,
+  "xfail": 40,
   "unchecked": 95
  },
  "cases": [
@@ -55,7 +55,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.785
+   }
   },
   {
    "id": "354/bulletsOfTwoSectionsInTwoColumnsAreFourLists",
@@ -115,7 +121,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.857,
+    "order": 1.0,
+    "boxes": 0.822
+   }
   },
   {
    "id": "354/subtitleBetweenBulletsIsNotInTheList",
@@ -154,7 +166,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.782
+   }
   },
   {
    "id": "354/bulletOfASectionWithOneBulletIsNotInTheListAbove",
@@ -186,7 +204,13 @@
     "assertNotNull(list, \"the list of the first section is lost: \" + document)"
    ],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.786
+   }
   },
   {
    "id": "354/bulletsOfTwoSectionsInOneColumnWithTitlesDrawnFirstAreTwoLists",
@@ -232,7 +256,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.75,
+    "order": 1.0,
+    "boxes": 0.823
+   }
   },
   {
    "id": "354/bulletsOfTwoSectionsWithBoldTitlesInTheirSizeAreTwoLists",
@@ -278,7 +308,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.781
+   }
   },
   {
    "id": "354/bulletsOfTwoSectionsWithOneBulletEachAreNotOneList",
@@ -312,7 +348,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.5,
+    "order": 1.0,
+    "boxes": 0.778
+   }
   },
   {
    "id": "354/bulletsWithWrappedLinesStayOneList",
@@ -337,7 +379,13 @@
     "assertNotNull(listWithItem(document, \"Read all the steps\"), \"the list is lost: \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.844
+   }
   },
   {
    "id": "354/bulletsWithLinesAtTheBulletStayOneList",
@@ -362,7 +410,13 @@
     "assertNotNull(listWithItem(document, \"Read all the steps\"), \"the list is lost: \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.25,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.827
+   }
   },
   {
    "id": "354/numberedListWithACaptionBetweenItemsStaysOneList",
@@ -387,7 +441,13 @@
     "assertNotNull(listWithItem(document, \"1. Find the length\"), \"the list is lost: \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.822
+   }
   },
   {
    "id": "354/itemWithASecondParagraphStaysInTheList",
@@ -412,7 +472,13 @@
     "assertNotNull(listWithItem(document, \"Read all the steps\"), \"the list is lost: \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.8,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.667
+   }
   },
   {
    "id": "354/itemParagraphAtTheBulletsStaysInTheList",
@@ -437,7 +503,13 @@
     "assertNotNull(listWithItem(document, \"Read all the steps\"), \"the list is lost: \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.4,
+    "roles": 0.5,
+    "order": 1.0,
+    "boxes": 0.805
+   }
   },
   {
    "id": "354/listThatGoesOnInTheNextPageStaysConnected",
@@ -464,7 +536,13 @@
     "assertNotNull(next, \"the list of the second page is lost: \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.799
+   }
   },
   {
    "id": "388/headingOfAStepWithTwoLinesOfTextIsAnElementOfItsOwn",
@@ -487,7 +565,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.788
+   }
   },
   {
    "id": "388/headingOfAStepWithThreeLinesOfTextIsAnElementOfItsOwn",
@@ -510,7 +594,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.821
+   }
   },
   {
    "id": "388/headingsOfStepsOneAfterTheOtherStayElementsOfTheirOwn",
@@ -533,7 +623,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.836
+   }
   },
   {
    "id": "388/headingOfAStepWithOneLineOfTextStaysAnElementOfItsOwn",
@@ -556,7 +652,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.5,
+    "order": 1.0,
+    "boxes": 0.756
+   }
   },
   {
    "id": "388/firstLineThatStartsWithABoldWordStaysInItsParagraph",
@@ -579,7 +681,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.914
+   }
   },
   {
    "id": "388/indentedBoldFirstLineStaysInItsParagraph",
@@ -602,7 +710,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.583
+   }
   },
   {
    "id": "388/indentedFirstLineStaysInItsParagraph",
@@ -625,7 +739,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.92
+   }
   },
   {
    "id": "389/rowsDrawnByColumnsAreOneLineEach",
@@ -687,8 +807,14 @@
    },
    "list_items": null,
    "unparsed": [],
-   "status": "pass",
-   "recall": 1.0
+   "status": "xfail",
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "389/twoTablesOfContentsSideBySideKeepTheirRows",
@@ -751,7 +877,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.333,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.227
+   }
   },
   {
    "id": "389/textOfAnotherColumnStaysOutOfTheRows",
@@ -814,7 +946,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.429,
+    "roles": 0.333,
+    "order": 1.0,
+    "boxes": 0.497
+   }
   },
   {
    "id": "389/rowsDrawnOneAfterTheOtherStayOneLineEach",
@@ -877,7 +1015,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "389/oneRowIsOneLine",
@@ -910,7 +1054,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.256
+   }
   },
   {
    "id": "389/rowsOfAFormWithDottedLinesKeepTheirOrder",
@@ -935,7 +1085,13 @@
     "assertTrue(index > previous, \"the labels of the form are not in the order of the rows: \" + markdown)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.667,
+    "boxes": 0.813
+   }
   },
   {
    "id": "389/titlesWithSpacesOfTheirOwnHaveOneSpaceBetweenWords",
@@ -997,8 +1153,14 @@
    },
    "list_items": null,
    "unparsed": [],
-   "status": "pass",
-   "recall": 1.0
+   "status": "xfail",
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "389/aTableBetweenTheColumnsInThePageContentStaysBelowTheRows",
@@ -1062,8 +1224,14 @@
    "unparsed": [
     "assertTrue(lastRow < north && north < markdown.indexOf(\"East\")\n                && markdown.indexOf(\"East\") < markdown.indexOf(\"Sout)"
    ],
-   "status": "pass",
-   "recall": 1.0
+   "status": "xfail",
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.4,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.825
+   }
   },
   {
    "id": "389/aNumberOfAnotherColumnStaysOutOfTheRows",
@@ -1088,7 +1256,13 @@
     "assertTrue(index > previous, SYMPTOM + \", or the rows are not in their order (\" + entry.row() + \"): \"\n                + markdown)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "396/columnsWithParagraphGapsAtTheSameHeightAreReadColumnByColumn",
@@ -1120,7 +1294,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.667,
+    "roles": 1.0,
+    "order": 0.75,
+    "boxes": 0.473
+   }
   },
   {
    "id": "396/pageHeaderAcrossTheGutterDoesNotHideTheColumns",
@@ -1154,7 +1334,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.875,
+    "roles": 1.0,
+    "order": 0.571,
+    "boxes": 0.403
+   }
   },
   {
    "id": "396/pageHeaderStaysOutOfTheOutputWithoutIncludeHeaderFooter",
@@ -1179,7 +1365,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.875,
+    "roles": 1.0,
+    "order": 0.571,
+    "boxes": 0.403
+   }
   },
   {
    "id": "396/footerBelowTheLeftColumnComesAfterBothColumns",
@@ -1215,7 +1407,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 0.978
+   "recall": 0.978,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.5,
+    "boxes": 0.496
+   }
   },
   {
    "id": "396/columnsOfDifferentTextSizesAreReadColumnByColumn",
@@ -1245,7 +1443,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.5,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.966
+   }
   },
   {
    "id": "396/headingBelowColumnsThatEndAtTheSameHeightStartsANewSection",
@@ -1280,7 +1484,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.778,
+    "roles": 1.0,
+    "order": 0.571,
+    "boxes": 0.52
+   }
   },
   {
    "id": "396/sectionsWithAWideGapBetweenThemAreReadOneAfterTheOther",
@@ -1314,7 +1524,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.75,
+    "roles": 1.0,
+    "order": 0.5,
+    "boxes": 0.476
+   }
   },
   {
    "id": "396/smallTextBelowAWideGapStartsANewSectionAlsoBelowLargerText",
@@ -1348,7 +1564,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.375,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.942
+   }
   },
   {
    "id": "396/formWithFieldsOfOneLineIsReadRowByRow",
@@ -1380,7 +1602,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.805
+   }
   },
   {
    "id": "396/rulesPaintedTogetherInOneArtifactDoNotHideTheGutter",
@@ -1403,7 +1631,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.55,
+    "boxes": 0.47
+   }
   },
   {
    "id": "396/rulesPaintedTogetherWithoutMarkedContentDoNotHideTheGutter",
@@ -1426,7 +1660,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.55,
+    "boxes": 0.47
+   }
   },
   {
    "id": "396/ruleInTheRightColumnPaintedWithTheRuleAboveTheColumnsDoesNotHideTheGutter",
@@ -1449,7 +1689,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.55,
+    "boxes": 0.47
+   }
   },
   {
    "id": "396/rulesAboveAndBelowTheColumnsPaintedTogetherKeepTheColumnsApart",
@@ -1472,7 +1718,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.55,
+    "boxes": 0.47
+   }
   },
   {
    "id": "396/threeRulesPaintedTogetherDoNotHideTheGutter",
@@ -1495,7 +1747,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.55,
+    "boxes": 0.47
+   }
   },
   {
    "id": "396/ruleInTheGutterPaintedWithTheRuleAboveTheColumnsKeepsTheColumnsApart",
@@ -1518,7 +1776,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 0.931
+   "recall": 0.931,
+   "structure": {
+    "elements": 0.95,
+    "roles": 0.0,
+    "order": 0.158,
+    "boxes": 0.139
+   }
   },
   {
    "id": "396/rulesOfAFormDrawnTwoTimesDoNotHideTheGutter",
@@ -1541,7 +1805,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.55,
+    "boxes": 0.47
+   }
   },
   {
    "id": "396/rulesPaintedInArtifactsOfTheirOwnKeepTheColumnsApart",
@@ -1564,7 +1834,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.55,
+    "boxes": 0.47
+   }
   },
   {
    "id": "396/rulesPaintedTogetherOnAPageOfOneColumnKeepTheParagraphOrder",
@@ -1596,7 +1872,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.911
+   }
   },
   {
    "id": "626/titleDrawnInTheListIsAPageElementBeforeTheList",
@@ -1619,7 +1901,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.75,
+    "order": 0.5,
+    "boxes": 0.411
+   }
   },
   {
    "id": "626/titleOfEachColumnIsAPageElementBeforeItsList",
@@ -1642,7 +1930,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "626/titleBesideAShortItemLineIsAPageElementBeforeTheList",
@@ -1665,7 +1959,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.75,
+    "order": 1.0,
+    "boxes": 0.775
+   }
   },
   {
    "id": "626/quoteThatEndsBesideAnItemIsOneParagraphOutsideTheList",
@@ -1691,7 +1991,13 @@
     "assertTrue(end != null && path.equals(end), \"the quote is split: its last line is in another element: \"\n            + document)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.75,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.731
+   }
   },
   {
    "id": "626/titleDrawnInTheListIsNotInAListItemWithoutReadingOrder",
@@ -1714,7 +2020,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.75,
+    "order": 0.5,
+    "boxes": 0.411
+   }
   },
   {
    "id": "626/markdownShowsTheTitleBeforeTheFirstItem",
@@ -1739,7 +2051,13 @@
     "assertTrue(title >= 0 && firstItem >= 0 && title < firstItem,\n            \"the title is after the first item in the Markdown: \" + m)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.75,
+    "order": 0.5,
+    "boxes": 0.411
+   }
   },
   {
    "id": "626/noteBelowAnItemStaysTheContentOfThatItem",
@@ -1764,7 +2082,13 @@
     "assertTrue(item != null && containsText(item.path(\"kids\"), \"Note on the benefits\"),\n            \"the note is not the content of ite)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.807
+   }
   },
   {
    "id": "626/listThatGoesOnInTheNextColumnKeepsItsItems",
@@ -1793,7 +2117,13 @@
     "assertTrue(listThatContains(document, \"3. Insured\").toString().contains(\"4. Rules of the special terms\"),\n            \"items 3 and )"
    ],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.8,
+    "order": 0.6,
+    "boxes": 0.779
+   }
   },
   {
    "id": "626/titleDrawnBeforeTheListIsAPageElementBeforeTheList",
@@ -1816,7 +2146,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "676/markdownWritesTheLinkOverItsText",
@@ -1841,7 +2177,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 0.877
+   "recall": 0.877,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.936
+   }
   },
   {
    "id": "676/htmlWritesTheLinkOverItsText",
@@ -1866,7 +2208,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 0.877
+   "recall": 0.877,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.936
+   }
   },
   {
    "id": "676/markdownWritesOneLinkForALinkOverTwoLines",
@@ -1891,7 +2239,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 0.936
+   "recall": 0.936,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.936
+   }
   },
   {
    "id": "676/markdownWritesTheLinkInAListItem",
@@ -1916,7 +2270,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 0.932
+   "recall": 0.932,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.846
+   }
   },
   {
    "id": "676/markdownKeepsBracketsAndParenthesesInTheLink",
@@ -1941,7 +2301,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 0.926
+   "recall": 0.926,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.936
+   }
   },
   {
    "id": "676/markdownLeavesPunctuationNextToTheLinkOutOfIt",
@@ -1966,7 +2332,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.5,
+    "order": 1.0,
+    "boxes": 0.944
+   }
   },
   {
    "id": "676/linkMarkupIsTheOnlyChangeOfTheText",
@@ -1992,7 +2364,13 @@
     "assertEquals(withoutTitle(plain.html), withoutTitle(linked.html.replaceAll(\"<a href=\\\"[^\\\"]*\\\">|</a>\", \"\")),\n            \"the HTML li)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.936
+   }
   },
   {
    "id": "676/commandLineOptionWritesTheLinks",
@@ -2017,7 +2395,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 0.877
+   "recall": 0.877,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.936
+   }
   },
   {
    "id": "676/markdownEndsTheLinkBeforeAnImageInTheLine",
@@ -2042,7 +2426,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 0.865
+   "recall": 0.865,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.936
+   }
   },
   {
    "id": "676/structTreeMarkdownWritesTheLinkOverItsText",
@@ -2067,7 +2457,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 0.5
+   "recall": 0.5,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.778
+   }
   },
   {
    "id": "676/withoutTheOptionTheOutputHasNoLink",
@@ -2095,7 +2491,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.936
+   }
   },
   {
    "id": "676/sanitizeWritesNoLinkAddress",
@@ -2123,7 +2525,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.936
+   }
   },
   {
    "id": "676/javascriptLinkStaysText",
@@ -2151,7 +2559,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.936
+   }
   },
   {
    "id": "676/internalLinkStaysText",
@@ -2179,7 +2593,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.936
+   }
   },
   {
    "id": "740/textOfAType3FontWithoutToUnicodeIsKept",
@@ -2202,7 +2622,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "740/type3LineBetweenOtherLinesKeepsItsText",
@@ -2225,7 +2651,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.667,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.771
+   }
   },
   {
    "id": "740/toUnicodeStillGivesTheText",
@@ -2248,7 +2680,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "740/standardGlyphNamesStillGiveTheText",
@@ -2271,7 +2709,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "740/codesOutsidePrintableAsciiGiveNoText",
@@ -2294,7 +2738,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.771
+   }
   },
   {
    "id": "755/nestedListIsIndentedInItsItem",
@@ -2330,7 +2780,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.8,
+    "boxes": 0.621
+   }
   },
   {
    "id": "755/paragraphBelowAnItemIsNotIndented",
@@ -2358,7 +2814,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.828
+   }
   },
   {
    "id": "755/listWithoutBlocksIsNotIndented",
@@ -2383,7 +2845,13 @@
     "assertTrue(markdown.stream().allMatch(line -> line.startsWith(\"- \")),\n            \"a list without blocks is not at the start of the)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.883
+   }
   },
   {
    "id": "755/listBelowADashLineIsInTheItemOfTheLine",
@@ -2409,7 +2877,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.908
+   }
   },
   {
    "id": "755/listBelowADashLineIsIndentedInTheMarkdown",
@@ -2441,7 +2915,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.893
+   }
   },
   {
    "id": "755/listBelowABulletLineIsInTheItemOfTheLine",
@@ -2466,7 +2946,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.908
+   }
   },
   {
    "id": "755/listBelowAnUnderlinedDashLineIsInTheItemOfTheLine",
@@ -2491,7 +2977,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.908
+   }
   },
   {
    "id": "755/twoListsBelowADashLineAreInTheItemOfTheLine",
@@ -2517,7 +3009,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.902
+   }
   },
   {
    "id": "755/listThatGoesOnInTheNextPageKeepsItsLink",
@@ -2543,7 +3041,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.571,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.91
+   }
   },
   {
    "id": "755/lineWithoutABulletStaysAParagraph",
@@ -2568,7 +3072,13 @@
     "assertTrue(itemThatContains(document, PARENT) == null, \"a line without a bullet is a list item: \"\n            + document)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.914
+   }
   },
   {
    "id": "755/numberedLineIsNotAParentItem",
@@ -2593,7 +3103,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.833,
+    "order": 1.0,
+    "boxes": 0.908
+   }
   },
   {
    "id": "755/listThatIsNotIndentedIsNotNested",
@@ -2618,7 +3134,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.833,
+    "order": 1.0,
+    "boxes": 0.908
+   }
   },
   {
    "id": "755/listAfterAGapIsNotNested",
@@ -2643,7 +3165,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.833,
+    "order": 1.0,
+    "boxes": 0.905
+   }
   },
   {
    "id": "755/wrappedLineThatStartsWithADashIsInTheMarkdownLineOfItsItem",
@@ -2670,7 +3198,13 @@
     "assertEquals(1, withLine.size(), \"the wrapped line is a separate Markdown line: \" + markdown)"
    ],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.893
+   }
   },
   {
    "id": "755/wrappedLineThatStartsWithADashIsATextLineOfItsItem",
@@ -2695,7 +3229,13 @@
    "list_items": 5,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.908
+   }
   },
   {
    "id": "755/wrappedLineOfTheLastItemThatStartsWithADashIsATextLineOfItsItem",
@@ -2720,7 +3260,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.898
+   }
   },
   {
    "id": "755/dashLinesBelowAShortItemLineStayOutOfItsText",
@@ -2748,7 +3294,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.885
+   }
   },
   {
    "id": "755/dashLineBelowTheWidestShortItemStaysOutOfItsText",
@@ -2775,7 +3327,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.8,
+    "order": 1.0,
+    "boxes": 0.88
+   }
   },
   {
    "id": "755/wrappedLineWithoutALabelIsATextLineOfItsItem",
@@ -2800,7 +3358,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.893
+   }
   },
   {
    "id": "755/itemAfterAFullLineIsANewItem",
@@ -2825,7 +3389,13 @@
    "list_items": 5,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.885
+   }
   },
   {
    "id": "755/dashLineAtTheMarkersAfterAFullLineStaysOutOfTheItemText",
@@ -2852,7 +3422,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.833,
+    "order": 1.0,
+    "boxes": 0.886
+   }
   },
   {
    "id": "827/hashItemIsOneBulletWithTheWholeText",
@@ -2877,7 +3453,13 @@
     "assertEquals(List.of(\"- \\\\# of users in the plan\", \"- Plan of the site office\", \"- Cost of the plan\"),\n            markdownLines(\"has)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.825
+   }
   },
   {
    "id": "827/numberedItemIsOneBulletWithTheWholeText",
@@ -2902,7 +3484,13 @@
     "assertEquals(List.of(\"- 1\\\\. Introduction to the plan\", \"- Plan of the site office\", \"- Cost of the plan\"),\n            markdownLines)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.826
+   }
   },
   {
    "id": "827/otherHeadingAndListMarkersAreEscaped",
@@ -2927,7 +3515,13 @@
     "assertEquals(List.of(\n                \"- \\\\## of users in the plan\",\n                \"- 1\\\\) Introduction to the plan\",\n             )"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.857,
+    "roles": 1.0,
+    "order": 0.5,
+    "boxes": 0.414
+   }
   },
   {
    "id": "827/hashItemIsOneBulletWithTheWholeTextInMarkdownWithHtml",
@@ -2952,7 +3546,13 @@
     "assertEquals(List.of(\"- \\\\# of users in the plan\", \"- Plan of the site office\", \"- Cost of the plan\"),\n            markdownLines(\"has)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.825
+   }
   },
   {
    "id": "827/textThatDoesNotStartABlockStaysAsItIs",
@@ -2977,7 +3577,13 @@
     "assertEquals(List.of(\n                \"- #hashtag of the plan\",\n                \"- 1.5 million users of the plan\",\n                \"-)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.813
+   }
   },
   {
    "id": "827/orderedListKeepsItsNumbers",
@@ -3002,7 +3608,13 @@
     "assertEquals(List.of(\"- 1. Introduction to the plan\", \"- 2. Plan of the site office\", \"- 3. Cost of the plan\"),\n            markdownL)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.829
+   }
   },
   {
    "id": "876/titleAboveALineAfterAnEmptyLineIsAHeading",
@@ -3029,7 +3641,13 @@
     "assertTrue(elements.indexOf(title) < elements.indexOf(line),\n            \"the line after the empty line is before the title: \" + do)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.74
+   }
   },
   {
    "id": "876/lineAfterAnEmptyLineIsNotInTheLastItemOfThePage",
@@ -3055,7 +3673,13 @@
     "assertTrue(\"list item\".equals(item.path(\"type\").asText()),\n            \"the line before the empty line is not a list item: \" + docu)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.25,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.298
+   }
   },
   {
    "id": "876/titleAboveAParagraphOfTwoLinesIsAHeading",
@@ -3081,7 +3705,13 @@
     "assertTrue(title != null && \"heading\".equals(title.path(\"type\").asText())\n                && !title.path(\"content\").asText().contai)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.74
+   }
   },
   {
    "id": "876/wrappedLastItemKeepsItsSecondLine",
@@ -3106,7 +3736,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.883
+   }
   },
   {
    "id": "876/doubleSpacedLastItemKeepsItsSecondLine",
@@ -3131,7 +3767,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.667,
+    "roles": 0.5,
+    "order": 0.5,
+    "boxes": 0.337
+   }
   },
   {
    "id": "876/fullLineOfTheLastItemContinuesBelow",
@@ -3154,7 +3796,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.5,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.775
+   }
   },
   {
    "id": "876/lineAfterAnEmptyLineBelowATitleIsNotInTheTitle",
@@ -3180,7 +3828,13 @@
     "assertTrue(title != null && !title.path(\"content\").asText().contains(VOTE),\n            \"the line after the empty line is merged wi)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.667,
+    "order": 1.0,
+    "boxes": 0.817
+   }
   },
   {
    "id": "876/twoTitlesWithAnEmptyLineBetweenThemAreNotOneParagraph",
@@ -3206,7 +3860,13 @@
     "assertTrue(title != null && !title.path(\"content\").asText().contains(APPROVAL),\n            \"the two titles with an empty line betw)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.667,
+    "order": 1.0,
+    "boxes": 0.817
+   }
   },
   {
    "id": "876/lineAfterAnEmptyLineIsNotInTheTitleOnAPageOfShortParagraphs",
@@ -3232,7 +3892,13 @@
     "assertTrue(title != null && !title.path(\"content\").asText().contains(VOTE),\n            \"the line after the empty line is merged wi)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.7,
+    "roles": 1.0,
+    "order": 0.714,
+    "boxes": 0.512
+   }
   },
   {
    "id": "876/linesOfAParagraphStayOneParagraph",
@@ -3257,7 +3923,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.667,
+    "order": 1.0,
+    "boxes": 0.817
+   }
   },
   {
    "id": "876/linesOfADoubleSpacedParagraphStayOneParagraph",
@@ -3282,7 +3954,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.959
+   }
   },
   {
    "id": "876/linesOfADoubleSpacedParagraphStayOneParagraphOnAPageWithSingleSpacing",
@@ -3305,7 +3983,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.5,
+    "boxes": 0.452
+   }
   },
   {
    "id": "876/paragraphsOfASectionWithAnEmptyLineBetweenThemAreSeparate",
@@ -3332,7 +4016,13 @@
     "assertTrue(elements.indexOf(report) < elements.indexOf(decision),\n            \"the paragraphs of the section are out of the reading)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.785
+   }
   },
   {
    "id": "876/paragraphsOfAListItemWithAnEmptyLineBetweenThemAreSeparate",
@@ -3359,7 +4049,13 @@
     "assertTrue(elements.indexOf(second) < elements.indexOf(third),\n            \"the paragraphs of the list item are out of the reading )"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.286,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.695
+   }
   },
   {
    "id": "876/linesOfAParagraphInAListItemStayOneParagraph",
@@ -3384,7 +4080,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.286,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.695
+   }
   },
   {
    "id": "876/fullLineInAListItemContinuesBelow",
@@ -3407,7 +4109,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.4,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.697
+   }
   },
   {
    "id": "878/rolesOfTheTwoColumnsAreNotOneElement",
@@ -3433,7 +4141,13 @@
     "assertTrue(role == elementThatContains(document, LEFT_NAME)\n                && elementThatContains(document, RIGHT_ROLE) == element)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.333,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.94
+   }
   },
   {
    "id": "878/eachRoleComesWithItsName",
@@ -3459,7 +4173,13 @@
     "assertTrue(paragraphThatContains(markdown, LEFT_ROLE).contains(LEFT_NAME)\n                && paragraphThatContains(markdown, RIGHT_)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.333,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.94
+   }
   },
   {
    "id": "878/aMarkOverTheLeftRoleKeepsItInTheLeftColumn",
@@ -3484,7 +4204,13 @@
     "assertTrue(word >= 0 && word < markdown.indexOf(LEFT_NAME),\n            \"a word of the left role is not in the left column: \" + mar)"
    ],
    "status": "unchecked",
-   "recall": 0.96
+   "recall": 0.96,
+   "structure": {
+    "elements": 0.667,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.568
+   }
   },
   {
    "id": "878/linesOfATableOfContentsStayOneLine",
@@ -3507,7 +4233,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "878/rowsOfAFormStayOneLine",
@@ -3530,7 +4262,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.947
+   }
   },
   {
    "id": "878/linesOfATableOfContentsWithPageLabelsStayOneLine",
@@ -3553,7 +4291,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.963
+   }
   },
   {
    "id": "878/pageLabelsNextToOtherRowsStayWithTheirTitles",
@@ -3576,7 +4320,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.995
+   }
   },
   {
    "id": "878/anImageBetweenTheRowsKeepsItsPlace",
@@ -3601,7 +4351,13 @@
     "assertTrue(role >= 0 && role < image && image < name,\n            \"the image between the rows is not after the roles and before the)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.333,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.318
+   }
   },
   {
    "id": "878/linesWithDrawnBulletsKeepTheirBullets",
@@ -3627,7 +4383,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.273
+   }
   },
   {
    "id": "888/titlesBetweenTheItemsOfABulletedListAreHeadings",
@@ -3652,7 +4414,13 @@
     "assertTrue(element != null && \"heading\".equals(element.path(\"type\").asText()) && isOnThePage(document, element),\n                \"t)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.917,
+    "order": 0.833,
+    "boxes": 0.67
+   }
   },
   {
    "id": "888/partsBetweenTheChaptersOfATableOfContentsAreNotInAChapter",
@@ -3679,7 +4447,13 @@
     "assertTrue(!\"list item\".equals(element.path(\"type\").asText())\n                        || !element.path(\"content\").asText().matches()"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "888/indentedListBelowABulletedItemStaysInTheItem",
@@ -3702,7 +4476,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.855
+   }
   },
   {
    "id": "888/indentedListThatGoesOnBelowTheNextItemStaysInTheItem",
@@ -3725,7 +4505,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.857,
+    "order": 1.0,
+    "boxes": 0.839
+   }
   },
   {
    "id": "888/paragraphBetweenTwoBulletedItemsStaysInTheFirstItem",
@@ -3748,7 +4534,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.873
+   }
   },
   {
    "id": "904/stepsDrawnOutOfOrderAreOneListInOrder",
@@ -3771,7 +4563,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.5,
+    "order": 1.0,
+    "boxes": 0.886
+   }
   },
   {
    "id": "904/stepsOfOneLineDrawnOutOfOrderAreOneListInOrder",
@@ -3794,7 +4592,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.787
+   }
   },
   {
    "id": "904/noteBelowAStepDrawnOutOfOrderStaysBelowItsStep",
@@ -3819,7 +4623,13 @@
     "assertTrue(text.indexOf(\"(2) Read\") < text.indexOf(\"Keep 10 cm free\")\n                && text.indexOf(\"Keep 10 cm free\") < text.ind)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "904/sixStepsDrawnOutOfOrderAreOneListInOrder",
@@ -3842,7 +4652,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.667,
+    "boxes": 0.805
+   }
   },
   {
    "id": "904/indentedListThatGoesOnWithTheNumbersIsNotOneListWithTheSteps",
@@ -3868,7 +4684,13 @@
     "assertNotNull(indented, \"the indented list is lost: \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.5,
+    "order": 1.0,
+    "boxes": 0.785
+   }
   },
   {
    "id": "904/stepsDrawnInOrderStayOneListInOrder",
@@ -3891,7 +4713,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.5,
+    "order": 1.0,
+    "boxes": 0.886
+   }
   },
   {
    "id": "904/indentedListBelowAStepStaysAfterTheStep",
@@ -3917,7 +4745,13 @@
     "assertNotNull(list, \"the indented list is lost: \" + document)"
    ],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "905/numberedTitlesDrawnFirstComeBeforeTheirText",
@@ -3955,7 +4789,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.8,
+    "roles": 0.25,
+    "order": 1.0,
+    "boxes": 0.729
+   }
   },
   {
    "id": "905/numberedTitlesWithTextBetweenTwoOfThemComeBeforeAndAfterIt",
@@ -3987,7 +4827,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.6,
+    "order": 1.0,
+    "boxes": 0.848
+   }
   },
   {
    "id": "905/numberedListWithACaptionDrawnBetweenItemsStaysOneList",
@@ -4017,7 +4863,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.822
+   }
   },
   {
    "id": "905/numberedListWithLinesAtTheNumbersStaysOneList",
@@ -4046,7 +4898,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.25,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.827
+   }
   },
   {
    "id": "905/numberedListBesideTheTextOfAnotherColumnStaysOneList",
@@ -4075,7 +4933,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.75,
+    "roles": 0.667,
+    "order": 1.0,
+    "boxes": 0.641
+   }
   },
   {
    "id": "906/rowsOfALegendDrawnByColumnsAreOneElementEach",
@@ -4098,7 +4962,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.776
+   }
   },
   {
    "id": "906/rowWithADescriptionOfTwoLinesStaysBeforeTheNextRow",
@@ -4123,7 +4993,13 @@
     "assertTrue(text.indexOf(NAMES[1]) < text.indexOf(\"The mode stays\")\n                && text.indexOf(\"The mode stays\") < text.indexOf)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.634
+   }
   },
   {
    "id": "906/rowsOfALegendDrawnFromTheBottomComeInTheOrderOfTheirNumbers",
@@ -4146,7 +5022,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.739
+   }
   },
   {
    "id": "906/rowsOfTwoLegendsWithNumbersThatGoOnAreOneElementEach",
@@ -4169,7 +5051,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.667,
+    "roles": 0.75,
+    "order": 1.0,
+    "boxes": 0.62
+   }
   },
   {
    "id": "906/firstLineOfASmallDescriptionIsInItsRow",
@@ -4195,7 +5083,13 @@
     "assertNotNull(element, \"the description of row \" + (i + 1) + \" is lost: \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.6,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.694
+   }
   },
   {
    "id": "906/legendWithAHeaderIsNotJoinedInPart",
@@ -4220,7 +5114,13 @@
     "assertNotNull(element, \"the name of row \" + (i + 1) + \" is lost: \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.167,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.826
+   }
   },
   {
    "id": "906/legendWithACellOfTwoColumnsIsNotJoinedInPart",
@@ -4245,7 +5145,13 @@
     "assertNotNull(element, \"the name of row \" + (i + 1) + \" is lost: \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "906/textOfAnotherColumnIsNotInTheRows",
@@ -4271,7 +5177,13 @@
     "assertNotNull(element, \"the item is lost (\" + item + \"): \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.4,
+    "roles": 0.5,
+    "order": 1.0,
+    "boxes": 0.785
+   }
   },
   {
    "id": "906/numberedListOfLinesStaysOneList",
@@ -4296,7 +5208,13 @@
     "assertNotNull(list, \"the list is lost: \" + document)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.75
+   }
   },
   {
    "id": "913/labelPaintedBeforeAHeadingOfTheNextColumnStaysWithItsItem",
@@ -4321,7 +5239,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.667,
+    "order": 1.0,
+    "boxes": 0.905
+   }
   },
   {
    "id": "913/itemOfALabelPaintedBeforeAHeadingOfTheNextColumnStaysInTheList",
@@ -4347,7 +5271,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.667,
+    "order": 1.0,
+    "boxes": 0.905
+   }
   },
   {
    "id": "913/headingOnTheRowOfALabelOfTheOtherColumnStartsItsColumn",
@@ -4370,7 +5300,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.667,
+    "order": 1.0,
+    "boxes": 0.905
+   }
   },
   {
    "id": "913/labelsOfTwoColumnsPaintedBeforeAHeadingOfTheThirdStayWithTheirItems",
@@ -4395,7 +5331,13 @@
     "assertTrue(hasLine(markdown, \"4. Willow notes:\") && hasLine(markdown, \"7. Rowan notes:\"),\n            ITEM + \":\\n\" + markdown)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.778,
+    "order": 0.667,
+    "boxes": 0.583
+   }
   },
   {
    "id": "913/labelPaintedWithItsTextKeepsTheColumnsApart",
@@ -4420,7 +5362,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.667,
+    "order": 1.0,
+    "boxes": 0.905
+   }
   },
   {
    "id": "913/labelFarFromItsTextStaysWithItsText",
@@ -4443,7 +5391,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.8
+   }
   },
   {
    "id": "919/underlinedYearOfAHeaderIsNotALeader",
@@ -4468,7 +5422,13 @@
     "assertTrue(line.indexOf(\"FY \") == line.lastIndexOf(\"FY \"),\n                \"the underline is read as a leader (one line has two yea)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "919/thinRectangleBetweenATitleAndItsPageNumberIsALeader",
@@ -4493,7 +5453,13 @@
     "assertTrue(index > previous, \"a row of the table of contents is not one row in order (\\\"\" + expected\n                + \"\\\"): \" + te)"
    ],
    "status": "unchecked",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.962
+   }
   },
   {
    "id": "920/sectionThatGoesOnBelowTheGapIsReadAfterTheOtherColumn",
@@ -4526,7 +5492,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.887
+   }
   },
   {
    "id": "920/leftSectionThatGoesOnBelowTheGapIsReadBeforeTheRightColumn",
@@ -4559,7 +5531,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "pass",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.888
+   }
   },
   {
    "id": "920/gridOfSectionsIsReadRowByRow",
@@ -4593,7 +5571,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.75,
+    "boxes": 0.87
+   }
   },
   {
    "id": "920/headingOfANewPartBelowTextInBothColumnsStartsTheNewPart",
@@ -4624,7 +5608,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "xfail",
-   "recall": null
+   "recall": null,
+   "structure": {
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 0.8,
+    "boxes": 0.917
+   }
   },
   {
    "id": "936/wrappedCellsOfRowsDrawnFromTheRightKeepTheirLines",
@@ -4647,7 +5637,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.375,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.129
+   }
   },
   {
    "id": "936/wrappedCellsWithTheResultBeforeTheirLastLinesKeepTheirLines",
@@ -4670,7 +5666,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.25,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.112
+   }
   },
   {
    "id": "936/cellOfThreeLinesKeepsItsLines",
@@ -4693,7 +5695,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.25,
+    "order": 1.0,
+    "boxes": 0.835
+   }
   },
   {
    "id": "936/twoWrappedCellsOfARowKeepTheirLines",
@@ -4721,7 +5729,13 @@
     "assertTrue(result > text.indexOf(\"Pat Doe\") && result < text.indexOf(\"Approve the budget\"),\n            SYMPTOM + \" (the result is )"
    ],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "936/wrappedCellBesideALongerWrappedCellKeepsItsLines",
@@ -4748,7 +5762,13 @@
     "assertTrue(result > text.indexOf(\"Pat Doe\") && result < text.indexOf(\"Approve the budget\"),\n            SYMPTOM + \" (the result is )"
    ],
    "status": "xfail",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.0,
+    "roles": 0.0,
+    "order": 0.0,
+    "boxes": 0.0
+   }
   },
   {
    "id": "936/wrappedCellsDrawnFromTheLeftStayInOrder",
@@ -4771,7 +5791,13 @@
    "list_items": null,
    "unparsed": [],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.25,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.112
+   }
   },
   {
    "id": "936/wrappedResultInTheLastColumnStaysInOrder",
@@ -4796,7 +5822,13 @@
     "assertTrue(first >= 0 && second > first && text.indexOf(\"Approve the budget\") > second,\n            \"the lines of the result are no)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 0.5,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.493
+   }
   },
   {
    "id": "936/lineBelowTheLeftPartOfOneFormRowStaysAfterTheRow",
@@ -4821,7 +5853,13 @@
     "assertTrue(date >= 0 && address > date, \"the line below the form row moved: \" + text)"
    ],
    "status": "unchecked",
-   "recall": 1.0
+   "recall": 1.0,
+   "structure": {
+    "elements": 1.0,
+    "roles": 0.0,
+    "order": 1.0,
+    "boxes": 0.923
+   }
   }
  ]
 }

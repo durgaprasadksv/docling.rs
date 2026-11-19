@@ -1,0 +1,191 @@
+{
+  "file name" : "table-between.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 100.0, 608.2, 340.0, 707.948 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 6,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 698.2, 340.0, 707.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "01 Introduction 03",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 680.2, 340.0, 689.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "02 Background of the plan 09",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 662.2, 340.0, 671.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "03 Methods 14",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 644.2, 340.0, 653.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "04 Results of the survey 22",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 626.2, 340.0, 635.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "05 Discussion 27",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 7,
+      "page number" : 1,
+      "bounding box" : [ 100.0, 608.2, 340.0, 617.948 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "06 Appendix tables 41",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "table",
+    "pdfua_tag" : "Table",
+    "id" : 8,
+    "level" : "2",
+    "page number" : 1,
+    "bounding box" : [ 99.5, 511.5, 340.5, 552.5 ],
+    "number of rows" : 2,
+    "number of columns" : 2,
+    "rows" : [ {
+      "type" : "table row",
+      "row number" : 1,
+      "id" : 9,
+      "cells" : [ {
+        "type" : "table cell",
+        "pdfua_tag" : "TH",
+        "id" : 10,
+        "page number" : 1,
+        "bounding box" : [ 100.25, 532.0, 220.0, 551.75 ],
+        "row number" : 1,
+        "column number" : 1,
+        "row span" : 1,
+        "column span" : 1,
+        "is_header" : true,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 11,
+          "page number" : 1,
+          "bounding box" : [ 106.0, 536.2, 125.56, 545.448 ],
+          "font" : "Helvetica",
+          "font size" : 8.0,
+          "text color" : "[0.0]",
+          "content" : "North"
+        } ]
+      }, {
+        "type" : "table cell",
+        "pdfua_tag" : "TH",
+        "id" : 12,
+        "page number" : 1,
+        "bounding box" : [ 220.0, 532.0, 339.75, 551.75 ],
+        "row number" : 1,
+        "column number" : 2,
+        "row span" : 1,
+        "column span" : 1,
+        "is_header" : true,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 13,
+          "page number" : 1,
+          "bounding box" : [ 226.0, 536.2, 242.008, 545.448 ],
+          "font" : "Helvetica",
+          "font size" : 8.0,
+          "text color" : "[0.0]",
+          "content" : "East"
+        } ]
+      } ]
+    }, {
+      "type" : "table row",
+      "row number" : 2,
+      "id" : 14,
+      "cells" : [ {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "id" : 15,
+        "page number" : 1,
+        "bounding box" : [ 100.25, 512.25, 220.0, 532.0 ],
+        "row number" : 2,
+        "column number" : 1,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 16,
+          "page number" : 1,
+          "bounding box" : [ 106.0, 516.2, 126.904, 525.448 ],
+          "font" : "Helvetica",
+          "font size" : 8.0,
+          "text color" : "[0.0]",
+          "content" : "South"
+        } ]
+      }, {
+        "type" : "table cell",
+        "pdfua_tag" : "TD",
+        "id" : 17,
+        "page number" : 1,
+        "bounding box" : [ 220.0, 512.25, 339.75, 532.0 ],
+        "row number" : 2,
+        "column number" : 2,
+        "row span" : 1,
+        "column span" : 1,
+        "kids" : [ {
+          "type" : "paragraph",
+          "pdfua_tag" : "P",
+          "id" : 18,
+          "page number" : 1,
+          "bounding box" : [ 226.0, 516.2, 244.224, 525.448 ],
+          "font" : "Helvetica",
+          "font size" : 8.0,
+          "text color" : "[0.0]",
+          "content" : "West"
+        } ]
+      } ]
+    } ]
+  } ]
+}

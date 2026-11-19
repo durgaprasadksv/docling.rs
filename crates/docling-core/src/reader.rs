@@ -46,9 +46,11 @@
 //! - **Dot leaders** (`Notices . . . . . . 1`, four or more periods) are
 //!   dropped from `t` and `w` adjusted, as a reader would otherwise voice
 //!   them for seconds; a genuine ellipsis survives.
-//! - **Nothing is dropped.** Page furniture, picture text, table cells,
-//!   formulas without a spoken form all appear with their `kind`; the client
-//!   decides what to skip, and can change its mind without re-converting.
+//! - **Nothing on the page is dropped.** Page furniture, picture text, table
+//!   cells, formulas without a spoken form all appear with their `kind`; the
+//!   client decides what to skip, and can change its mind without
+//!   re-converting. (An item with no `prov` at all is not on any page and is
+//!   left out.)
 //!
 //! `kind` and the extras each one carries:
 //!
@@ -73,6 +75,23 @@
 //! The export is built from the document's JSON (`DoclingDocument::export_to_json_value`
 //! with word provenance and speech forced on), so a client holding docling
 //! JSON can produce it too: [`from_docling_json`].
+//!
+//! Its mapping follows OpenDataLoader-PDF's `DoclingSchemaTransformer`
+//! (`org.opendataloader.pdf.hybrid`), the class a client of that family runs
+//! on docling JSON when it does not get this export — so a page converted
+//! here and a page transformed there agree: an item without `prov` is skipped;
+//! a `section_header`'s `level` is read as an integer, 1 when absent or
+//! unusable, clamped to 1–6; a text item's empty `text` falls back to `orig`;
+//! `page_header` / `page_footer` stay in the output as furniture; a picture's
+//! description is `meta.description.text`, else the `description` annotation;
+//! a table without `data` is skipped, its cells take the grid's spans, a cell
+//! without a box takes its share of the table's, and when no cell carries a
+//! header flag the first row is the header. Where that class flattens (every
+//! other label to a paragraph), this export keeps the role — a superset a
+//! client reads as a paragraph when it has no rule for the role. Where docling
+//! JSON has no `body` tree (the transformer's own fixtures), the items are
+//! read from the `texts`, `tables` and `pictures` arrays and ordered per page
+//! the way that class orders them: top to bottom, left to right on a line.
 
 use std::collections::BTreeMap;
 
@@ -84,16 +103,36 @@ pub const SCHEMA: &str = "docling-rs/reader/1";
 
 /// Build the reader export from a docling-JSON document.
 ///
-/// Items without `prov` (declarative formats have none) land on the page of
-/// the previous chunk with a zero box, so no text is lost. Word boxes come
-/// only from items that carry a `words` array (PDF conversions with word
+/// Items without `prov` (declarative formats have none) are skipped, as the
+/// transformer skips them: a chunk is something shown on a page. Word boxes
+/// come only from items that carry a `words` array (PDF conversions with word
 /// provenance on), speech only from formula items with a `speech` map.
 pub fn from_docling_json(doc: &Value) -> Value {
     let mut b = Builder::new(doc);
-    b.walk_children(doc.get("body"), &Ctx::default());
-    // docling's furniture tree is empty for PDFs (headers and footers sit in
-    // the body with `content_layer: furniture`); other backends may fill it.
-    b.walk_children(doc.get("furniture"), &Ctx::default());
+    let has_body = doc
+        .pointer("/body/children")
+        .and_then(Value::as_array)
+        .is_some_and(|c| !c.is_empty());
+    if has_body {
+        b.walk_children(doc.get("body"), &Ctx::default());
+        // docling's furniture tree is empty for PDFs (headers and footers sit in
+        // the body with `content_layer: furniture`); other backends may fill it.
+        b.walk_children(doc.get("furniture"), &Ctx::default());
+    } else {
+        // No tree: the arrays, in the transformer's order (texts, tables,
+        // pictures), then each page sorted top to bottom, left to right.
+        for (array, prefix) in [
+            ("texts", "#/texts/"),
+            ("tables", "#/tables/"),
+            ("pictures", "#/pictures/"),
+        ] {
+            let items = doc.get(array).and_then(Value::as_array);
+            for (i, item) in items.into_iter().flatten().enumerate() {
+                b.walk(&format!("{prefix}{i}"), item, &Ctx::default());
+            }
+        }
+        b.sort_pages_geometrically();
+    }
     b.finish()
 }
 
@@ -170,6 +209,12 @@ impl<'a> Builder<'a> {
 
     fn walk(&mut self, path: &str, item: &Value, ctx: &Ctx) {
         let label = item.get("label").and_then(Value::as_str).unwrap_or("");
+        // An item without provenance has no place on a page: skipped, as the
+        // transformer skips it (groups carry none and are only walked).
+        if !path.starts_with("#/groups/") && prov_page(item).is_none() {
+            self.walk_children(Some(item), ctx);
+            return;
+        }
         if path.starts_with("#/groups/") {
             let mut ctx = ctx.clone();
             if label == "list" || label == "ordered_list" {
@@ -184,8 +229,30 @@ impl<'a> Builder<'a> {
             return;
         }
         if path.starts_with("#/pictures/") {
-            let mut m = self.base(item, "picture", "");
+            // `meta.description.text`, else the legacy `description` annotation.
+            let description = item
+                .pointer("/meta/description/text")
+                .and_then(Value::as_str)
+                .filter(|d| !d.is_empty())
+                .or_else(|| {
+                    item.get("annotations")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .find(|a| a.get("kind").and_then(Value::as_str) == Some("description"))
+                        .and_then(|a| a.get("text").and_then(Value::as_str))
+                })
+                .unwrap_or("");
+            let mut m = self.base(item, "picture", description);
             m.insert("captions".into(), refs(item.get("captions")));
+            m.insert(
+                "description".into(),
+                if description.is_empty() {
+                    Value::Null
+                } else {
+                    json!(description)
+                },
+            );
             self.push(path, m);
             let ctx = Ctx {
                 picture: Some(path.to_string()),
@@ -206,16 +273,19 @@ impl<'a> Builder<'a> {
             self.walk_children(Some(item), ctx);
             return;
         }
-        // A text item.
-        let text = item.get("text").and_then(Value::as_str).unwrap_or("");
+        // A text item; an empty `text` falls back to `orig`, as the transformer
+        // reads it.
+        let text = item
+            .get("text")
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+            .or_else(|| item.get("orig").and_then(Value::as_str))
+            .unwrap_or("");
         let parent = item.pointer("/parent/$ref").and_then(Value::as_str);
         let (kind, extra): (&str, Vec<(&str, Value)>) = match label {
             "section_header" => (
                 "heading",
-                vec![(
-                    "level",
-                    json!(item.get("level").and_then(Value::as_u64).unwrap_or(1)),
-                )],
+                vec![("level", json!(heading_level(item.get("level"))))],
             ),
             "title" => ("title", vec![("level", json!(0))]),
             "page_header" => ("page_header", vec![]),
@@ -280,7 +350,10 @@ impl<'a> Builder<'a> {
                     .unwrap_or("")
                     .to_string();
                 let mut m = self.base(item, "formula", &spoken);
-                m.insert("latex".into(), json!(text));
+                m.insert(
+                    "latex".into(),
+                    json!(item.get("text").and_then(Value::as_str).unwrap_or("")),
+                );
                 m.insert(
                     "orig".into(),
                     item.get("orig").cloned().unwrap_or(Value::Null),
@@ -316,23 +389,54 @@ impl<'a> Builder<'a> {
     /// A table: one `table` chunk, then its cells — or, for a table of
     /// contents, one `toc_entry` per row.
     fn table(&mut self, path: &str, item: &Value) {
-        let data = item.get("data");
+        // Without `data` there is no table to read (the transformer skips it).
+        let Some(data) = item.get("data") else {
+            return;
+        };
         let cells: Vec<&Value> = data
-            .and_then(|d| d.get("table_cells"))
+            .get("table_cells")
             .and_then(Value::as_array)
             .map(|a| a.iter().collect())
             .unwrap_or_default();
-        let rows = data
-            .and_then(|d| d.get("num_rows"))
-            .and_then(Value::as_u64)
+        // The grid is the shape; `num_rows` / `num_cols` for a document with only those.
+        let grid = data.get("grid").and_then(Value::as_array);
+        let rows = grid
+            .map(|g| g.len() as u64)
+            .filter(|&n| n > 0)
+            .or_else(|| data.get("num_rows").and_then(Value::as_u64))
             .unwrap_or(0);
-        let cols = data
-            .and_then(|d| d.get("num_cols"))
-            .and_then(Value::as_u64)
+        let cols = grid
+            .and_then(|g| g.first())
+            .and_then(Value::as_array)
+            .map(|r| r.len() as u64)
+            .filter(|&n| n > 0)
+            .or_else(|| data.get("num_cols").and_then(Value::as_u64))
             .unwrap_or(0);
+        if rows == 0 || cols == 0 {
+            return;
+        }
         let label = item.get("label").and_then(Value::as_str).unwrap_or("table");
         let page_no = prov_page(item);
         let height = page_no.and_then(|p| self.sizes.get(&p)).map(|s| s.1);
+        let table_box = bbox_of(item.pointer("/prov/0/bbox"), height);
+        // A cell without a box takes its share of the table's, row and column
+        // wise, as the transformer lays cells out.
+        let share = |r: u64, c: u64, rs: u64, cs: u64| -> [f64; 4] {
+            let row_h = (table_box[1] - table_box[3]) / rows as f64;
+            let col_w = (table_box[2] - table_box[0]) / cols as f64;
+            let left = table_box[0] + c as f64 * col_w;
+            let top = table_box[1] - r as f64 * row_h;
+            [left, top, left + cs as f64 * col_w, top - rs as f64 * row_h]
+        };
+        // Header flags, when any cell carries one; else the first row.
+        let flagged = cells.iter().any(|c| {
+            c.get("column_header")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                || c.get("row_header")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+        });
 
         // Rows as the texts of their cells, left to right.
         let mut by_row: BTreeMap<u64, Vec<(u64, &Value)>> = BTreeMap::new();
@@ -387,20 +491,43 @@ impl<'a> Builder<'a> {
                 if text.trim().is_empty() {
                     continue;
                 }
-                let header = c
-                    .get("column_header")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                    || c.get("row_header")
+                let header = if flagged {
+                    c.get("column_header")
                         .and_then(Value::as_bool)
-                        .unwrap_or(false);
+                        .unwrap_or(false)
+                        || c.get("row_header")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                } else {
+                    *r == 0
+                };
+                let rs = c
+                    .get("row_span")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(1)
+                    .clamp(1, rows.saturating_sub(*r).max(1));
+                let cs = c
+                    .get("col_span")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(1)
+                    .clamp(1, cols.saturating_sub(*col).max(1));
                 let mut m = Map::new();
                 m.insert("kind".into(), json!("table_cell"));
                 m.insert("table".into(), json!(path));
                 m.insert("row".into(), json!(r));
                 m.insert("col".into(), json!(col));
                 m.insert("header".into(), json!(header));
-                let bbox = bbox_of(c.get("bbox"), height);
+                if rs > 1 {
+                    m.insert("rowspan".into(), json!(rs));
+                }
+                if cs > 1 {
+                    m.insert("colspan".into(), json!(cs));
+                }
+                let bbox = if c.get("bbox").is_some() {
+                    bbox_of(c.get("bbox"), height)
+                } else {
+                    share(*r, *col, rs, cs)
+                };
                 let page = page_no.unwrap_or(self.last_page + 1);
                 self.push_text(format!("{path}/r{r}c{col}"), m, text, page, bbox, None);
             }
@@ -488,6 +615,25 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// The transformer's `sortByReadingOrder`: within a page, higher first
+    /// (a 5 pt tolerance makes a line), then left to right.
+    fn sort_pages_geometrically(&mut self) {
+        let top = |c: &Chunk| c.value.get("tp").and_then(Value::as_f64).unwrap_or(0.0);
+        let left = |c: &Chunk| c.value.get("l").and_then(Value::as_f64).unwrap_or(0.0);
+        self.chunks.sort_by(|a, b| {
+            a.page.cmp(&b.page).then_with(|| {
+                let dy = top(b) - top(a);
+                if dy.abs() > 5.0 {
+                    dy.partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal)
+                } else {
+                    left(a)
+                        .partial_cmp(&left(b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                }
+            })
+        });
+    }
+
     fn push(&mut self, id: &str, mut m: Map<String, Value>) {
         m.insert("id".into(), json!(id));
         let page = m.get("p").and_then(Value::as_u64).unwrap_or(0) as usize;
@@ -549,6 +695,24 @@ trait Pipe: Sized {
     }
 }
 impl<T> Pipe for T {}
+
+/// A `section_header`'s level the way the transformer reads docling's
+/// top-level `level`: an integer (a JSON number with an integral value that
+/// fits an `i32` counts), 1 when absent, null or unusable, clamped to 1–6.
+fn heading_level(v: Option<&Value>) -> u64 {
+    let n = match v {
+        Some(Value::Number(n)) => n
+            .as_i64()
+            .filter(|i| i32::try_from(*i).is_ok())
+            .or_else(|| {
+                n.as_f64()
+                    .filter(|f| f.fract() == 0.0 && f.abs() < i32::MAX as f64)
+                    .map(|f| f as i64)
+            }),
+        _ => None,
+    };
+    n.unwrap_or(1).clamp(1, 6) as u64
+}
 
 fn refs(v: Option<&Value>) -> Value {
     Value::Array(
@@ -1069,17 +1233,398 @@ mod tests {
         assert!(p0.iter().all(|c| c["kind"] != "table"));
     }
 
-    /// An item without provenance stays in the output, on the page of the
-    /// chunk before it, with a zero box.
+    /// An item without provenance has no place on a page and is skipped, as
+    /// the transformer skips it — the chunks are what a page shows.
     #[test]
-    fn nothing_is_dropped() {
+    fn an_item_without_provenance_is_skipped() {
         let mut d = doc();
         d["texts"][7]["prov"] = json!([]);
         let out = from_docling_json(&d);
-        let p0 = out["pages"][0].as_array().unwrap();
-        let last = p0.last().unwrap();
-        assert_eq!(last["t"], "Notices 1 and café ☃ done");
-        assert_eq!(last["l"], 0.0);
+        // The item was page 3's only chunk: the page stays, empty.
+        assert_eq!(out["pages"][1], json!([]), "{out}");
+        assert!(page_chunks(&out, 0)
+            .iter()
+            .all(|c| c["t"] != "Notices 1 and café ☃ done"));
+    }
+
+    // ---- OpenDataLoader's DoclingSchemaTransformerTest, ported --------------
+    //
+    // The same inputs its tests build (array-only docling JSON, no `body`),
+    // asserted on this export's chunks. Where that class flattens a label to
+    // a paragraph, the chunk keeps its role; the test states both.
+
+    fn prov(page: u64, l: f64, b: f64, r: f64, t: f64) -> Value {
+        json!([{"page_no": page, "bbox": {"l": l, "t": t, "r": r, "b": b, "coord_origin": "BOTTOMLEFT"}}])
+    }
+
+    fn text_item(label: &str, text: &str, prov: Value) -> Value {
+        json!({"label": label, "text": text, "prov": prov})
+    }
+
+    fn pages(n: u64) -> Value {
+        let mut m = Map::new();
+        for p in 1..=n {
+            m.insert(
+                p.to_string(),
+                json!({"size": {"width": 595.0, "height": 842.0}, "page_no": p}),
+            );
+        }
+        Value::Object(m)
+    }
+
+    fn page_chunks(out: &Value, page: usize) -> Vec<Value> {
+        out["pages"][page].as_array().cloned().unwrap_or_default()
+    }
+
+    fn texts_of(out: &Value, page: usize) -> Vec<String> {
+        page_chunks(out, page)
+            .iter()
+            .map(|c| c["t"].as_str().unwrap_or("").to_string())
+            .collect()
+    }
+
+    #[test]
+    fn transformer_empty_document_has_no_chunks() {
+        let out = from_docling_json(&json!({"schema_name": "DoclingDocument", "pages": pages(1)}));
+        assert_eq!(out["pages"], json!([[]]));
+    }
+
+    #[test]
+    fn transformer_simple_paragraph_heading_caption_footnote() {
+        let out = from_docling_json(&json!({"texts": [
+            text_item("text", "Hello World", prov(1, 100.0, 700.0, 200.0, 750.0)),
+            text_item("section_header", "Introduction", prov(1, 100.0, 750.0, 300.0, 780.0)),
+            text_item("caption", "Figure 1: Sample image", prov(1, 100.0, 300.0, 300.0, 320.0)),
+            text_item("footnote", "1. Reference source", prov(1, 100.0, 50.0, 300.0, 70.0)),
+        ], "pages": pages(1)}));
+        // Sorted top to bottom, as the transformer sorts an array-only document.
+        let kinds: Vec<(String, String)> = page_chunks(&out, 0)
+            .iter()
+            .map(|x| {
+                (
+                    x["kind"].as_str().unwrap().to_string(),
+                    x["t"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        let expected: Vec<(String, String)> = [
+            ("heading", "Introduction"),
+            ("paragraph", "Hello World"),
+            ("caption", "Figure 1: Sample image"),
+            ("footnote", "1. Reference source"),
+        ]
+        .iter()
+        .map(|(k, t)| (k.to_string(), t.to_string()))
+        .collect();
+        assert_eq!(kinds, expected);
+    }
+
+    #[test]
+    fn transformer_page_header_and_footer_stay_as_furniture() {
+        let out = from_docling_json(&json!({"texts": [
+            text_item("page_header", "Chapter 1", prov(1, 100.0, 800.0, 200.0, 820.0)),
+            text_item("page_footer", "Page 1", prov(1, 100.0, 20.0, 150.0, 40.0)),
+            text_item("text", "Content", prov(1, 100.0, 400.0, 200.0, 450.0)),
+            text_item("page_header", "Report", prov(1, 400.0, 800.0, 500.0, 820.0)),
+        ], "pages": pages(1)}));
+        let c = page_chunks(&out, 0);
+        assert_eq!(c.len(), 4);
+        assert_eq!(c[0]["kind"], "page_header");
+        assert_eq!(c[0]["t"], "Chapter 1");
+        assert_eq!(
+            (
+                c[0]["l"].as_f64(),
+                c[0]["b"].as_f64(),
+                c[0]["r"].as_f64(),
+                c[0]["tp"].as_f64()
+            ),
+            (Some(100.0), Some(800.0), Some(200.0), Some(820.0))
+        );
+        assert_eq!(c[1]["t"], "Report");
+        assert_eq!(c[2]["t"], "Content");
+        assert_eq!(c[3]["kind"], "page_footer");
+        assert_eq!(c[3]["t"], "Page 1");
+    }
+
+    fn table_doc(grid_rows: u64, grid_cols: u64, cells: Value) -> Value {
+        let grid: Vec<Value> = (0..grid_rows)
+            .map(|_| Value::Array((0..grid_cols).map(|_| json!({})).collect()))
+            .collect();
+        json!({"tables": [{"label": "table", "prov": prov(1, 50.0, 200.0, 350.0, 400.0),
+                           "data": {"grid": grid, "table_cells": cells}}], "pages": pages(1)})
+    }
+
+    fn cell(row: u64, col: u64, rs: u64, cs: u64, text: &str) -> Value {
+        json!({"start_row_offset_idx": row, "end_row_offset_idx": row + rs,
+               "start_col_offset_idx": col, "end_col_offset_idx": col + cs,
+               "row_span": rs, "col_span": cs, "text": text})
+    }
+
+    #[test]
+    fn transformer_simple_table() {
+        let out = from_docling_json(&table_doc(
+            2,
+            2,
+            json!([
+                cell(0, 0, 1, 1, "A1"),
+                cell(0, 1, 1, 1, "B1"),
+                cell(1, 0, 1, 1, "A2"),
+                cell(1, 1, 1, 1, "B2")
+            ]),
+        ));
+        let c = page_chunks(&out, 0);
+        assert_eq!(c[0]["kind"], "table");
+        assert_eq!(c[0]["rows"], 2);
+        assert_eq!(c[0]["cols"], 2);
+        let cells: Vec<&Value> = c.iter().filter(|x| x["kind"] == "table_cell").collect();
+        assert_eq!(cells.len(), 4);
+        // No header flags in the data: the first row is the header.
+        assert_eq!(cells[0]["header"], true);
+        assert_eq!(cells[2]["header"], false);
+        // No cell boxes: each cell takes its share of the table's (300 × 200).
+        assert_eq!(
+            (
+                cells[0]["l"].as_f64(),
+                cells[0]["tp"].as_f64(),
+                cells[0]["r"].as_f64(),
+                cells[0]["b"].as_f64()
+            ),
+            (Some(50.0), Some(400.0), Some(200.0), Some(300.0))
+        );
+        assert_eq!(
+            (cells[3]["l"].as_f64(), cells[3]["b"].as_f64()),
+            (Some(200.0), Some(200.0))
+        );
+    }
+
+    #[test]
+    fn transformer_table_with_spans() {
+        let out = from_docling_json(&table_doc(
+            2,
+            3,
+            json!([
+                cell(0, 0, 1, 2, "Header"),
+                cell(0, 2, 1, 1, "C1"),
+                cell(1, 0, 1, 1, "A2"),
+                cell(1, 1, 1, 1, "B2"),
+                cell(1, 2, 1, 1, "C2")
+            ]),
+        ));
+        let c = page_chunks(&out, 0);
+        assert_eq!(c[0]["cols"], 3);
+        let first = c.iter().find(|x| x["t"] == "Header").unwrap();
+        assert_eq!(first["colspan"], 2);
+        assert!(first.get("rowspan").is_none());
+        // Two columns of a 300 pt wide table.
+        assert_eq!(
+            (first["l"].as_f64(), first["r"].as_f64()),
+            (Some(50.0), Some(250.0))
+        );
+    }
+
+    #[test]
+    fn transformer_table_without_data_is_skipped() {
+        let out = from_docling_json(&json!({"tables": [
+            {"label": "table", "prov": prov(1, 100.0, 200.0, 300.0, 400.0)}], "pages": pages(1)}));
+        assert_eq!(out["pages"], json!([[]]));
+    }
+
+    #[test]
+    fn transformer_multiple_pages() {
+        let out = from_docling_json(&json!({"texts": [
+            text_item("text", "Page 1 content", prov(1, 100.0, 700.0, 200.0, 750.0)),
+            text_item("text", "Page 2 content", prov(2, 100.0, 700.0, 200.0, 750.0)),
+        ], "pages": pages(2)}));
+        assert_eq!(out["pages"].as_array().unwrap().len(), 2);
+        assert_eq!(texts_of(&out, 0), ["Page 1 content"]);
+        assert_eq!(texts_of(&out, 1), ["Page 2 content"]);
+        assert_eq!(page_chunks(&out, 1)[0]["p"], 1);
+    }
+
+    #[test]
+    fn transformer_coordinates_bottom_left_and_top_left() {
+        for origin in ["BOTTOMLEFT", "TOPLEFT"] {
+            let (t, b) = if origin == "TOPLEFT" {
+                (92.0, 142.0)
+            } else {
+                (750.0, 700.0)
+            };
+            let out = from_docling_json(&json!({"texts": [{"label": "text", "text": "Test",
+                "prov": [{"page_no": 1, "bbox": {"l": 100.0, "t": t, "r": 200.0, "b": b, "coord_origin": origin}}]}],
+                "pages": pages(1)}));
+            let c = &page_chunks(&out, 0)[0];
+            assert_eq!(
+                (
+                    c["l"].as_f64(),
+                    c["b"].as_f64(),
+                    c["r"].as_f64(),
+                    c["tp"].as_f64()
+                ),
+                (Some(100.0), Some(700.0), Some(200.0), Some(750.0)),
+                "{origin}"
+            );
+        }
+    }
+
+    #[test]
+    fn transformer_reading_order_sort_without_a_body() {
+        let out = from_docling_json(&json!({"texts": [
+            text_item("text", "Third", prov(1, 100.0, 100.0, 200.0, 150.0)),
+            text_item("text", "First", prov(1, 100.0, 700.0, 200.0, 750.0)),
+            text_item("text", "Second", prov(1, 100.0, 400.0, 200.0, 450.0)),
+        ], "pages": pages(1)}));
+        assert_eq!(texts_of(&out, 0), ["First", "Second", "Third"]);
+    }
+
+    #[test]
+    fn transformer_mixed_content_and_formulas() {
+        let out = from_docling_json(&json!({"texts": [
+            text_item("section_header", "Title", prov(1, 100.0, 750.0, 300.0, 780.0)),
+            text_item("text", "The forward difference is defined as", prov(1, 90.0, 180.0, 468.0, 190.0)),
+            text_item("formula", "Q_f(h) = \\frac{f(x+h) - f(x)}{h}", prov(1, 226.0, 144.0, 377.0, 168.0)),
+            text_item("text", "in which h is called the step size", prov(1, 90.0, 125.0, 291.0, 135.0)),
+        ], "tables": [{"label": "table", "prov": prov(1, 100.0, 300.0, 300.0, 500.0),
+                      "data": {"grid": [[{"text": "Cell"}]], "table_cells": [cell(0, 0, 1, 1, "Cell")]}}],
+           "pages": pages(1)}));
+        let kinds: Vec<String> = page_chunks(&out, 0)
+            .iter()
+            .map(|c| c["kind"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "heading",
+                "table",
+                "table_cell",
+                "paragraph",
+                "formula",
+                "paragraph"
+            ]
+        );
+        let f = page_chunks(&out, 0)
+            .into_iter()
+            .find(|c| c["kind"] == "formula")
+            .unwrap();
+        assert_eq!(f["latex"], "Q_f(h) = \\frac{f(x+h) - f(x)}{h}");
+    }
+
+    #[test]
+    fn transformer_text_without_prov_is_skipped() {
+        let out = from_docling_json(
+            &json!({"texts": [{"label": "text", "text": "No position"}], "pages": pages(1)}),
+        );
+        assert_eq!(out["pages"], json!([[]]));
+    }
+
+    #[test]
+    fn transformer_text_falls_back_to_orig() {
+        let out = from_docling_json(&json!({"texts": [
+            {"label": "text", "text": "", "orig": "raw layer", "prov": prov(1, 100.0, 700.0, 200.0, 750.0)}],
+            "pages": pages(1)}));
+        assert_eq!(texts_of(&out, 0), ["raw layer"]);
+    }
+
+    fn picture(extra: Value) -> Value {
+        let mut p = json!({"label": "picture", "prov": prov(1, 100.0, 600.0, 300.0, 700.0)});
+        for (k, v) in extra.as_object().unwrap() {
+            p[k] = v.clone();
+        }
+        json!({"pictures": [p], "pages": pages(1)})
+    }
+
+    #[test]
+    fn transformer_picture_descriptions() {
+        let desc = |out: &Value| page_chunks(out, 0)[0]["description"].clone();
+        let annotations = json!([{"kind": "description", "text": "from annotations"}]);
+        assert_eq!(
+            desc(&from_docling_json(&picture(
+                json!({"annotations": annotations})
+            ))),
+            "from annotations"
+        );
+        assert_eq!(
+            desc(&from_docling_json(&picture(
+                json!({"meta": {"description": {"text": "from meta"}}})
+            ))),
+            "from meta"
+        );
+        // meta wins; an empty or description-less meta falls back to the annotation.
+        assert_eq!(
+            desc(&from_docling_json(&picture(
+                json!({"meta": {"description": {"text": "from meta"}}, "annotations": annotations})
+            ))),
+            "from meta"
+        );
+        assert_eq!(
+            desc(&from_docling_json(&picture(
+                json!({"meta": {"classification": {"predictions": [{"class_name": "icon"}]}}, "annotations": annotations})
+            ))),
+            "from annotations"
+        );
+        assert_eq!(
+            desc(&from_docling_json(&picture(
+                json!({"meta": {"description": {"text": ""}}, "annotations": annotations})
+            ))),
+            "from annotations"
+        );
+        assert_eq!(
+            desc(&from_docling_json(&picture(json!({"meta": {}})))),
+            Value::Null
+        );
+        let none = from_docling_json(&picture(json!({})));
+        assert_eq!(desc(&none), Value::Null);
+        assert_eq!(page_chunks(&none, 0)[0]["t"], "");
+        // The description is what a reader speaks for the picture.
+        let described = from_docling_json(&picture(json!({"annotations": annotations})));
+        assert_eq!(page_chunks(&described, 0)[0]["t"], "from annotations");
+    }
+
+    #[test]
+    fn transformer_heading_levels() {
+        let doc = |levels: Vec<Value>| {
+            let texts: Vec<Value> = levels
+                .into_iter()
+                .enumerate()
+                .map(|(i, l)| {
+                    let y = 700.0 - 50.0 * i as f64;
+                    let mut t = text_item(
+                        "section_header",
+                        &format!("H{i}"),
+                        prov(1, 100.0, y, 300.0, y + 20.0),
+                    );
+                    t["level"] = l;
+                    t
+                })
+                .collect();
+            json!({"texts": texts, "pages": pages(1)})
+        };
+        let levels = |out: &Value| -> Vec<u64> {
+            page_chunks(out, 0)
+                .iter()
+                .map(|c| c["level"].as_u64().unwrap())
+                .collect()
+        };
+        assert_eq!(
+            levels(&from_docling_json(&doc(vec![json!(1), json!(2), json!(3)]))),
+            [1, 2, 3]
+        );
+        assert_eq!(levels(&from_docling_json(&doc(vec![Value::Null]))), [1]);
+        assert_eq!(
+            levels(&from_docling_json(&doc(vec![json!(42), json!(0)]))),
+            [6, 1]
+        );
+        assert_eq!(
+            levels(&from_docling_json(&doc(vec![
+                json!(99999999999u64),
+                Value::Null,
+                json!(2.0)
+            ]))),
+            [1, 1, 2]
+        );
+        // Absent entirely.
+        let out = from_docling_json(&json!({"texts": [
+            text_item("section_header", "H", prov(1, 100.0, 700.0, 300.0, 720.0))], "pages": pages(1)}));
+        assert_eq!(levels(&out), [1]);
     }
 
     #[test]

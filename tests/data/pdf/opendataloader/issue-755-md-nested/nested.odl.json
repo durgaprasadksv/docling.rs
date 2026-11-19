@@ -1,0 +1,84 @@
+{
+  "file name" : "nested.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 121.5, 651.018, 409.396, 711.538 ],
+    "numbering style" : "unordered",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 700.218, 287.074, 711.538 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Approval of the minutes",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 687.918, 409.396, 699.238 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Allowance of the mayor and of the deputies",
+      "kids" : [ {
+        "type" : "list",
+        "pdfua_tag" : "L",
+        "id" : 4,
+        "level" : "2",
+        "page number" : 1,
+        "bounding box" : [ 139.0, 663.318, 332.14, 686.938 ],
+        "numbering style" : "unordered",
+        "number of list items" : 2,
+        "list items" : [ {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "id" : 5,
+          "page number" : 1,
+          "bounding box" : [ 139.0, 675.618, 325.702, 686.938 ],
+          "font" : "Courier",
+          "font size" : 10.73,
+          "text color" : "[0.0]",
+          "content" : "- first part of the allowance",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "id" : 6,
+          "page number" : 1,
+          "bounding box" : [ 139.0, 663.318, 332.14, 674.638 ],
+          "font" : "Courier",
+          "font size" : 10.73,
+          "text color" : "[0.0]",
+          "content" : "- second part of the allowance",
+          "kids" : [ ]
+        } ]
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 7,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 651.018, 338.578, 662.338 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Budget of the town for the year",
+      "kids" : [ ]
+    } ]
+  } ]
+}

@@ -1,0 +1,21 @@
+{
+  "file name" : "indented-first-line.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 673.2, 257.44, 707.448 ],
+    "heading level" : 1,
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "The machine makes cold water and hot water. It keeps the water at the temperature that you set, and it shows the temperature on the display."
+  } ]
+}

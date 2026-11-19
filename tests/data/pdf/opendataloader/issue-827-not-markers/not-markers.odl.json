@@ -1,0 +1,74 @@
+{
+  "file name" : "not-markers.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 633.525, 248.297, 710.241 ],
+    "numbering style" : "unordered",
+    "number of list items" : 5,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 697.525, 178.59, 710.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• #hashtag of the plan",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 681.525, 212.8, 694.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• 1.5 million users of the plan",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 665.525, 217.717, 678.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• ####### of users in the plan",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 649.525, 248.297, 662.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• 1234567890. Ten digits of the plan",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 633.525, 181.021, 646.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• Plan of the site office",
+      "kids" : [ ]
+    } ]
+  } ]
+}

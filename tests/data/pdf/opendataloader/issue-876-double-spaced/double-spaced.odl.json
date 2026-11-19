@@ -1,0 +1,29 @@
+{
+  "file name" : "double-spaced.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 625.586, 321.394, 709.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The members of the board meet in the town hall on the first day of each month, and the secretary of the board writes the minutes of the meeting and signs the minutes of the day before the next meeting."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 553.586, 317.221, 589.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The mayor opens the meeting and gives the agenda of the day to the members of the board of the town."
+  } ]
+}

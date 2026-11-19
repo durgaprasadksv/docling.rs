@@ -1,0 +1,75 @@
+{
+  "file name" : "steps.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 698.176, 128.456, 707.696 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "(1) Fill the tank"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 84.0, 670.2, 255.208, 691.948 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Open the cover of the tank and pour clean water up to the line on the side."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 3,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 640.176, 143.576, 649.696 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "(2) Close the cover"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 1,
+    "bounding box" : [ 84.0, 612.2, 251.192, 633.948 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Push the cover down until you hear a click, and then turn the knob to the right."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 5,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 582.176, 147.576, 591.696 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "(3) Read the display"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 1,
+    "bounding box" : [ 84.0, 554.2, 254.752, 575.948 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "The display shows the level of the water and the time until the water is ready."
+  } ]
+}

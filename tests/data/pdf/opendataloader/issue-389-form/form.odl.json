@@ -1,0 +1,69 @@
+{
+  "file name" : "form.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 72.0, 698.2, 95.56, 707.448 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Name:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 1,
+    "bounding box" : [ 300.0, 698.2, 319.12, 707.448 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Date:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 72.0, 672.2, 93.784, 681.448 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Town:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 1,
+    "bounding box" : [ 300.0, 672.2, 325.352, 681.448 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Phone:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 1,
+    "bounding box" : [ 72.0, 646.2, 95.568, 655.448 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Street:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 1,
+    "bounding box" : [ 300.0, 646.2, 321.344, 655.448 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Code:"
+  } ]
+}

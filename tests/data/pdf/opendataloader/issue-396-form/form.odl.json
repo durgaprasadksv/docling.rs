@@ -1,0 +1,39 @@
+{
+  "file name" : "form.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 51.0, 730.75, 542.95, 742.31 ],
+    "font" : "Helvetica",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Station: ____________________________________ Weather: ___________________________________"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 51.0, 700.75, 540.73, 712.31 ],
+    "font" : "Helvetica",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Leader: ____________________________________ Vessel: ____________________________________"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 1,
+    "bounding box" : [ 51.0, 670.75, 540.16, 682.31 ],
+    "font" : "Helvetica",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Sample: ___________________________________ Remark: ___________________________________"
+  } ]
+}

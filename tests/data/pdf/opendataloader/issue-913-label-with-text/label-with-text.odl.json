@@ -1,0 +1,147 @@
+{
+  "file name" : "label-with-text.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 51.0, 479.759, 127.221, 731.273 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 51.0, 719.759, 125.568, 731.273 ],
+      "font" : "Helvetica",
+      "font size" : 9.96,
+      "text color" : "[0.0]",
+      "content" : "1. Apple notes:",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 1,
+        "bounding box" : [ 51.0, 619.759, 292.0, 715.273 ],
+        "font" : "Helvetica",
+        "font size" : 9.96,
+        "text color" : "[0.0]",
+        "content" : "Alder the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 51.0, 599.759, 122.789, 611.273 ],
+      "font" : "Helvetica",
+      "font size" : 9.96,
+      "text color" : "[0.0]",
+      "content" : "2. Birch notes:",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 5,
+        "page number" : 1,
+        "bounding box" : [ 51.0, 499.759, 292.0, 595.273 ],
+        "font" : "Helvetica",
+        "font size" : 9.96,
+        "text color" : "[0.0]",
+        "content" : "Beech went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 51.0, 479.759, 127.221, 491.273 ],
+      "font" : "Helvetica",
+      "font size" : 9.96,
+      "text color" : "[0.0]",
+      "content" : "3. Cedar notes:",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 1,
+    "bounding box" : [ 51.0, 283.759, 292.0, 475.273 ],
+    "font" : "Helvetica",
+    "font size" : 9.96,
+    "text color" : "[0.0]",
+    "content" : "Cherry formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "level" : "2",
+    "page number" : 1,
+    "bounding box" : [ 51.0, 263.759, 128.864, 275.273 ],
+    "font" : "Helvetica-Oblique",
+    "font size" : 9.96,
+    "text color" : "[0.0]",
+    "content" : "4. Willow notes:"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 13,
+    "page number" : 1,
+    "bounding box" : [ 51.0, 115.759, 292.0, 259.273 ],
+    "font" : "Helvetica",
+    "font size" : 9.96,
+    "text color" : "[0.0]",
+    "content" : "Daisy place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 8,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 303.3, 721.501, 382.486, 734.544 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 10.96,
+    "text color" : "[0.0]",
+    "content" : "2.1 Upper Plain"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 1,
+    "bounding box" : [ 303.3, 293.759, 544.3, 713.273 ],
+    "font" : "Helvetica",
+    "font size" : 9.96,
+    "text color" : "[0.0]",
+    "content" : "Maple layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 10,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 303.3, 253.121, 467.755, 278.574 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 10.96,
+    "text color" : "[0.0]",
+    "content" : "2.1.1 Survey Methods and Their Results"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 1,
+    "bounding box" : [ 303.3, 127.379, 544.3, 246.893 ],
+    "font" : "Helvetica",
+    "font size" : 9.96,
+    "text color" : "[0.0]",
+    "content" : "Nettle the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the"
+  } ]
+}

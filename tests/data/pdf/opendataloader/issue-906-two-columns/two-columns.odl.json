@@ -1,0 +1,72 @@
+{
+  "file name" : "two-columns.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 3,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 73.776, 670.2, 78.224, 707.448 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 698.2, 78.224, 707.448 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "1",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 684.2, 78.224, 693.448 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "2",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 670.2, 78.224, 679.448 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "3",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 88.0, 670.2, 172.944, 707.448 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Read all the steps first. Put the parts on a table. Keep the parts dry."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 310.0, 642.2, 446.504, 735.448 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "The right column has a text in this line. The right column has a text in this line. The right column has a text in this line. The right column has a text in this line. The right column has a text in this line. The right column has a text in this line. The right column has a text in this line."
+  } ]
+}

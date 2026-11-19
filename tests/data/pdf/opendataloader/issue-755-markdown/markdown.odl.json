@@ -1,0 +1,74 @@
+{
+  "file name" : "markdown.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 121.5, 638.718, 525.28, 711.538 ],
+    "numbering style" : "unordered",
+    "number of list items" : 5,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 700.218, 415.834, 711.538 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Approval of the minutes of the last meeting",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 687.918, 409.396, 699.238 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Allowance of the mayor and of the deputies",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 663.318, 525.28, 686.938 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Choice of the members who speak for the town at the regional - (one member and one deputy)",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 651.018, 390.082, 662.338 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Choice of one member for the land board",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 638.718, 525.28, 650.038 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Sale of a part of the public land of the town to a neighbour",
+      "kids" : [ ]
+    } ]
+  } ]
+}

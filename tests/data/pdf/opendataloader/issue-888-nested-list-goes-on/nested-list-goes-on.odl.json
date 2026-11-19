@@ -1,0 +1,104 @@
+{
+  "file name" : "nested-list-goes-on.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 685.286, 370.28, 709.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The members of the board meet in the town hall on the first day of each month, and the agenda of the day has two points:"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 2,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 660.686, 292.756, 673.09 ],
+    "numbering style" : "unordered",
+    "number of list items" : 1,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 660.686, 292.756, 673.09 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "- The first point of the agenda, which has parts:",
+      "kids" : [ {
+        "type" : "list",
+        "pdfua_tag" : "L",
+        "id" : 4,
+        "level" : "2",
+        "page number" : 1,
+        "bounding box" : [ 87.1, 611.486, 245.174, 660.79 ],
+        "numbering style" : "arabic numbers",
+        "number of list items" : 3,
+        "list items" : [ {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "id" : 5,
+          "page number" : 1,
+          "bounding box" : [ 87.1, 648.386, 227.867, 660.79 ],
+          "font" : "Helvetica",
+          "font size" : 10.73,
+          "text color" : "[0.0]",
+          "content" : "1. The first part of the agenda",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "id" : 6,
+          "page number" : 1,
+          "bounding box" : [ 87.1, 636.086, 245.174, 648.49 ],
+          "font" : "Helvetica",
+          "font size" : 10.73,
+          "text color" : "[0.0]",
+          "content" : "2. The second part of the agenda",
+          "kids" : [ {
+            "type" : "paragraph",
+            "pdfua_tag" : "P",
+            "id" : 7,
+            "level" : "3",
+            "page number" : 1,
+            "bounding box" : [ 69.1, 623.786, 313.647, 636.19 ],
+            "font" : "Helvetica",
+            "font size" : 10.73,
+            "text color" : "[0.0]",
+            "content" : "- The second point of the agenda, which has a part:"
+          } ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "id" : 8,
+          "page number" : 1,
+          "bounding box" : [ 87.1, 611.486, 231.451, 623.89 ],
+          "font" : "Helvetica",
+          "font size" : 10.73,
+          "text color" : "[0.0]",
+          "content" : "3. The third part of the agenda",
+          "kids" : [ ]
+        } ]
+      } ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 574.586, 379.261, 599.29 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The mayor opens the meeting and gives the agenda of the day to the members of the board of the town."
+  } ]
+}

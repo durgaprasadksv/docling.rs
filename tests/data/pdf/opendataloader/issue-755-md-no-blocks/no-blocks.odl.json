@@ -1,0 +1,52 @@
+{
+  "file name" : "no-blocks.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 121.5, 675.618, 409.396, 711.538 ],
+    "numbering style" : "unordered",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 700.218, 287.074, 711.538 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Approval of the minutes",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 687.918, 409.396, 699.238 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Allowance of the mayor and of the deputies",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 675.618, 338.578, 686.938 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Budget of the town for the year",
+      "kids" : [ ]
+    } ]
+  } ]
+}

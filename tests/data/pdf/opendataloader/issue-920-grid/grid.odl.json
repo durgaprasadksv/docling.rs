@@ -1,0 +1,97 @@
+{
+  "file name" : "grid.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 48.0, 467.492, 106.685, 480.582 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 11.0,
+    "text color" : "[0.0]",
+    "content" : "1. First box"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 48.0, 411.975, 373.188, 458.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Alpha text of this part of the column starts here, and it goes on for a few lines, and each of these lines is about as wide as the column on the page in the issue, so that the gap between the two columns is as small as the gap on that page, and the gap between two parts of a column is larger than it, as it is on that page."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 3,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 396.0, 467.492, 470.58, 480.582 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 11.0,
+    "text color" : "[0.0]",
+    "content" : "2. Second box"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 1,
+    "bounding box" : [ 396.0, 411.975, 721.188, 458.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Bravo text of this part of the column starts here, and it goes on for a few lines, and each of these lines is about as wide as the column on the page in the issue, so that the gap between the two columns is as small as the gap on that page, and the gap between two parts of a column is larger than it, as it is on that page."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 5,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 48.0, 369.492, 110.348, 382.582 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 11.0,
+    "text color" : "[0.0]",
+    "content" : "3. Third box"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 1,
+    "bounding box" : [ 48.0, 313.975, 373.188, 360.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Charlie text of this part of the column starts here, and it goes on for a few lines, and each of these lines is about as wide as the column on the page in the issue, so that the gap between the two columns is as small as the gap on that page, and the gap between two parts of a column is larger than it, as it is on that page."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 7,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 396.0, 369.492, 465.674, 382.582 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 11.0,
+    "text color" : "[0.0]",
+    "content" : "4. Fourth box"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 1,
+    "bounding box" : [ 396.0, 313.975, 721.188, 360.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Delta text of this part of the column starts here, and it goes on for a few lines, and each of these lines is about as wide as the column on the page in the issue, so that the gap between the two columns is as small as the gap on that page, and the gap between two parts of a column is larger than it, as it is on that page."
+  } ]
+}

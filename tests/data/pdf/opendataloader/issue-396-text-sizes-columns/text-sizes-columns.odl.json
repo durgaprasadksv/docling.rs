@@ -1,0 +1,49 @@
+{
+  "file name" : "text-sizes-columns.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 51.0, 686.975, 292.0, 741.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Amber the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 51.0, 605.575, 292.0, 670.979 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Basil formed the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 1,
+    "bounding box" : [ 303.0, 691.4, 544.0, 747.896 ],
+    "font" : "Helvetica",
+    "font size" : 16.0,
+    "text color" : "[0.0]",
+    "content" : "Delta that formed in shallow water near the shore over a long time while the sea"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 1,
+    "bounding box" : [ 303.0, 611.0, 544.0, 667.496 ],
+    "font" : "Helvetica",
+    "font size" : 16.0,
+    "text color" : "[0.0]",
+    "content" : "Ember went up and down and the wind moved the dunes along the beach so that"
+  } ]
+}

@@ -264,8 +264,19 @@ def check(case, md, rd):
         elif not hit[0].startswith(prefix):
             fails.append(f"line_starts: line {hit[0][:60]!r} does not start with {prefix!r}")
     for group in ch.get("same_line", []):
-        if not any(all(norm(s) in norm(l) for s in group) for l in lines):
-            fails.append(f"same_line: {group} not on one line")
+        # On one line, in this order — a line that merely contains the
+        # pieces (a whole contents table flattened into one paragraph) is not
+        # a row.
+        def in_order(line):
+            pos = -1
+            for s in group:
+                i = norm(line).find(norm(s), pos + 1)
+                if i < 0:
+                    return False
+                pos = i
+            return True
+        if not any(in_order(l) for l in lines):
+            fails.append(f"same_line: {group} not on one line in order")
     chunks = [c for page in (rd or {}).get("pages", []) for c in page]
     items = [c for c in chunks if c.get("kind") == "list_item"]
     # An upstream check names an item with its marker (`1. Find the length`);
@@ -303,9 +314,147 @@ def check(case, md, rd):
     return fails
 
 
+# -------------------------------------------------------------- structure ---
+#
+# Structural parity with OpenDataLoader — the property a client needs when a
+# page may be parsed on the device (the Dart port of OpenDataLoader) or on the
+# server (this pipeline): the same sequence of spoken units with the same
+# roles, not the same bytes. Both outputs are flattened to a common form —
+# (role, normalized text, box) in reading order, body content only (page
+# furniture is dropped by OpenDataLoader and kept with a role here) — and
+# compared on four measures per fixture.
+
+MARKER = re.compile(r"^(?:[\u2022\u2023\u25e6\u2043\u204c\u204d\u2219\u25aa\u25ab\u25cf\u25cb\-\*\+\u00b7\u2023o]|\(?\w{1,3}[.)])\s+")
+
+
+def norm_text(s):
+    s = norm(s).strip().lower()
+    return MARKER.sub("", s)
+
+
+def odl_elements(doc):
+    """OpenDataLoader's JSON as (role, text, [l, b, r, t], depth)."""
+    out = []
+
+    def walk(node, in_cell, depth):
+        if isinstance(node, list):
+            for n in node:
+                walk(n, in_cell, depth)
+            return
+        if not isinstance(node, dict):
+            return
+        t = node.get("type")
+        box = node.get("bounding box")
+        text = node.get("content") or ""
+        if t == "heading":
+            out.append(("heading", norm_text(text), box, 0))
+        elif t == "paragraph":
+            out.append(("table_cell" if in_cell else "paragraph", norm_text(text), box, 0))
+        elif t == "caption":
+            out.append(("caption", norm_text(text), box, 0))
+        elif t == "list item":
+            out.append(("list_item", norm_text(text), box, depth))
+            walk(node.get("kids", []), in_cell, depth)
+            return
+        elif t == "list":
+            walk(node.get("list items", []), in_cell, depth + 1)
+            return
+        elif t in ("header", "footer"):
+            return  # furniture: not compared
+        elif t == "table":
+            for row in node.get("rows", []):
+                walk(row.get("cells", []), True, depth)
+            return
+        elif t == "table cell":
+            walk(node.get("kids", []), True, depth)
+            return
+        walk(node.get("kids", []), in_cell, depth)
+
+    walk(doc.get("kids", []), False, 0)
+    return [e for e in out if e[1]]
+
+
+def reader_elements(rd):
+    """The reader export as (role, text, [l, b, r, t], depth)."""
+    out = []
+    for page in (rd or {}).get("pages", []):
+        for c in page:
+            kind = c.get("kind")
+            role = {"heading": "heading", "title": "heading", "paragraph": "paragraph", "list_item": "list_item",
+                    "table_cell": "table_cell", "caption": "caption", "toc_entry": "paragraph",
+                    "picture_text": "paragraph", "code": "paragraph", "footnote": "paragraph"}.get(kind)
+            if role is None:
+                continue
+            text = norm_text(c.get("t", ""))
+            if not text:
+                continue
+            out.append((role, text, [c["l"], c["b"], c["r"], c["tp"]], c.get("depth", 0)))
+    return out
+
+
+def tokens(s):
+    return set(re.findall(r"[0-9a-z]+", s))
+
+
+def iou(a, b):
+    if not a or not b:
+        return 0.0
+    il, ib, ir, it = max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])
+    if ir <= il or it <= ib:
+        return 0.0
+    inter = (ir - il) * (it - ib)
+    ua = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / ua if ua > 0 else 0.0
+
+
+def lcs(seq):
+    """Length of the longest increasing subsequence of `seq` (matched server
+    indices in OpenDataLoader order): how much of the matched order agrees."""
+    import bisect
+    tails = []
+    for x in seq:
+        i = bisect.bisect_left(tails, x)
+        if i == len(tails):
+            tails.append(x)
+        else:
+            tails[i] = x
+    return len(tails)
+
+
+def structure(theirs, ours):
+    """elements: share of their elements with a server element of the same text
+    (token Jaccard ≥ 0.6, best match); roles: share of those with the same
+    role; order: share of matches in the same relative order; boxes: mean
+    overlap of matched pairs."""
+    if not theirs:
+        return None
+    matches = []
+    for i, (role, text, box, depth) in enumerate(theirs):
+        tt = tokens(text)
+        best, best_j = 0.0, None
+        for j, (r2, t2, b2, d2) in enumerate(ours):
+            o = tokens(t2)
+            if not tt or not o:
+                continue
+            jac = len(tt & o) / len(tt | o)
+            if jac > best:
+                best, best_j = jac, j
+        if best >= 0.6:
+            matches.append((i, best_j))
+    n = len(theirs)
+    if not matches:
+        return {"elements": 0.0, "roles": 0.0, "order": 0.0, "boxes": 0.0}
+    same_role = sum(1 for i, j in matches if theirs[i][0] == ours[j][0])
+    order = lcs([j for _, j in matches])
+    boxes = sum(iou(theirs[i][2], ours[j][2]) for i, j in matches) / len(matches)
+    return {"elements": round(len(matches) / n, 3), "roles": round(same_role / len(matches), 3),
+            "order": round(order / len(matches), 3), "boxes": round(boxes, 3)}
+
+
 def evaluate(draft, ours, fixtures, out_path, report_path):
     cases = [c for c in draft["cases"] if c.get("pdf") and (fixtures / c["pdf"]).exists()]
     recall = {}
+    structures = {}
     rows = []
     for case in cases:
         rel = Path(case["pdf"]).with_suffix("")
@@ -319,6 +468,11 @@ def evaluate(draft, ours, fixtures, out_path, report_path):
         if md is not None and odl.exists() and case["pdf"] not in recall:
             g = words(odl.read_text())
             recall[case["pdf"]] = round(len(g & words(md)) / len(g), 3) if g else 1.0
+        odl_json = fixtures / (str(rel) + ".odl.json")
+        if not odl_json.exists():
+            odl_json = fixtures / rel.with_suffix(".json")
+        if rd is not None and odl_json.exists() and case["pdf"] not in structures:
+            structures[case["pdf"]] = structure(odl_elements(json.load(open(odl_json))), reader_elements(rd))
         if md is None:
             status, fails = "no-output", []
         elif not has_checks(case):
@@ -328,6 +482,7 @@ def evaluate(draft, ours, fixtures, out_path, report_path):
             status = "pass" if not fails else "xfail"
         case["status"] = status
         case["recall"] = recall.get(case["pdf"])
+        case["structure"] = structures.get(case["pdf"])
         rows.append((status, case, fails))
     counts = {}
     for status, _, _ in rows:
@@ -339,6 +494,15 @@ def evaluate(draft, ours, fixtures, out_path, report_path):
         if recall:
             lines += [f"Mean word recall over {len(recall)} fixtures: {sum(recall.values())/len(recall):.3f}", "",
                       "## Lowest recall", ""] + [f"- {k}: {v:.2f}" for k, v in sorted(recall.items(), key=lambda kv: kv[1])[:15]] + [""]
+        st = {k: v for k, v in structures.items() if v}
+        if st:
+            mean = {m: sum(v[m] for v in st.values()) / len(st) for m in ("elements", "roles", "order", "boxes")}
+            lines += [f"## Structural parity with OpenDataLoader over {len(st)} fixtures", "",
+                      "mean: " + ", ".join(f"{m} {v:.3f}" for m, v in mean.items()), "",
+                      "Lowest element match:", ""]
+            lines += [f"- {k}: {v}" for k, v in sorted(st.items(), key=lambda kv: (kv[1]["elements"], kv[1]["roles"]))[:15]] + [""]
+            lines += ["Lowest role agreement:", ""]
+            lines += [f"- {k}: {v}" for k, v in sorted(st.items(), key=lambda kv: kv[1]["roles"])[:15]] + [""]
         lines += ["## Cases", "", "| status | id | fixture | detail |", "|---|---|---|---|"]
         for status, case, fails in rows:
             detail = "; ".join(fails)[:160] if fails else ("; ".join(case["unparsed"])[:120] if status == "unchecked" else "")

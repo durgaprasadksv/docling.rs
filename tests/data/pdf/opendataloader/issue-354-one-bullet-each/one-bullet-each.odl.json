@@ -1,0 +1,51 @@
+{
+  "file name" : "one-bullet-each.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 72.0, 757.72, 148.68, 769.62 ],
+    "font" : "Helvetica-Bold",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Before you start"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 739.975, 169.191, 750.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "• Read all the steps first."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 72.0, 707.72, 139.23, 719.62 ],
+    "font" : "Helvetica-Bold",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "After the work"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 689.975, 231.732, 700.379 ],
+    "font" : "Helvetica",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "• Take the old parts to a collection point."
+  } ]
+}

@@ -1,0 +1,82 @@
+{
+  "file name" : "header.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 4,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 73.776, 670.176, 78.224, 707.696 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 698.176, 78.224, 707.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "1",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 684.176, 78.224, 693.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "2",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 7,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 670.176, 78.224, 679.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "3",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 88.0, 670.176, 135.992, 707.696 ],
+    "font" : "Helvetica-Bold",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Clock Mode button More button"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 200.0, 712.176, 247.56, 721.696 ],
+    "font" : "Helvetica-Bold",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "What it does"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 1,
+    "bounding box" : [ 200.0, 670.2, 297.392, 707.448 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Touch to set the clock. Touch to change the mode. Touch to set the functions."
+  } ]
+}

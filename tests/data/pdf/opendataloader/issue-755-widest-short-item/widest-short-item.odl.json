@@ -1,0 +1,73 @@
+{
+  "file name" : "widest-short-item.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 700.218, 526.198, 711.538 ],
+    "font" : "Courier",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The members of the board meet in the town hall on the first day of each"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 2,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 121.5, 638.718, 409.396, 686.938 ],
+    "numbering style" : "unordered",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 675.618, 287.074, 686.938 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Approval of the minutes",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 663.318, 409.396, 674.638 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Allowance of the mayor and of the deputies",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 5,
+        "level" : "2",
+        "page number" : 1,
+        "bounding box" : [ 139.0, 651.018, 287.074, 662.338 ],
+        "font" : "Courier",
+        "font size" : 10.73,
+        "text color" : "[0.0]",
+        "content" : "- part of the allowance"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 121.5, 638.718, 338.578, 650.038 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "o Budget of the town for the year",
+      "kids" : [ ]
+    } ]
+  } ]
+}

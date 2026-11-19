@@ -1,0 +1,65 @@
+{
+  "file name" : "small-descriptions.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 71.552, 696.352, 260.03, 715.392 ],
+    "heading level" : 1,
+    "font" : "Helvetica",
+    "font size" : 6.0,
+    "text color" : "[0.0]",
+    "content" : "1 Touch to set the clock."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 200.0, 691.65, 264.368, 698.586 ],
+    "font" : "Helvetica",
+    "font size" : 6.0,
+    "text color" : "[0.0]",
+    "content" : "Then wait for the sound."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 3,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 71.552, 654.352, 273.044, 673.392 ],
+    "heading level" : 1,
+    "font" : "Helvetica",
+    "font size" : 6.0,
+    "text color" : "[0.0]",
+    "content" : "2 Touch to change the mode."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 1,
+    "bounding box" : [ 200.0, 649.65, 264.368, 656.586 ],
+    "font" : "Helvetica",
+    "font size" : 6.0,
+    "text color" : "[0.0]",
+    "content" : "Then wait for the sound."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 5,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 71.552, 612.352, 270.374, 631.392 ],
+    "heading level" : 1,
+    "font" : "Helvetica",
+    "font size" : 6.0,
+    "text color" : "[0.0]",
+    "content" : "3 Touch to set the functions."
+  } ]
+}

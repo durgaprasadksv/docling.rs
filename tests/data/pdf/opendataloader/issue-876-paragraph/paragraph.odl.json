@@ -1,0 +1,69 @@
+{
+  "file name" : "paragraph.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 649.554, 358.37, 709.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The members of the board meet in the town hall on the first day of each month, and the secretary of the board writes and signs the minutes of the day before the next meeting. Additional item of the agenda in a closed session"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 624.586, 97.137, 636.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Vote :"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 588.586, 360.13, 612.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The members vote with their hands, and the secretary counts the votes of the members of the board."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 564.554, 131.109, 577.322 ],
+    "font" : "Helvetica-Bold",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Public part :"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 539.554, 289.698, 552.322 ],
+    "font" : "Helvetica-Bold",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Approval of the minutes of the last meeting"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 503.586, 370.28, 527.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The mayor proposes to approve the minutes of the last meeting of the board, as the secretary wrote them."
+  } ]
+}

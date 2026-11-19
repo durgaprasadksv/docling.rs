@@ -1,0 +1,29 @@
+{
+  "file name" : "number-of-another-column.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 241.288, 662.2, 308.0, 707.448 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Year of the plan 2026 Budget of the town"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 328.0, 608.2, 540.0, 707.448 ],
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Introduction 03 Background of the plan 09 Methods 14 Results of the survey 22 Discussion 27 Appendix tables 41"
+  } ]
+}

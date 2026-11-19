@@ -1,0 +1,62 @@
+{
+  "file name" : "quote.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 1,
+    "bounding box" : [ 140.4, 424.075, 291.408, 519.103 ],
+    "font" : "Helvetica",
+    "font size" : 13.0,
+    "text color" : "[0.0]",
+    "content" : "To meet others who are in the same situation as the one that you are in has an effect on you that is truly great and of an incredible value."
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 28.3, 357.638, 157.261, 429.776 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 28.3, 417.638, 150.846, 429.776 ],
+      "font" : "Helvetica",
+      "font size" : 10.5,
+      "text color" : "[0.0]",
+      "content" : "1. Members meet to share",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 28.3, 387.638, 157.261, 399.776 ],
+      "font" : "Helvetica",
+      "font size" : 10.5,
+      "text color" : "[0.0]",
+      "content" : "2. Members build a network",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 28.3, 357.638, 146.163, 369.776 ],
+      "font" : "Helvetica",
+      "font size" : 10.5,
+      "text color" : "[0.0]",
+      "content" : "3. Members join activities",
+      "kids" : [ ]
+    } ]
+  } ]
+}

@@ -1,0 +1,104 @@
+{
+  "file name" : "left-to-right.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 20.5, 602.604, 493.408, 706.291 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 5,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 20.5, 689.004, 149.669, 706.291 ],
+      "font" : "Helvetica",
+      "font size" : 6.65,
+      "text color" : "[0.0]",
+      "content" : "1 Approve the plan of Pat Doe",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 3,
+        "page number" : 1,
+        "bounding box" : [ 462.0, 698.504, 489.724, 706.191 ],
+        "font" : "Helvetica",
+        "font size" : 6.65,
+        "text color" : "[0.0]",
+        "content" : "Accepted"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 20.5, 673.304, 488.241, 681.091 ],
+      "font" : "Helvetica",
+      "font size" : 6.65,
+      "text color" : "[0.0]",
+      "content" : "2 Approve the budget Rejected",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 20.5, 645.804, 151.877, 663.091 ],
+      "font" : "Helvetica",
+      "font size" : 6.65,
+      "text color" : "[0.0]",
+      "content" : "3 Ratify the auditor for the next year",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 6,
+        "page number" : 1,
+        "bounding box" : [ 462.0, 655.304, 487.869, 662.991 ],
+        "font" : "Helvetica",
+        "font size" : 6.65,
+        "text color" : "[0.0]",
+        "content" : "Deferred"
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 7,
+      "page number" : 1,
+      "bounding box" : [ 20.5, 630.104, 493.408, 637.891 ],
+      "font" : "Helvetica",
+      "font size" : 6.65,
+      "text color" : "[0.0]",
+      "content" : "4 Elect the members Withdrawn",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 8,
+      "page number" : 1,
+      "bounding box" : [ 20.5, 602.604, 147.813, 619.891 ],
+      "font" : "Helvetica",
+      "font size" : 6.65,
+      "text color" : "[0.0]",
+      "content" : "5 Amend the rules of the committee",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 1,
+    "bounding box" : [ 462.0, 612.104, 507.094, 619.791 ],
+    "font" : "Helvetica",
+    "font size" : 6.65,
+    "text color" : "[0.0]",
+    "content" : "Accepted in full"
+  } ]
+}

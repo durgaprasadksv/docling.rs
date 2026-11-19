@@ -1,0 +1,117 @@
+{
+  "file name" : "headers.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 229.0, 663.838, 261.247, 685.915 ],
+    "font" : "Times-Bold",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Plan FY 2027"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 280.9, 663.838, 313.547, 685.915 ],
+    "font" : "Times-Bold",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Outlook FY 2028"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 339.4, 663.838, 371.947, 685.915 ],
+    "font" : "Times-Bold",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Outlook FY 2029"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 402.2, 663.838, 434.847, 685.915 ],
+    "font" : "Times-Bold",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Outlook FY 2030"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 458.5, 663.838, 491.147, 685.915 ],
+    "font" : "Times-Bold",
+    "font size" : 9.0,
+    "text color" : "[0.0]",
+    "content" : "Outlook FY 2031"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 11,
+    "level" : "2",
+    "page number" : 1,
+    "bounding box" : [ 41.4, 616.438, 498.8, 661.882 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 4,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 12,
+      "page number" : 1,
+      "bounding box" : [ 41.4, 651.838, 498.8, 661.882 ],
+      "font" : "Times-Roman",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "Item 1 1,111 1,111 1,111 1,111 1,111",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 13,
+      "page number" : 1,
+      "bounding box" : [ 41.4, 640.038, 498.8, 650.082 ],
+      "font" : "Times-Roman",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "Item 2 2,222 2,222 2,222 2,222 2,222",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 14,
+      "page number" : 1,
+      "bounding box" : [ 41.4, 628.238, 498.8, 638.282 ],
+      "font" : "Times-Roman",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "Item 3 3,333 3,333 3,333 3,333 3,333",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 15,
+      "page number" : 1,
+      "bounding box" : [ 41.4, 616.438, 498.8, 626.482 ],
+      "font" : "Times-Roman",
+      "font size" : 9.0,
+      "text color" : "[0.0]",
+      "content" : "Item 4 4,444 4,444 4,444 4,444 4,444",
+      "kids" : [ ]
+    } ]
+  } ]
+}

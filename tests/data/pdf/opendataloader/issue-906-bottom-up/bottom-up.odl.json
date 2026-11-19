@@ -1,0 +1,52 @@
+{
+  "file name" : "bottom-up.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 73.776, 670.176, 297.392, 707.696 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 698.176, 280.04, 707.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "1 Clock Touch to set the clock.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 684.176, 297.392, 693.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "2 Mode button Touch to change the mode.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 73.776, 670.176, 293.832, 679.696 ],
+      "font" : "Helvetica-Bold",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "3 More button Touch to set the functions.",
+      "kids" : [ ]
+    } ]
+  } ]
+}

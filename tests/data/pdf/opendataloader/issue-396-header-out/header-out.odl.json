@@ -1,0 +1,89 @@
+{
+  "file name" : "header-out.pdf",
+  "number of pages" : 2,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 1,
+    "bounding box" : [ 51.0, 694.75, 292.0, 742.31 ],
+    "font" : "Helvetica",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Amber the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 1,
+    "bounding box" : [ 51.0, 633.75, 292.0, 681.31 ],
+    "font" : "Helvetica",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Basil along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 1,
+    "bounding box" : [ 303.0, 694.75, 544.0, 742.31 ],
+    "font" : "Helvetica",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Delta shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 1,
+    "bounding box" : [ 303.0, 633.75, 544.0, 681.31 ],
+    "font" : "Helvetica",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Ember of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 9,
+    "page number" : 2,
+    "bounding box" : [ 51.0, 682.75, 292.0, 742.31 ],
+    "font" : "Helvetica",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Grove the survey of the coast shows layers of sand and clay that formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 2,
+    "bounding box" : [ 51.0, 633.75, 292.0, 669.31 ],
+    "font" : "Helvetica",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Haven of the place where it formed the survey of the coast shows layers of sand and clay that formed in shallow water near the"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 2,
+    "bounding box" : [ 303.0, 682.75, 544.0, 742.31 ],
+    "font" : "Helvetica",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Ivory shore over a long time while the sea went up and down and the wind moved the dunes along the beach so that each layer keeps a record of the place where it formed the survey of the coast shows layers of sand and clay that"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 2,
+    "bounding box" : [ 303.0, 633.75, 544.0, 669.31 ],
+    "font" : "Helvetica",
+    "font size" : 10.0,
+    "text color" : "[0.0]",
+    "content" : "Jewel formed in shallow water near the shore over a long time while the sea went up and down and the wind moved the dunes"
+  } ]
+}

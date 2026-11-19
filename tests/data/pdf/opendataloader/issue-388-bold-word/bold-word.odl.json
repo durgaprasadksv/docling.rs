@@ -1,0 +1,21 @@
+{
+  "file name" : "bold-word.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 673.2, 259.656, 707.696 ],
+    "heading level" : 1,
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Note: use only clean water in the tank of the machine, and change the water each day. Water that stays in the tank for a long time is not safe."
+  } ]
+}

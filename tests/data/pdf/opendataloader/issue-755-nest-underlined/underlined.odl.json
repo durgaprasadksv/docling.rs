@@ -1,0 +1,93 @@
+{
+  "file name" : "underlined.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 747.617, 210.736, 758.938 ],
+    "font" : "Courier",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Agenda of the meeting:"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 2,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 86.5, 735.318, 174.818, 746.638 ],
+    "numbering style" : "unordered",
+    "number of list items" : 1,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 9,
+      "page number" : 1,
+      "bounding box" : [ 86.5, 735.318, 174.818, 746.638 ],
+      "font" : "Courier",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "- Public part",
+      "kids" : [ {
+        "type" : "list",
+        "pdfua_tag" : "L",
+        "id" : 4,
+        "level" : "2",
+        "page number" : 1,
+        "bounding box" : [ 121.5, 698.418, 415.834, 734.338 ],
+        "numbering style" : "unordered",
+        "number of list items" : 3,
+        "list items" : [ {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "id" : 5,
+          "page number" : 1,
+          "bounding box" : [ 121.5, 723.018, 415.834, 734.338 ],
+          "font" : "Courier",
+          "font size" : 10.73,
+          "text color" : "[0.0]",
+          "content" : "o Approval of the minutes of the last meeting",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "id" : 6,
+          "page number" : 1,
+          "bounding box" : [ 121.5, 710.718, 409.396, 722.038 ],
+          "font" : "Courier",
+          "font size" : 10.73,
+          "text color" : "[0.0]",
+          "content" : "o Allowance of the mayor and of the deputies",
+          "kids" : [ ]
+        }, {
+          "type" : "list item",
+          "pdfua_tag" : "LI",
+          "id" : 7,
+          "page number" : 1,
+          "bounding box" : [ 121.5, 698.418, 338.578, 709.738 ],
+          "font" : "Courier",
+          "font size" : 10.73,
+          "text color" : "[0.0]",
+          "content" : "o Budget of the town for the year",
+          "kids" : [ ]
+        } ]
+      } ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 686.118, 371.686, 697.438 ],
+    "font" : "Courier",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The secretary of the meeting signs the minutes."
+  } ]
+}

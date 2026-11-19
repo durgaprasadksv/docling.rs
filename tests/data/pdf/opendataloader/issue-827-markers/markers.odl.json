@@ -1,0 +1,96 @@
+{
+  "file name" : "markers.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 601.525, 227.507, 710.241 ],
+    "numbering style" : "unordered",
+    "number of list items" : 7,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 697.525, 187.137, 710.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• ## of users in the plan",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 681.525, 203.648, 694.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• 1) Introduction to the plan",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 665.525, 227.507, 678.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• 2024. Annual plan of the office",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 5,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 649.525, 178.568, 662.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• - of users in the plan",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 6,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 633.525, 181.329, 646.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• + of users in the plan",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 7,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 617.525, 179.184, 630.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• * of users in the plan",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 8,
+      "page number" : 1,
+      "bounding box" : [ 72.0, 601.525, 85.024, 614.241 ],
+      "font" : "Helvetica",
+      "font size" : 11.0,
+      "text color" : "[0.0]",
+      "content" : "• #",
+      "kids" : [ ]
+    } ]
+  } ]
+}

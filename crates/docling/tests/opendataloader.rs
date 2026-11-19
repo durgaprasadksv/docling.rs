@@ -110,11 +110,21 @@ fn check(case: &Value, out: &Output) -> Vec<String> {
     }
     for group in ch["same_line"].as_array().into_iter().flatten() {
         let g = strs(group);
-        if !lines.iter().any(|l| {
+        // On one line, in this order.
+        let in_order = |l: &str| {
             let nl = norm(l);
-            g.iter().all(|s| nl.contains(&norm(s)))
-        }) {
-            fails.push(format!("same_line: {g:?} not on one line"));
+            let mut pos: Option<usize> = None;
+            for s in &g {
+                let from = pos.map_or(0, |p| p + 1);
+                match nl.get(from..).and_then(|rest| rest.find(&norm(s))) {
+                    Some(i) => pos = Some(from + i),
+                    None => return false,
+                }
+            }
+            true
+        };
+        if !lines.iter().any(|l| in_order(l)) {
+            fails.push(format!("same_line: {g:?} not on one line in order"));
         }
     }
     let items: Vec<&Value> = out
@@ -182,6 +192,230 @@ fn check(case: &Value, out: &Output) -> Vec<String> {
     fails
 }
 
+// ---- Structural parity with OpenDataLoader -----------------------------------
+//
+// The property a client needs when a page may be parsed on the device (the
+// Dart port of OpenDataLoader) or here: the same sequence of spoken units with
+// the same roles. Both outputs flatten to (role, normalized text, box, depth),
+// body content only, and are compared on four measures — the same ones, with
+// the same meaning, as the Python evaluator that recorded them in cases.json.
+
+#[derive(Clone, Debug)]
+struct Elem {
+    role: &'static str,
+    text: String,
+    bbox: [f64; 4],
+}
+
+/// Lower-cased, whitespace-collapsed, leading list marker dropped.
+fn norm_text(s: &str) -> String {
+    let t = norm(s).to_lowercase();
+    let t = t.trim();
+    // A bullet glyph, `-`/`*`/`+`/`o`, or `(a)`/`1.`/`b)`-style enumerator, then whitespace.
+    let bullets = [
+        '\u{2022}', '\u{2023}', '\u{25e6}', '\u{2043}', '\u{204c}', '\u{204d}', '\u{2219}',
+        '\u{25aa}', '\u{25ab}', '\u{25cf}', '\u{25cb}', '-', '*', '+', '\u{00b7}', 'o',
+    ];
+    let mut chars = t.chars();
+    if let Some(c) = chars.next() {
+        let rest = chars.as_str();
+        if bullets.contains(&c) && rest.starts_with(' ') {
+            return rest.trim_start().to_string();
+        }
+    }
+    // `(a)`, `a)`, `1.`, `12)`: up to three alphanumerics, `.` or `)`, space.
+    let bytes = t.as_bytes();
+    let mut i = 0;
+    if bytes.first() == Some(&b'(') {
+        i = 1;
+    }
+    let start = i;
+    while i < bytes.len() && i - start < 3 && bytes[i].is_ascii_alphanumeric() {
+        i += 1;
+    }
+    if i > start
+        && i < bytes.len()
+        && (bytes[i] == b'.' || bytes[i] == b')')
+        && bytes.get(i + 1) == Some(&b' ')
+    {
+        return t[i + 1..].trim_start().to_string();
+    }
+    t.to_string()
+}
+
+fn odl_box(v: Option<&Value>) -> [f64; 4] {
+    let a = v.and_then(Value::as_array);
+    let g = |i: usize| {
+        a.and_then(|a| a.get(i))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    };
+    [g(0), g(1), g(2), g(3)]
+}
+
+fn odl_elements(doc: &Value) -> Vec<Elem> {
+    fn walk(node: &Value, in_cell: bool, out: &mut Vec<Elem>) {
+        if let Some(arr) = node.as_array() {
+            for n in arr {
+                walk(n, in_cell, out);
+            }
+            return;
+        }
+        let Some(obj) = node.as_object() else { return };
+        let t = obj.get("type").and_then(Value::as_str).unwrap_or("");
+        let text = obj.get("content").and_then(Value::as_str).unwrap_or("");
+        let bbox = odl_box(obj.get("bounding box"));
+        let mut push = |role: &'static str| {
+            let text = norm_text(text);
+            if !text.is_empty() {
+                out.push(Elem { role, text, bbox });
+            }
+        };
+        match t {
+            "heading" => push("heading"),
+            "paragraph" => push(if in_cell { "table_cell" } else { "paragraph" }),
+            "caption" => push("caption"),
+            "list item" => {
+                push("list_item");
+                walk(obj.get("kids").unwrap_or(&Value::Null), in_cell, out);
+                return;
+            }
+            "list" => {
+                walk(obj.get("list items").unwrap_or(&Value::Null), in_cell, out);
+                return;
+            }
+            "header" | "footer" => return,
+            "table" => {
+                for row in obj
+                    .get("rows")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    walk(row.get("cells").unwrap_or(&Value::Null), true, out);
+                }
+                return;
+            }
+            "table cell" => {
+                walk(obj.get("kids").unwrap_or(&Value::Null), true, out);
+                return;
+            }
+            _ => {}
+        }
+        walk(obj.get("kids").unwrap_or(&Value::Null), in_cell, out);
+    }
+    let mut out = Vec::new();
+    walk(doc.get("kids").unwrap_or(&Value::Null), false, &mut out);
+    out
+}
+
+fn reader_elements(chunks: &[Value]) -> Vec<Elem> {
+    chunks
+        .iter()
+        .filter_map(|c| {
+            let role = match c["kind"].as_str()? {
+                "heading" | "title" => "heading",
+                "paragraph" | "toc_entry" | "picture_text" | "code" | "footnote" => "paragraph",
+                "list_item" => "list_item",
+                "table_cell" => "table_cell",
+                "caption" => "caption",
+                _ => return None,
+            };
+            let text = norm_text(c["t"].as_str()?);
+            if text.is_empty() {
+                return None;
+            }
+            let f = |k: &str| c[k].as_f64().unwrap_or(0.0);
+            Some(Elem {
+                role,
+                text,
+                bbox: [f("l"), f("b"), f("r"), f("tp")],
+            })
+        })
+        .collect()
+}
+
+fn tokens(s: &str) -> std::collections::HashSet<String> {
+    s.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn iou(a: &[f64; 4], b: &[f64; 4]) -> f64 {
+    let (il, ib, ir, it) = (
+        a[0].max(b[0]),
+        a[1].max(b[1]),
+        a[2].min(b[2]),
+        a[3].min(b[3]),
+    );
+    if ir <= il || it <= ib {
+        return 0.0;
+    }
+    let inter = (ir - il) * (it - ib);
+    let union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter;
+    if union > 0.0 {
+        inter / union
+    } else {
+        0.0
+    }
+}
+
+/// Length of the longest increasing subsequence.
+fn lis(seq: &[usize]) -> usize {
+    let mut tails: Vec<usize> = Vec::new();
+    for &x in seq {
+        let i = tails.partition_point(|&t| t < x);
+        if i == tails.len() {
+            tails.push(x);
+        } else {
+            tails[i] = x;
+        }
+    }
+    tails.len()
+}
+
+/// (elements, roles, order, boxes), as the Python evaluator defines them.
+fn structure(theirs: &[Elem], ours: &[Elem]) -> Option<[f64; 4]> {
+    if theirs.is_empty() {
+        return None;
+    }
+    let our_tokens: Vec<_> = ours.iter().map(|e| tokens(&e.text)).collect();
+    let mut matches: Vec<(usize, usize)> = Vec::new();
+    for (i, e) in theirs.iter().enumerate() {
+        let tt = tokens(&e.text);
+        let mut best = (0.0f64, None);
+        for (j, ot) in our_tokens.iter().enumerate() {
+            if tt.is_empty() || ot.is_empty() {
+                continue;
+            }
+            let inter = tt.intersection(ot).count() as f64;
+            let jac = inter / tt.union(ot).count() as f64;
+            if jac > best.0 {
+                best = (jac, Some(j));
+            }
+        }
+        if best.0 >= 0.6 {
+            matches.push((i, best.1.unwrap()));
+        }
+    }
+    if matches.is_empty() {
+        return Some([0.0; 4]);
+    }
+    let n = matches.len() as f64;
+    let same_role = matches
+        .iter()
+        .filter(|(i, j)| theirs[*i].role == ours[*j].role)
+        .count() as f64;
+    let order = lis(&matches.iter().map(|(_, j)| *j).collect::<Vec<_>>()) as f64;
+    let boxes = matches
+        .iter()
+        .map(|(i, j)| iou(&theirs[*i].bbox, &ours[*j].bbox))
+        .sum::<f64>()
+        / n;
+    Some([n / theirs.len() as f64, same_role / n, order / n, boxes])
+}
+
 #[test]
 fn opendataloader_cases_hold() {
     if !ready() {
@@ -196,6 +430,8 @@ fn opendataloader_cases_hold() {
     let mut problems: Vec<String> = Vec::new();
     let (mut pass, mut xfail, mut unchecked, mut fixed) = (0, 0, 0, 0);
     let mut recalls: Vec<f64> = Vec::new();
+    let mut structures: Vec<f64> = Vec::new();
+    let mut improved: Vec<String> = Vec::new();
     for case in cases["cases"].as_array().unwrap() {
         let Some(pdf) = case["pdf"].as_str() else {
             continue;
@@ -237,6 +473,30 @@ fn opendataloader_cases_hold() {
                     ));
                 }
             }
+            // Structural parity against OpenDataLoader's JSON, beside the fixture.
+            let odl_json = dir.join(pdf).with_extension("odl.json");
+            if let (Ok(text), Some(recorded)) = (
+                std::fs::read_to_string(&odl_json),
+                case["structure"].as_object(),
+            ) {
+                if let Ok(theirs) = serde_json::from_str::<Value>(&text) {
+                    if let Some(now) =
+                        structure(&odl_elements(&theirs), &reader_elements(&out.chunks))
+                    {
+                        for (k, v) in ["elements", "roles", "order", "boxes"].iter().zip(now) {
+                            let was = recorded.get(*k).and_then(Value::as_f64).unwrap_or(0.0);
+                            structures.push(v);
+                            if v + 0.1 < was {
+                                problems.push(format!(
+                                    "{pdf}: structural {k} {v:.2} fell from {was:.2}"
+                                ));
+                            } else if v > was + 0.1 {
+                                improved.push(format!("{pdf}: structural {k} {v:.2} up from {was:.2} — regenerate cases.json"));
+                            }
+                        }
+                    }
+                }
+            }
             outputs.insert(pdf.to_string(), out);
         }
         let out = &outputs[pdf];
@@ -271,10 +531,18 @@ fn opendataloader_cases_hold() {
     } else {
         recalls.iter().sum::<f64>() / recalls.len() as f64
     };
+    let smean = if structures.is_empty() {
+        0.0
+    } else {
+        structures.iter().sum::<f64>() / structures.len() as f64
+    };
     eprintln!(
         "opendataloader corpus: {pass} pass, {xfail} xfail, {fixed} newly passing, {unchecked} unchecked; \
-         mean word recall {mean:.3} over {} fixtures",
+         mean word recall {mean:.3} over {} fixtures; mean structural parity {smean:.3}",
         recalls.len()
     );
+    for line in &improved {
+        eprintln!("improved: {line}");
+    }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }

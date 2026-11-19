@@ -1,0 +1,52 @@
+{
+  "file name" : "numbered-list.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 88.0, 670.2, 181.84, 707.448 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 88.0, 698.2, 178.264, 707.448 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "1. Read all the steps first.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 88.0, 684.2, 181.84, 693.448 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "2. Put the parts on a table.",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 88.0, 670.2, 164.488, 679.448 ],
+      "font" : "Helvetica",
+      "font size" : 8.0,
+      "text color" : "[0.0]",
+      "content" : "3. Keep the parts dry.",
+      "kids" : [ ]
+    } ]
+  } ]
+}

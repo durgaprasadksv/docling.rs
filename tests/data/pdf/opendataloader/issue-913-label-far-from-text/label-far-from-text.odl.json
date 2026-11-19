@@ -1,0 +1,52 @@
+{
+  "file name" : "label-far-from-text.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 1,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 51.0, 671.759, 279.324, 731.273 ],
+    "numbering style" : "arabic numbers",
+    "number of list items" : 3,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 2,
+      "page number" : 1,
+      "bounding box" : [ 51.0, 719.759, 277.671, 731.273 ],
+      "font" : "Helvetica",
+      "font size" : 9.96,
+      "text color" : "[0.0]",
+      "content" : "1. Apple shows the layers of the coast",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 51.0, 695.759, 274.892, 707.273 ],
+      "font" : "Helvetica",
+      "font size" : 9.96,
+      "text color" : "[0.0]",
+      "content" : "2. Birch shows the layers of the coast",
+      "kids" : [ ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 4,
+      "page number" : 1,
+      "bounding box" : [ 51.0, 671.759, 279.324, 683.273 ],
+      "font" : "Helvetica",
+      "font size" : 9.96,
+      "text color" : "[0.0]",
+      "content" : "3. Cedar shows the layers of the coast",
+      "kids" : [ ]
+    } ]
+  } ]
+}

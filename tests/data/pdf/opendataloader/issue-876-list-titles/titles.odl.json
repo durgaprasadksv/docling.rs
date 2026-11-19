@@ -1,0 +1,103 @@
+{
+  "file name" : "titles.pdf",
+  "number of pages" : 2,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 685.286, 367.909, 709.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The town council meets on the first day of each month, and the secretary of the board writes the minutes of the meeting."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 660.686, 186.604, 673.09 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Adopted by all the votes."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 3,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 636.054, 249.772, 648.822 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "2026-04-A-Allowances of the mayor"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 611.486, 208.064, 623.89 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The town council of the town,"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 574.586, 351.803, 599.29 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Considering the general code of the local authorities, and in particular its articles on the allowances of the members,"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 7,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 513.086, 360.72, 562.39 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Considering the minutes of the first meeting of the council, Considering that the maximum of the allowances is set by the index of the public service, and the board votes the rates."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 8,
+    "level" : "Subtitle",
+    "page number" : 2,
+    "bounding box" : [ 69.1, 697.554, 225.919, 710.322 ],
+    "heading level" : 1,
+    "font" : "Helvetica-Bold",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "2026-04-B-Vote of the tax rates"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 10,
+    "page number" : 2,
+    "bounding box" : [ 69.1, 660.686, 357.748, 685.39 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The mayor recalls that the council votes the rates of the local taxes each year, as the law of the year 1980 sets them."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 11,
+    "page number" : 2,
+    "bounding box" : [ 69.1, 611.486, 270.695, 648.49 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "Considering the general code of the taxes, Adopted by all the votes."
+  } ]
+}

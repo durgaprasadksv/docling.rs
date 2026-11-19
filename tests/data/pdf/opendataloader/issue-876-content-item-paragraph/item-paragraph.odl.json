@@ -1,0 +1,91 @@
+{
+  "file name" : "item-paragraph.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 685.286, 370.28, 709.99 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The members of the board meet in the town hall on the first day of each month, and the agenda of the day has two points:"
+  }, {
+    "type" : "list",
+    "pdfua_tag" : "L",
+    "id" : 2,
+    "level" : "1",
+    "page number" : 1,
+    "bounding box" : [ 69.1, 549.986, 276.683, 673.09 ],
+    "numbering style" : "unordered",
+    "number of list items" : 2,
+    "list items" : [ {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 3,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 660.686, 259.375, 673.09 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "- The first point of the agenda of the day",
+      "kids" : [ {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 4,
+        "page number" : 1,
+        "bounding box" : [ 69.1, 623.786, 269.515, 648.49 ],
+        "font" : "Helvetica",
+        "font size" : 10.73,
+        "text color" : "[0.0]",
+        "content" : "The first paragraph of the first point, which goes on in a second line of the paragraph."
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 5,
+        "page number" : 1,
+        "bounding box" : [ 69.1, 599.186, 256.381, 611.59 ],
+        "font" : "Helvetica",
+        "font size" : 10.73,
+        "text color" : "[0.0]",
+        "content" : "The second paragraph of the first point."
+      }, {
+        "type" : "paragraph",
+        "pdfua_tag" : "P",
+        "id" : 6,
+        "page number" : 1,
+        "bounding box" : [ 69.1, 574.586, 242.658, 586.99 ],
+        "font" : "Helvetica",
+        "font size" : 10.73,
+        "text color" : "[0.0]",
+        "content" : "The third paragraph of the first point."
+      } ]
+    }, {
+      "type" : "list item",
+      "pdfua_tag" : "LI",
+      "id" : 7,
+      "page number" : 1,
+      "bounding box" : [ 69.1, 549.986, 276.683, 562.39 ],
+      "font" : "Helvetica",
+      "font size" : 10.73,
+      "text color" : "[0.0]",
+      "content" : "- The second point of the agenda of the day",
+      "kids" : [ ]
+    } ]
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 1,
+    "bounding box" : [ 69.1, 513.086, 379.261, 537.79 ],
+    "font" : "Helvetica",
+    "font size" : 10.73,
+    "text color" : "[0.0]",
+    "content" : "The mayor opens the meeting and gives the agenda of the day to the members of the board of the town."
+  } ]
+}

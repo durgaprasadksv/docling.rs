@@ -1,0 +1,49 @@
+{
+  "file name" : "longer-wrapped-cell.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 1,
+    "page number" : 1,
+    "bounding box" : [ 20.5, 669.704, 33.434, 706.191 ],
+    "font" : "Helvetica",
+    "font size" : 6.65,
+    "text color" : "[0.0]",
+    "content" : "Item one of four"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 92.0, 689.004, 149.669, 706.291 ],
+    "font" : "Helvetica",
+    "font size" : 6.65,
+    "text color" : "[0.0]",
+    "content" : "Approve the plan of Pat Doe"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 1,
+    "bounding box" : [ 462.0, 698.504, 489.724, 706.191 ],
+    "font" : "Helvetica",
+    "font size" : 6.65,
+    "text color" : "[0.0]",
+    "content" : "Accepted"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 4,
+    "page number" : 1,
+    "bounding box" : [ 20.5, 654.104, 488.241, 661.891 ],
+    "font" : "Helvetica",
+    "font size" : 6.65,
+    "text color" : "[0.0]",
+    "content" : "Next Approve the budget Rejected"
+  } ]
+}

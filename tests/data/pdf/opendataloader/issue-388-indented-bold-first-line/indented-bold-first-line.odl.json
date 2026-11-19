@@ -1,0 +1,21 @@
+{
+  "file name" : "indented-bold-first-line.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 1,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 72.0, 673.2, 249.376, 707.696 ],
+    "heading level" : 1,
+    "font" : "Helvetica",
+    "font size" : 8.0,
+    "text color" : "[0.0]",
+    "content" : "Keep the machine away from heat and from direct sun. Put it on a flat floor, at a short distance from the wall, so that air can move."
+  } ]
+}
