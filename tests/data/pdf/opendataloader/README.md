@@ -19,6 +19,7 @@ read-aloud client depends on, independent of docling's own fixtures.
   expressed as checks on our output: `order` (substrings in this order in the
   Markdown), `contains` / `not_contains`, `line_starts` (`[needle, prefix]`),
   `same_line`, and, on the `reader` export, `one_list` (items share one list),
+  `separate_lists` (two items are in different lists),
   `in_list` / `not_in_list`, `list_items` (count). Each case records its
   `status` — `pass`, `xfail` (fails today, kept as a measured gap) or
   `unchecked` (the upstream assertion is on OpenDataLoader's own JSON shape and

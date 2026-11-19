@@ -15,7 +15,8 @@ assertions that can be expressed as checks on our output:
     assertFalse(out.contains("x")), !out.contains  -> not_contains [x]
     list.toString().contains("x") / item.path("content")…contains("x")
                                                     -> in_list / not_in_list [x]
-    assertOneList(out, "a", …), assertSectionLists -> one_list [a, …]
+    assertOneList(out, "a", …)                      -> one_list [a, …]
+    assertSectionLists(out, a, b, c, d)             -> one_list [a, b], one_list [c, d], separate_lists [a, c]
     isInList(out, "x")                              -> in_list / not_in_list [x]
     lineThatContains(out, "x").startsWith("- ")     -> line_starts [[x, "- "]]
     assertEquals(N, …"list items"….size())          -> list_items N
@@ -36,7 +37,7 @@ import sys
 from pathlib import Path
 
 STR = r'"((?:[^"\\]|\\.)*)"'
-CHECKS = ("order", "contains", "not_contains", "line_starts", "same_line", "one_list", "in_list", "not_in_list")
+CHECKS = ("order", "contains", "not_contains", "line_starts", "same_line", "one_list", "separate_lists", "in_list", "not_in_list")
 
 
 # ---------------------------------------------------------------- extract ---
@@ -91,11 +92,38 @@ def calls(body, fn):
     return out
 
 
+def negated(cond):
+    """Whether the `.contains(…)` in `cond` is negated: a `!` right before its
+    receiver (`!out.contains(x)`), not a `!=` elsewhere in the condition
+    (`item != null && item.path("content")…contains(x)`)."""
+    head = cond.split(".contains(")[0]
+    seg = re.split(r"&&|\|\|", head)[-1].strip()
+    return seg.startswith("!")
+
+
 def receiver_is_whole(expr):
-    """`markdown.contains(…)` / `document.toString().contains(…)` test the whole
-    output; `list.toString()`, `item.path("content")…` test a list or an item."""
+    """`markdown.contains(…)`, `document.toString().contains(…)` and a paragraph
+    or title element's `content` test the whole output (a substring present
+    on some element); only a receiver named for a list or an item
+    (`list`, `item`, `lastItem`, `onlyList(…)`) tests list membership."""
     head = expr.split(".contains(")[0]
-    return not re.search(r"\b(list|item|items|onlyList|lists?\(|path\(\"content\"\)|path\(\"list items\"\))", head)
+    seg = re.split(r"&&|\|\|", head)[-1]
+    return not re.search(r"\b\w*([iI]tem|[lL]ist)\w*\b", seg)
+
+
+def receiver_is_output(cond):
+    """`markdown`, `document`, `text`, `json`, `html`, `out`…: the whole output,
+    on which a negated `contains` is a real absence check. Negated on an
+    `element` or `node`, it says "not in *that* element", which has no
+    counterpart here."""
+    head = re.split(r"&&|\|\|", cond.split(".contains(")[0])[-1].strip().lstrip("!").strip()
+    return re.match(r"(markdown|document|text|json|html|out|output|result|md|content)\b", head) is not None
+
+
+def contained_literals(cond):
+    """The string literals that are arguments of `.contains(…)` in `cond` — not
+    the field names of the `.path("kids")` chain in front of them."""
+    return [unescape(m) for m in re.findall(r"\.contains\(\s*" + STR, cond) if unescape(m).strip()]
 
 
 def extract(upstream, fixtures):
@@ -128,28 +156,47 @@ def extract(upstream, fixtures):
                 s = strings(a)
                 if len(s) >= 2:
                     ch["order"].append(s[:2])
-            for a in calls(body, "assertOneList") + calls(body, "assertSectionLists"):
+            for a in calls(body, "assertOneList"):
                 s = strings(a)
                 if s:
                     ch["one_list"].append(s)
+            # assertSectionLists(document, first, last, nextFirst, nextLast): the
+            # two sections' items are two lists, each whole, and not the same.
+            for a in calls(body, "assertSectionLists"):
+                s = strings(a)
+                if len(s) == 4:
+                    ch["one_list"].append(s[:2])
+                    ch["one_list"].append(s[2:])
+                    ch["separate_lists"].append([s[0], s[2]])
+                elif s:
+                    ch["one_list"].append(s)
+            def on_a_row(cond):
+                """A table row's or cell's text has no counterpart check here."""
+                head = re.split(r"&&|\|\|", cond.split(".contains(")[0])[-1]
+                return re.search(r"\b\w*([rR]ow|[cC]ell|[tT]able)\w*\b", head) is not None
+
             for a in calls(body, "assertTrue"):
                 cond = a.split(",")[0]
-                if "isInList" in a:
+                if ".contains(" in cond and on_a_row(cond):
+                    case["unparsed"].append("assertTrue(" + a.strip()[:120] + ")")
+                elif "isInList" in a:
                     ch["in_list"] += strings(calls(a, "isInList")[0])
-                elif ".contains(" in cond and not cond.strip().startswith("!") and "!" not in cond.split(".contains(")[0]:
-                    lits = [x for x in strings(cond) if x != "content"]
+                elif ".contains(" in cond and not negated(cond):
+                    lits = contained_literals(cond)
                     (ch["contains"] if receiver_is_whole(cond) else ch["in_list"]).extend(lits)
-                elif ".contains(" in cond:
-                    lits = [x for x in strings(cond) if x != "content"]
+                elif ".contains(" in cond and (not receiver_is_whole(cond) or receiver_is_output(cond)):
+                    lits = contained_literals(cond)
                     (ch["not_contains"] if receiver_is_whole(cond) else ch["not_in_list"]).extend(lits)
                 elif "lineThatContains" not in cond:
                     case["unparsed"].append("assertTrue(" + a.strip()[:120] + ")")
             for a in calls(body, "assertFalse"):
                 cond = a.split(",")[0]
-                if "isInList" in a:
+                if ".contains(" in cond and on_a_row(cond):
+                    case["unparsed"].append("assertFalse(" + a.strip()[:120] + ")")
+                elif "isInList" in a:
                     ch["not_in_list"] += strings(calls(a, "isInList")[0])
-                elif ".contains(" in cond:
-                    lits = [x for x in strings(cond) if x != "content"]
+                elif ".contains(" in cond and (not receiver_is_whole(cond) or receiver_is_output(cond)):
+                    lits = contained_literals(cond)
                     (ch["not_contains"] if receiver_is_whole(cond) else ch["not_in_list"]).extend(lits)
                 else:
                     case["unparsed"].append("assertFalse(" + a.strip()[:120] + ")")
@@ -221,21 +268,35 @@ def check(case, md, rd):
             fails.append(f"same_line: {group} not on one line")
     chunks = [c for page in (rd or {}).get("pages", []) for c in page]
     items = [c for c in chunks if c.get("kind") == "list_item"]
+    # An upstream check names an item with its marker (`1. Find the length`);
+    # the reader chunk keeps the marker apart from `t`.
+    for c in items:
+        c["_t"] = norm(((c.get("marker") or "") + " " + c.get("t", "")).strip())
     for group in ch.get("one_list", []):
         refs = set()
         for s in group:
-            hit = [c for c in items if norm(s) in norm(c.get("t", ""))]
+            hit = [c for c in items if norm(s) in c["_t"]]
             if not hit:
                 fails.append(f"one_list: {s!r} is not in a list item")
                 continue
             refs.add(hit[0].get("list"))
         if len(refs) > 1:
             fails.append(f"one_list: items spread over {len(refs)} lists: {group}")
+    for pair in ch.get("separate_lists", []):
+        refs = []
+        for s in pair:
+            hit = [c for c in items if norm(s) in c["_t"]]
+            if not hit:
+                fails.append(f"separate_lists: {s!r} is not in a list item")
+            else:
+                refs.append(hit[0].get("list"))
+        if len(refs) == 2 and refs[0] == refs[1]:
+            fails.append(f"separate_lists: {pair} are in one list")
     for s in ch.get("in_list", []):
-        if not any(norm(s) in norm(c.get("t", "")) for c in items):
+        if not any(norm(s) in c["_t"] for c in items):
             fails.append(f"in_list: {s!r} is not a list item")
     for s in ch.get("not_in_list", []):
-        if any(norm(s) in norm(c.get("t", "")) for c in items):
+        if any(norm(s) in c["_t"] for c in items):
             fails.append(f"not_in_list: {s!r} is a list item")
     if case.get("list_items") is not None and len(items) != case["list_items"]:
         fails.append(f"list_items: {len(items)} != {case['list_items']}")

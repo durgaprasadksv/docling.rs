@@ -122,7 +122,15 @@ fn check(case: &Value, out: &Output) -> Vec<String> {
         .iter()
         .filter(|c| c["kind"] == "list_item")
         .collect();
-    let item_text = |c: &Value| norm(c["t"].as_str().unwrap_or(""));
+    // An upstream check names an item with its marker (`1. Find the length`);
+    // the reader chunk keeps the marker apart from `t`.
+    let item_text = |c: &Value| {
+        norm(&format!(
+            "{} {}",
+            c["marker"].as_str().unwrap_or(""),
+            c["t"].as_str().unwrap_or("")
+        ))
+    };
     for group in ch["one_list"].as_array().into_iter().flatten() {
         let mut refs = std::collections::HashSet::new();
         for s in strs(group) {
@@ -135,6 +143,25 @@ fn check(case: &Value, out: &Output) -> Vec<String> {
         }
         if refs.len() > 1 {
             fails.push(format!("one_list: items spread over {} lists", refs.len()));
+        }
+    }
+    for pair in ch["separate_lists"].as_array().into_iter().flatten() {
+        let p = strs(pair);
+        let refs: Vec<Option<&str>> = p
+            .iter()
+            .map(|s| {
+                items
+                    .iter()
+                    .find(|c| item_text(c).contains(&norm(s)))
+                    .map(|c| c["list"].as_str().unwrap_or(""))
+            })
+            .collect();
+        if refs.iter().any(Option::is_none) {
+            fails.push(format!(
+                "separate_lists: an item of {p:?} is not a list item"
+            ));
+        } else if refs.len() == 2 && refs[0] == refs[1] {
+            fails.push(format!("separate_lists: {p:?} are in one list"));
         }
     }
     for s in strs(&ch["in_list"]) {

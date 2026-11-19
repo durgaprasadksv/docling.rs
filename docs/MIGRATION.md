@@ -2467,6 +2467,19 @@ These are deliberate or unavoidable divergences, not bugs.
 
 ---
 
+22. **A `text` region of list lines is split into list items.** The layout
+   model boxes a block of `· item` / `1. item` lines as one `text` region
+   often enough that OpenDataLoader's synthetic page corpus
+   (`tests/data/pdf/opendataloader/`) failed twenty-odd cases on it; docling
+   joins such a region into one paragraph with the markers inside (only a
+   region labelled `list_item` meets its `ListItemMarkerProcessor`), which a
+   read-aloud client speaks as one run of middle dots. The assembler now
+   recognizes a run — the first and at least two lines start with a marker of
+   one family, the marker lines share a left edge, every other line is
+   indented past it (a wrapped continuation, joined to its item) — and emits
+   docling's own list items for it (`assemble::list_run_items`).
+   `DOCLING_RS_SPLIT_LIST_RUNS=0` restores the one-paragraph output.
+
 ## 5. Not migrated / out of scope
 
 Nothing here blocks day-to-day conversion: every remaining item is either a

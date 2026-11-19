@@ -1588,6 +1588,133 @@ fn split_list_marker(text: &str) -> Option<(&str, &str, bool)> {
     None
 }
 
+/// `DOCLING_RS_SPLIT_LIST_RUNS` (default on): split a `text` region whose
+/// lines are a run of list items — see [`list_run_items`]. Off reproduces
+/// docling's one-paragraph output for such a region.
+fn split_list_runs() -> bool {
+    docling_core::env::nonempty("DOCLING_RS_SPLIT_LIST_RUNS").is_none()
+        || docling_core::env::flag("DOCLING_RS_SPLIT_LIST_RUNS")
+}
+
+/// The family a list marker belongs to, so a run is recognized only when its
+/// markers agree: a bullet is its own glyph; an enumerator is its shape, with
+/// digits and letters abstracted (`1.`/`2.` → `d.`, `(a)`/`(b)` → `(a)`).
+fn marker_family(marker: &str, enumerated: bool) -> String {
+    if !enumerated {
+        return marker.to_string();
+    }
+    let mut out = String::new();
+    for c in marker.chars() {
+        let class = if c.is_numeric() {
+            'd'
+        } else if c.is_ascii_alphabetic() {
+            'a'
+        } else {
+            c
+        };
+        if !(matches!(class, 'd' | 'a') && out.ends_with(class)) {
+            out.push(class);
+        }
+    }
+    out
+}
+
+/// One item of a list run: its text (unescaped), its word spans (relative to
+/// that text) and its box in the page's top-left point space.
+struct ListRunItem {
+    text: String,
+    spans: Vec<CellSpan>,
+    bbox: [f32; 4],
+}
+
+/// The items of a `text` region whose line cells are a run of list items —
+/// or `None` when the region is prose.
+///
+/// The layout model boxes a block of `· item` / `1. item` lines as one `text`
+/// region often enough that OpenDataLoader's synthetic page corpus
+/// (`tests/data/pdf/opendataloader/`) failed twenty-odd cases on it: the lines
+/// were joined into a single paragraph with the markers inside, spoken by a
+/// reader as one run of middle dots. docling does the same — only a region
+/// the model labels `list_item` meets `ListItemMarkerProcessor`. A deliberate
+/// divergence (docs/MIGRATION.md), behind `DOCLING_RS_SPLIT_LIST_RUNS`.
+///
+/// The decision is conservative so prose with a stray dash is never cut up:
+/// the first line and at least two lines in all start with a marker
+/// ([`split_list_marker`], after the symbol-font strip `list_item_node`
+/// applies); every marker is of one family ([`marker_family`]); the marker
+/// lines share a left edge; and every other line is indented right of that
+/// edge — a wrapped continuation, which joins the item above it the way
+/// paragraph lines join (docling's sanitize: a space, or a hyphen fused).
+fn list_run_items(lines: &[&TextCell], word_cells: &[TextCell]) -> Option<Vec<ListRunItem>> {
+    if lines.len() < 2 {
+        return None;
+    }
+    let marker_of = |t: &str| -> Option<(String, bool)> {
+        let raw = t.trim_start();
+        let stripped = raw
+            .trim_start_matches(['•', '◦', '▪', '·', '*'])
+            .trim_start();
+        split_list_marker(raw)
+            .or_else(|| split_list_marker(stripped))
+            .map(|(m, _, enumerated)| (marker_family(m, enumerated), enumerated))
+    };
+    let markers: Vec<Option<(String, bool)>> = lines.iter().map(|c| marker_of(&c.text)).collect();
+    let first = markers[0].as_ref()?;
+    let marked: Vec<usize> = (0..lines.len()).filter(|&i| markers[i].is_some()).collect();
+    if marked.len() < 2 || marked.iter().any(|&i| markers[i].as_ref() != Some(first)) {
+        return None;
+    }
+    // Tolerances in units of the lines' own height.
+    let mut heights: Vec<f32> = lines.iter().map(|c| (c.b - c.t).abs()).collect();
+    heights.sort_by(|a, b| a.total_cmp(b));
+    let line_h = heights[heights.len() / 2].max(1.0);
+    let left = marked
+        .iter()
+        .map(|&i| lines[i].l)
+        .fold(f32::INFINITY, f32::min);
+    if marked.iter().any(|&i| lines[i].l > left + 0.6 * line_h) {
+        return None;
+    }
+    if (0..lines.len())
+        .filter(|i| markers[*i].is_none())
+        .any(|i| lines[i].l < left + 0.3 * line_h)
+    {
+        return None;
+    }
+    let mut items = Vec::with_capacity(marked.len());
+    for (k, &start) in marked.iter().enumerate() {
+        let end = marked.get(k + 1).copied().unwrap_or(lines.len());
+        let item_lines: Vec<&TextCell> = lines[start..end].to_vec();
+        let (mut text, spans) = cells_text_spanned_keep_wrap(item_lines.clone());
+        let mut spans = spans
+            .map(|sp| refine_with_words(sp, &text, word_cells))
+            .unwrap_or_default();
+        // A trailing wrap hyphen has nothing to continue into.
+        if text.ends_with('\u{ad}') {
+            text.pop();
+        }
+        clamp_spans(&mut spans, text.chars().count());
+        let bbox = item_lines.iter().fold(
+            [
+                f32::INFINITY,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::NEG_INFINITY,
+            ],
+            |a, c| {
+                [
+                    a[0].min(c.l),
+                    a[1].min(c.t.min(c.b)),
+                    a[2].max(c.r),
+                    a[3].max(c.t.max(c.b)),
+                ]
+            },
+        );
+        items.push(ListRunItem { text, spans, bbox });
+    }
+    Some(items)
+}
+
 /// A PDF `list_item` region as docling emits it: `ListItemMarkerProcessor`
 /// splits the marker off (see [`split_list_marker`]), and docling-core's
 /// Markdown list serializer (default `orig_list_item_marker_mode = AUTO`,
@@ -3826,6 +3953,8 @@ pub fn assemble_page(
         region_texts_spanned_keep_wrap(&with_children, &page.cells, &page.word_cells)
             .into_iter()
             .unzip();
+    // The line cells each region owns, for the list-run split below.
+    let owned_cells = assign_cells(&with_children, &page.cells);
     // A trailing soft hyphen marks a word split across the line break; only a
     // plain paragraph hands it on to `merge_continuations` (#919).
     let wraps: Vec<bool> = region_texts
@@ -4228,6 +4357,35 @@ pub fn assemble_page(
             }
             // text, caption, footnote → paragraph
             _ => {
+                // A `text` region whose lines are a run of list items becomes
+                // those items (see `list_run_items`), unless another region
+                // was merged into it — then the lines are no longer the text.
+                if region.label == "text" && merge_suffix[i].is_empty() && split_list_runs() {
+                    let lines: Vec<&TextCell> =
+                        owned_cells[i].iter().map(|&c| &page.cells[c]).collect();
+                    if let Some(items) = list_run_items(&lines, &page.word_cells) {
+                        for (k, item) in items.into_iter().enumerate() {
+                            let item_region = Region {
+                                label: "list_item",
+                                score: region.score,
+                                l: item.bbox[0],
+                                t: item.bbox[1],
+                                r: item.bbox[2],
+                                b: item.bbox[3],
+                            };
+                            let mut node = list_item_node(
+                                &item.text,
+                                norm_loc(&item_region, page.width, page_h),
+                                k == 0,
+                            );
+                            if let Node::ListItem { spans, .. } = &mut node {
+                                *spans = (!item.spans.is_empty()).then_some(item.spans);
+                            }
+                            nodes.push(node);
+                        }
+                        continue;
+                    }
+                }
                 // docling parity (`PageAssembleModel._match_hyperlink`): when
                 // link annotations cover ≥ half of the region's box, the
                 // hyperlink attaches to the item and the legacy Markdown
@@ -4299,7 +4457,10 @@ pub fn assemble_page(
             // JSON/DCLX while Markdown (which renders through wrappers)
             // still looked right.
             if let Node::ListItem { spans: own, .. } = node {
-                *own = Some(spans.clone());
+                // An item split out of a list run already carries its own.
+                if own.is_none() {
+                    *own = Some(spans.clone());
+                }
                 continue;
             }
             let inner = std::mem::replace(node, Node::PageBreak);
@@ -6076,6 +6237,125 @@ mod tests {
             .collect();
         // "vocab-" lost its hyphen: the span is clipped to the five letters.
         assert_eq!(ranges, [(0, 5)]);
+    }
+
+    /// A `text` region whose lines are a run of bullets becomes list items —
+    /// one per marker line, a wrapped (indented) line joining the item above
+    /// it, each with its own word spans — while prose that merely contains a
+    /// dash stays one paragraph, and a run of two marker families does too.
+    #[test]
+    fn a_text_region_of_bullet_lines_becomes_list_items() {
+        let lines = vec![
+            cell("· Read all the steps before you", 72.0, 100.0, 300.0, 112.0),
+            cell("start the work.", 84.0, 114.0, 200.0, 126.0),
+            cell(
+                "· Put the parts on a clean table.",
+                72.0,
+                128.0,
+                300.0,
+                140.0,
+            ),
+            cell("· Keep the small parts away.", 72.0, 142.0, 300.0, 154.0),
+        ];
+        let refs: Vec<&TextCell> = lines.iter().collect();
+        let items = super::list_run_items(&refs, &[]).expect("a list run");
+        let texts: Vec<&str> = items.iter().map(|i| i.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "· Read all the steps before you start the work.",
+                "· Put the parts on a clean table.",
+                "· Keep the small parts away.",
+            ]
+        );
+        // The wrapped item's box spans both of its lines.
+        assert_eq!(items[0].bbox, [72.0, 100.0, 300.0, 126.0]);
+        // Each item's spans index its own text: the second line's span starts
+        // after "· Read all the steps before you " (32 chars).
+        assert!(
+            items[0].spans.iter().any(|s| s.char_start == 32),
+            "{:?}",
+            items[0].spans
+        );
+
+        // Through the assembler: the region's label is `text`, the nodes are
+        // list items with docling's marker handling applied.
+        let page = PdfPage::from_cells(400.0, 300.0, 2.0, lines.clone());
+        let regions = vec![region("text", 0.9, 70.0, 98.0, 302.0, 156.0)];
+        let (nodes, _) = super::assemble_page(&page, regions, &[None], &[None], None);
+        let items: Vec<(&str, bool, bool)> = nodes
+            .iter()
+            .filter_map(|n| match n {
+                Node::ListItem {
+                    text,
+                    first_in_list,
+                    spans,
+                    ..
+                } => Some((text.as_str(), *first_in_list, spans.is_some())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            items,
+            [
+                ("Read all the steps before you start the work.", true, true),
+                ("Put the parts on a clean table.", false, true),
+                ("Keep the small parts away.", false, true),
+            ],
+            "{nodes:?}"
+        );
+
+        // Prose with a dash at a line start is not a list: the dash line is
+        // not the first, and the other lines sit at the margin.
+        let prose = vec![
+            cell(
+                "The board meets in the town hall on",
+                72.0,
+                100.0,
+                300.0,
+                112.0,
+            ),
+            cell(
+                "- the first day of each month, and",
+                72.0,
+                114.0,
+                300.0,
+                126.0,
+            ),
+            cell("the vote comes after the talks.", 72.0, 128.0, 300.0, 140.0),
+        ];
+        let refs: Vec<&TextCell> = prose.iter().collect();
+        assert!(super::list_run_items(&refs, &[]).is_none());
+
+        // Two marker families in one region are not one run.
+        let mixed = vec![
+            cell("· First bullet", 72.0, 100.0, 300.0, 112.0),
+            cell("1. First step", 72.0, 114.0, 300.0, 126.0),
+        ];
+        let refs: Vec<&TextCell> = mixed.iter().collect();
+        assert!(super::list_run_items(&refs, &[]).is_none());
+
+        // Numbered steps are a run of one family; their numbers are kept.
+        let steps = vec![
+            cell("1. Find the length", 72.0, 100.0, 300.0, 112.0),
+            cell("2. Find the area", 72.0, 114.0, 300.0, 126.0),
+            cell("3. Find the volume", 72.0, 128.0, 300.0, 140.0),
+        ];
+        let page = PdfPage::from_cells(400.0, 300.0, 2.0, steps);
+        let regions = vec![region("text", 0.9, 70.0, 98.0, 302.0, 142.0)];
+        let (nodes, _) = super::assemble_page(&page, regions, &[None], &[None], None);
+        let numbers: Vec<u64> = nodes
+            .iter()
+            .filter_map(|n| match n {
+                Node::ListItem {
+                    ordered: true,
+                    number,
+                    ..
+                } => Some(*number),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(numbers, [1, 2, 3], "{nodes:?}");
     }
 
     #[test]

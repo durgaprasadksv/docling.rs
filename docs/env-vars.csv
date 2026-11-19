@@ -134,3 +134,4 @@ DOCLING_RS_FORMULA_PROMPT,operational,crates/docling-pdf/src/enrich.rs
 DOCLING_RS_CODE_PROMPT,operational,crates/docling-pdf/src/enrich.rs
 DOCLING_RS_ENRICH_IOBINDING,performance,crates/docling-pdf/src/enrich.rs
 DOCLING_RS_ENRICH_LANES,performance,crates/docling-pdf/src/lib.rs
+DOCLING_RS_SPLIT_LIST_RUNS,operational,crates/docling-pdf/src/assemble.rs

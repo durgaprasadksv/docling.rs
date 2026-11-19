@@ -4,9 +4,9 @@
   "commit": "5a7976a"
  },
  "counts": {
-  "xfail": 49,
-  "pass": 34,
-  "unchecked": 90
+  "pass": 41,
+  "xfail": 37,
+  "unchecked": 95
  },
  "cases": [
   {
@@ -34,9 +34,17 @@
     "one_list": [
      [
       "Read all the steps",
-      "Keep the small parts",
+      "Keep the small parts"
+     ],
+     [
       "Turn off the power",
       "Do not use force"
+     ]
+    ],
+    "separate_lists": [
+     [
+      "Read all the steps",
+      "Turn off the power"
      ]
     ],
     "in_list": [],
@@ -46,7 +54,7 @@
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": 1.0
   },
   {
@@ -74,15 +82,29 @@
     "one_list": [
      [
       "Read all the steps",
-      "Keep the parts dry",
+      "Keep the parts dry"
+     ],
+     [
       "Turn off the power",
       "Do not use force"
      ],
      [
       "Check that no part",
-      "Find the tools",
+      "Find the tools"
+     ],
+     [
       "Work in a dry room",
       "Stop if you see smoke"
+     ]
+    ],
+    "separate_lists": [
+     [
+      "Read all the steps",
+      "Turn off the power"
+     ],
+     [
+      "Check that no part",
+      "Work in a dry room"
      ]
     ],
     "in_list": [],
@@ -111,9 +133,17 @@
     "one_list": [
      [
       "Tag each element",
-      "Give each figure",
+      "Give each figure"
+     ],
+     [
       "Use Unicode",
       "Show the document"
+     ]
+    ],
+    "separate_lists": [
+     [
+      "Tag each element",
+      "Use Unicode"
      ]
     ],
     "in_list": [],
@@ -123,7 +153,7 @@
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": 1.0
   },
   {
@@ -145,6 +175,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": [
      "Take the old parts"
@@ -182,9 +213,17 @@
     "one_list": [
      [
       "Read all the steps",
-      "Keep the parts dry",
+      "Keep the parts dry"
+     ],
+     [
       "Turn off the power",
       "Do not use force"
+     ]
+    ],
+    "separate_lists": [
+     [
+      "Read all the steps",
+      "Turn off the power"
      ]
     ],
     "in_list": [],
@@ -192,7 +231,7 @@
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": 1.0
   },
   {
@@ -220,9 +259,17 @@
     "one_list": [
      [
       "Read all the steps",
-      "Keep the parts dry",
+      "Keep the parts dry"
+     ],
+     [
       "Turn off the power",
       "Do not use force"
+     ]
+    ],
+    "separate_lists": [
+     [
+      "Read all the steps",
+      "Turn off the power"
      ]
     ],
     "in_list": [],
@@ -230,7 +277,7 @@
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": 1.0
   },
   {
@@ -256,6 +303,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": [
      "Take the old parts"
@@ -280,6 +328,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -304,6 +353,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -328,6 +378,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -352,6 +403,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -376,6 +428,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -400,6 +453,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -426,6 +480,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -448,6 +503,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -470,6 +526,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -492,6 +549,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -514,6 +572,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -536,6 +595,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -558,6 +618,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -620,6 +681,7 @@
      ]
     ],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -682,6 +744,7 @@
      ]
     ],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -744,6 +807,7 @@
      ]
     ],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -806,6 +870,7 @@
      ]
     ],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -838,6 +903,7 @@
      ]
     ],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -860,6 +926,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -924,6 +991,7 @@
      ]
     ],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -986,6 +1054,7 @@
      ]
     ],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1010,6 +1079,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1043,6 +1113,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1076,6 +1147,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1100,6 +1172,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1135,6 +1208,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1164,6 +1238,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1198,6 +1273,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1231,6 +1307,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1264,6 +1341,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1295,6 +1373,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1317,6 +1396,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1339,6 +1419,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1361,6 +1442,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1383,6 +1465,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1405,6 +1488,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1427,6 +1511,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1449,6 +1534,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1471,6 +1557,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1502,6 +1589,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1524,6 +1612,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1546,6 +1635,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1568,6 +1658,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1590,6 +1681,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1615,6 +1707,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1637,6 +1730,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1661,6 +1755,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1687,6 +1782,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1713,6 +1809,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1731,13 +1828,13 @@
    "checks": {
     "order": [],
     "contains": [
-     "Read the [release notes](",
-     ") before you install"
+     "Read the [release notes]("
     ],
     "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1756,13 +1853,13 @@
    "checks": {
     "order": [],
     "contains": [
-     "Read the <a href=\"",
-     "\">release notes</a> before you install"
+     "Read the <a href=\""
     ],
     "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1781,13 +1878,13 @@
    "checks": {
     "order": [],
     "contains": [
-     "Follow the steps of the [deployment guide for the cloud setup](",
-     ") before you start"
+     "Follow the steps of the [deployment guide for the cloud setup]("
     ],
     "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1812,6 +1909,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1836,6 +1934,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1854,14 +1953,13 @@
    "checks": {
     "order": [],
     "contains": [
-     "Open the console ([",
-     "](",
-     ")). Then sign in"
+     "Open the console (["
     ],
     "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1884,6 +1982,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1905,13 +2004,13 @@
    "checks": {
     "order": [],
     "contains": [
-     "Read the [release notes](",
-     ") before you install"
+     "Read the [release notes]("
     ],
     "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1930,13 +2029,13 @@
    "checks": {
     "order": [],
     "contains": [
-     "click the [Retry button](",
-     ") ![]("
+     "click the [Retry button]("
     ],
     "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1955,13 +2054,13 @@
    "checks": {
     "order": [],
     "contains": [
-     "Read the [release notes](",
-     ") before you install."
+     "Read the [release notes]("
     ],
     "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -1989,6 +2088,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2016,6 +2116,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2043,6 +2144,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2070,6 +2172,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2092,6 +2195,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2114,6 +2218,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2136,6 +2241,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2158,6 +2264,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2180,6 +2287,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2215,6 +2323,7 @@
     ],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2242,6 +2351,7 @@
     ],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2264,6 +2374,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2288,17 +2399,16 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
-    "in_list": [],
-    "not_in_list": [
-     "kids",
+    "separate_lists": [],
+    "in_list": [
      "Approval of the minutes",
-     "kids",
      "Budget of the town"
-    ]
+    ],
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": null
   },
   {
@@ -2324,6 +2434,7 @@
     ],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2346,15 +2457,15 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
-    "in_list": [],
-    "not_in_list": [
-     "kids",
+    "separate_lists": [],
+    "in_list": [
      "Approval of the minutes"
-    ]
+    ],
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": null
   },
   {
@@ -2371,15 +2482,15 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
-    "in_list": [],
-    "not_in_list": [
-     "kids",
+    "separate_lists": [],
+    "in_list": [
      "Approval of the minutes"
-    ]
+    ],
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": null
   },
   {
@@ -2396,17 +2507,16 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
-    "in_list": [],
-    "not_in_list": [
-     "kids",
+    "separate_lists": [],
+    "in_list": [
      "Approval of the minutes",
-     "kids",
      "Sale of a part of the public land"
-    ]
+    ],
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": null
   },
   {
@@ -2426,6 +2536,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2448,6 +2559,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2472,9 +2584,9 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": [
-     "kids",
      "Approval of the minutes"
     ]
    },
@@ -2497,9 +2609,9 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": [
-     "kids",
      "Approval of the minutes"
     ]
    },
@@ -2522,9 +2634,9 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": [
-     "kids",
      "Approval of the minutes"
     ]
    },
@@ -2549,6 +2661,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2573,11 +2686,11 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
-    "in_list": [],
-    "not_in_list": [
-     "(one member and one deputy)",
-     "kids"
-    ]
+    "separate_lists": [],
+    "in_list": [
+     "(one member and one deputy)"
+    ],
+    "not_in_list": []
    },
    "list_items": 5,
    "unparsed": [],
@@ -2598,14 +2711,15 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
-    "in_list": [],
-    "not_in_list": [
+    "separate_lists": [],
+    "in_list": [
      "(one member and one deputy)"
-    ]
+    ],
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": null
   },
   {
@@ -2625,6 +2739,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": [
      "part of the allowance"
@@ -2651,6 +2766,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": [
      "part of the allowance"
@@ -2675,14 +2791,15 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
-    "in_list": [],
-    "not_in_list": [
+    "separate_lists": [],
+    "in_list": [
      "energy board of the county"
-    ]
+    ],
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": null
   },
   {
@@ -2699,6 +2816,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": [
      "Choice of one member"
@@ -2725,6 +2843,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": [
      "(one member and one deputy)"
@@ -2749,6 +2868,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2773,6 +2893,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2797,6 +2918,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2821,6 +2943,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2845,6 +2968,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2869,6 +2993,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2893,18 +3018,17 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
-    "not_in_list": [
-     "heading",
-     "type"
-    ]
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [
     "assertTrue(line != null, \"the line after the empty line is missing: \" + document)",
+    "assertTrue(title != null && \"heading\".equals(title.path(\"type\").asText())\n                && !title.path(\"content\").asText().contai)",
     "assertTrue(elements.indexOf(title) < elements.indexOf(line),\n            \"the line after the empty line is before the title: \" + do)"
    ],
-   "status": "pass",
+   "status": "unchecked",
    "recall": null
   },
   {
@@ -2921,6 +3045,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -2946,17 +3071,16 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
-    "not_in_list": [
-     "heading",
-     "type"
-    ]
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [
-    "assertTrue(elementThatContains(elements, PARAGRAPH_B) != null, \"the paragraph is missing: \" + document)"
+    "assertTrue(elementThatContains(elements, PARAGRAPH_B) != null, \"the paragraph is missing: \" + document)",
+    "assertTrue(title != null && \"heading\".equals(title.path(\"type\").asText())\n                && !title.path(\"content\").asText().contai)"
    ],
-   "status": "pass",
+   "status": "unchecked",
    "recall": null
   },
   {
@@ -2973,14 +3097,15 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
-    "in_list": [],
-    "not_in_list": [
+    "separate_lists": [],
+    "in_list": [
      "goes on in a second line"
-    ]
+    ],
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": null
   },
   {
@@ -2997,14 +3122,15 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
-    "in_list": [],
-    "not_in_list": [
+    "separate_lists": [],
+    "in_list": [
      "goes on in a second line"
-    ]
+    ],
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
-   "status": "pass",
+   "status": "xfail",
    "recall": null
   },
   {
@@ -3021,6 +3147,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3043,12 +3170,14 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
    "list_items": null,
    "unparsed": [
-    "assertTrue(elementThatContains(document, VOTE) != null, \"the line after the empty line is missing: \" + document)"
+    "assertTrue(elementThatContains(document, VOTE) != null, \"the line after the empty line is missing: \" + document)",
+    "assertTrue(title != null && !title.path(\"content\").asText().contains(VOTE),\n            \"the line after the empty line is merged wi)"
    ],
    "status": "unchecked",
    "recall": null
@@ -3067,12 +3196,14 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
    "list_items": null,
    "unparsed": [
-    "assertTrue(elementThatContains(document, APPROVAL) != null, \"the second title is missing: \" + document)"
+    "assertTrue(elementThatContains(document, APPROVAL) != null, \"the second title is missing: \" + document)",
+    "assertTrue(title != null && !title.path(\"content\").asText().contains(APPROVAL),\n            \"the two titles with an empty line betw)"
    ],
    "status": "unchecked",
    "recall": null
@@ -3091,12 +3222,14 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
    "list_items": null,
    "unparsed": [
-    "assertTrue(elementThatContains(document, VOTE) != null, \"the line after the empty line is missing: \" + document)"
+    "assertTrue(elementThatContains(document, VOTE) != null, \"the line after the empty line is missing: \" + document)",
+    "assertTrue(title != null && !title.path(\"content\").asText().contains(VOTE),\n            \"the line after the empty line is merged wi)"
    ],
    "status": "unchecked",
    "recall": null
@@ -3110,15 +3243,16 @@
    "doc": "Guard: the lines of a paragraph, 12 pt apart, stay one paragraph.",
    "checks": {
     "order": [],
-    "contains": [],
+    "contains": [
+     "signs the minutes of the day"
+    ],
     "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
-    "not_in_list": [
-     "signs the minutes of the day"
-    ]
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
@@ -3134,15 +3268,16 @@
    "doc": "Guard: in a page with all its lines 24 pt apart, the lines of a paragraph stay one paragraph.",
    "checks": {
     "order": [],
-    "contains": [],
+    "contains": [
+     "signs the minutes of the day"
+    ],
     "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
-    "not_in_list": [
-     "signs the minutes of the day"
-    ]
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
@@ -3163,6 +3298,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3185,6 +3321,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3211,6 +3348,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3232,15 +3370,16 @@
    "doc": "Guard: the lines of a paragraph in a list item, 12.3 pt apart, stay one paragraph.",
    "checks": {
     "order": [],
-    "contains": [],
+    "contains": [
+     "goes on in a second line"
+    ],
     "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
-    "not_in_list": [
-     "goes on in a second line"
-    ]
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
@@ -3261,6 +3400,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3283,11 +3423,13 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
    "list_items": null,
    "unparsed": [
+    "assertTrue(role != null && !role.path(\"content\").asText().contains(RIGHT_ROLE),\n            \"the roles of the two columns are one e)",
     "assertTrue(role == elementThatContains(document, LEFT_NAME)\n                && elementThatContains(document, RIGHT_ROLE) == element)"
    ],
    "status": "unchecked",
@@ -3307,6 +3449,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3332,6 +3475,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3356,6 +3500,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3378,6 +3523,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3400,6 +3546,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3422,6 +3569,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3444,6 +3592,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3463,18 +3612,17 @@
    "doc": "Guard (review of #885): two lines with a bullet drawn as a square before each, a text, and a far value, 26 pt apart, keep their bullets: each line stays one element with its value, and it has a list level.",
    "checks": {
     "order": [],
-    "contains": [],
+    "contains": [
+     "Adopted by the board",
+     "Rejected by the board"
+    ],
     "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
-    "not_in_list": [
-     "Adopted by the board",
-     "level",
-     "Rejected by the board",
-     "level"
-    ]
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
@@ -3495,6 +3643,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3519,19 +3668,17 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
-    "not_in_list": [
-     "list item",
-     "type",
-     "\\d+\\. .*"
-    ]
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [
     "assertTrue(elementThatContains(elements, \"2. Core and periphery of the town\") != null,\n            \"a line of the table of contents)",
-    "assertTrue(part != null, \"a line of the table of contents is missing: \" + document)"
+    "assertTrue(part != null, \"a line of the table of contents is missing: \" + document)",
+    "assertTrue(!\"list item\".equals(element.path(\"type\").asText())\n                        || !element.path(\"content\").asText().matches()"
    ],
-   "status": "pass",
+   "status": "unchecked",
    "recall": null
   },
   {
@@ -3548,6 +3695,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3570,6 +3718,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3592,6 +3741,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3614,6 +3764,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3636,6 +3787,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3658,6 +3810,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3682,6 +3835,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3700,20 +3854,20 @@
    "checks": {
     "order": [],
     "contains": [],
-    "not_contains": [
-     "(1) Open the box"
-    ],
+    "not_contains": [],
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
    "list_items": null,
    "unparsed": [
+    "assertTrue(!indented.toString().contains(\"(1) Open the box\"),\n            \"the indented list is one list with the steps: \" + docume)",
     "assertNotNull(indented, \"the indented list is lost: \" + document)"
    ],
-   "status": "xfail",
+   "status": "unchecked",
    "recall": 1.0
   },
   {
@@ -3730,6 +3884,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3752,6 +3907,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3790,6 +3946,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": [
      "2) Cleaning"
@@ -3823,6 +3980,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3852,6 +4010,7 @@
       "4. Find the mass"
      ]
     ],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3880,6 +4039,7 @@
       "3. Keep the small parts"
      ]
     ],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3908,12 +4068,13 @@
       "3. Keep the parts dry"
      ]
     ],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": 1.0
   },
   {
@@ -3930,6 +4091,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3952,6 +4114,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3976,6 +4139,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -3998,6 +4162,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4020,6 +4185,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4045,6 +4211,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4069,6 +4236,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4093,16 +4261,16 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
-    "not_in_list": [
-     "The right column"
-    ]
+    "not_in_list": []
    },
    "list_items": null,
    "unparsed": [
+    "assertTrue(!element.path(\"content\").asText().contains(\"The right column\"),\n                \"the text of the right column is in a ro)",
     "assertNotNull(element, \"the item is lost (\" + item + \"): \" + document)"
    ],
-   "status": "pass",
+   "status": "unchecked",
    "recall": 1.0
   },
   {
@@ -4119,6 +4287,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4145,6 +4314,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4170,6 +4340,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4192,6 +4363,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4214,6 +4386,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4240,6 +4413,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4262,6 +4436,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4284,6 +4459,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4308,6 +4484,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4342,6 +4519,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4374,6 +4552,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4407,6 +4586,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4437,6 +4617,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4459,6 +4640,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4481,6 +4663,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4503,6 +4686,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4528,6 +4712,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4554,6 +4739,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4578,6 +4764,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4600,6 +4787,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },
@@ -4624,6 +4812,7 @@
     "line_starts": [],
     "same_line": [],
     "one_list": [],
+    "separate_lists": [],
     "in_list": [],
     "not_in_list": []
    },

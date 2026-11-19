@@ -799,21 +799,27 @@ text layer):
 
 | | |
 |---|---|
-| cases with a counterpart check | 83 — **34 pass, 49 xfail** |
-| cases without one (assertions on OpenDataLoader's JSON shape) | 90, fixtures kept for recall |
+| cases with a counterpart check | 78 — **41 pass, 37 xfail** |
+| cases without one (assertions on OpenDataLoader's JSON shape, or on one element's content) | 95, fixtures kept for recall |
 | word recall against OpenDataLoader's Markdown | **0.988** mean over 113 fixtures; lowest 0.50 (a struct-tree link fixture), then 0.86 |
 
-What the `xfail`s are, by cause — the reading-quality gaps this corpus
-pins down, independent of docling's fixtures:
+The first measurement was 34 pass / 49 xfail. The list-run split
+(`assemble::list_run_items`, docs/MIGRATION.md §4: a `text` region whose lines
+are a run of `· item` / `1. item` lines becomes those items, the wrapped
+continuation lines joined to theirs) took the bullet and numbered-step cases
+of issues 354, 755, 876 and 905 — eleven cases — without moving a single
+docling fixture's output. What the `xfail`s are now, by cause — the
+reading-quality gaps this corpus pins down, independent of docling's fixtures:
 
-- **Bullet and numbered lines labelled as one paragraph** (issues 354, 905,
-  part of 755/876/904): the layout model boxes a run of `· item` or `1. item`
-  lines as a single `text` region, so they are one paragraph with the markers
-  inside it instead of list items. OpenDataLoader splits on the markers.
-  Twenty-odd cases; the single largest gap for a read-aloud client.
-- **Nested and wrapped list items** (755): a `o` sub-bullet line below a dash
-  item becomes its own item at the same level, and a dash-led wrapped line of
-  an item becomes a new item; the nested-list indentation in Markdown is lost.
+- **Nested lists** (755, 904): a `o` sub-bullet line indented under a dash item
+  becomes an item at the same level, so the nested-list indentation in
+  Markdown is lost and the sub-items are items of the outer list. The next
+  step of the list-run split: a second marker family at a deeper left edge is
+  level + 1.
+- **List continuity** (905, 354 in two columns): a numbered list whose items
+  are separated by a caption, or by the second column of the page, comes out
+  as two lists; a double-spaced wrapped last line (876) is not joined to its
+  item.
 - **Reading order across sections and columns** (396, 920, 389): a heading or a
   small-text block below two columns that end level is read before the second
   column finishes; two tables of contents side by side interleave their rows.
