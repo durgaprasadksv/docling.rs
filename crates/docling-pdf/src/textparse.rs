@@ -94,6 +94,11 @@ struct Font {
     /// used only as a last resort for glyphs the base encoding leaves unmapped
     /// (standard TeX math fonts: `λ`, `≤`, …).
     program_encoding: HashMap<u8, char>,
+    /// code → the glyph name the embedded Type1 program gives it, every
+    /// code — the only trustworthy identity of a TeX math glyph without a
+    /// ToUnicode (`formula_text` reads it; the base-encoding guess turns
+    /// CMEX's `parenlefttp` at code 0x30 into `0`).
+    program_names: HashMap<u8, std::sync::Arc<str>>,
     ascent: f64,
     descent: f64,
     hash: u64,
@@ -317,11 +322,18 @@ fn parse_font(doc: &Document, name: &[u8], fdict: &Dictionary) -> Font {
     } else {
         differences_gid_names(doc, fdict)
     };
-    let program_encoding = if two_byte {
-        HashMap::new()
+    let (program_encoding, mut program_names) = if two_byte {
+        Default::default()
     } else {
         type1_program_encoding(doc, fdict)
     };
+    // The PDF's own `/Differences` names override the program's encoding
+    // vector, as they do when the glyph is drawn: pdfTeX writes Latin
+    // Modern's math fonts that way, so `summationdisplay` at 0x58 lives
+    // only there.
+    if !two_byte {
+        program_names.extend(differences_names(doc, fdict));
+    }
 
     let (ascent, descent) = font_ascent_descent(doc, fdict, two_byte);
     let sanitizer_name = sanitizer_font_name(doc, fdict, two_byte);
@@ -334,6 +346,7 @@ fn parse_font(doc: &Document, name: &[u8], fdict: &Dictionary) -> Font {
         simple_encoding,
         fallback_names,
         program_encoding,
+        program_names,
         ascent,
         descent,
         hash: hash_name(&sanitizer_name),
@@ -391,6 +404,35 @@ fn reconcile_stale_tounicode(to_unicode: &mut HashMap<u32, String>, diffs: &[Obj
 /// text from being silently dropped (subsetted fonts with no ToUnicode). The
 /// GID-name restriction keeps real Adobe glyph names on the normal path so this
 /// never invents garbage on the clean files.
+/// Every glyph name the font dictionary's `/Encoding /Differences` assigns,
+/// `code → name` (for `formula_text`'s glyph identities).
+fn differences_names(doc: &Document, fdict: &Dictionary) -> HashMap<u8, std::sync::Arc<str>> {
+    let mut map = HashMap::new();
+    let Some(Object::Dictionary(enc)) = fdict.get(b"Encoding").ok().and_then(|o| deref(doc, o))
+    else {
+        return map;
+    };
+    let Some(Object::Array(diffs)) = enc.get(b"Differences").ok().and_then(|o| deref(doc, o))
+    else {
+        return map;
+    };
+    let mut code = 0u8;
+    for el in diffs {
+        match el {
+            Object::Integer(i) => code = *i as u8,
+            Object::Name(name) => {
+                map.insert(
+                    code,
+                    std::sync::Arc::from(String::from_utf8_lossy(name).as_ref()),
+                );
+                code = code.wrapping_add(1);
+            }
+            _ => {}
+        }
+    }
+    map
+}
+
 fn differences_gid_names(doc: &Document, fdict: &Dictionary) -> HashMap<u8, String> {
     let mut map = HashMap::new();
     let Some(Object::Dictionary(enc)) = fdict.get(b"Encoding").ok().and_then(|o| deref(doc, o))
@@ -424,15 +466,20 @@ fn differences_gid_names(doc: &Document, fdict: &Dictionary) -> HashMap<u8, Stri
 /// ToUnicode — e.g. CMMI's `dup 21 /lambda` or CMSY's `dup 20 /lessequal`.
 /// Only `FontFile` (Type1) is parsed; CFF (`FontFile3`) and TrueType
 /// (`FontFile2`) store their encoding in a binary table and are left alone.
-fn type1_program_encoding(doc: &Document, fdict: &Dictionary) -> HashMap<u8, char> {
+#[allow(clippy::type_complexity)]
+fn type1_program_encoding(
+    doc: &Document,
+    fdict: &Dictionary,
+) -> (HashMap<u8, char>, HashMap<u8, std::sync::Arc<str>>) {
     let mut map = HashMap::new();
+    let mut names = HashMap::new();
     let Some(desc) = fdict
         .get(b"FontDescriptor")
         .ok()
         .and_then(|o| deref(doc, o))
         .and_then(|o| o.as_dict().ok())
     else {
-        return map;
+        return (map, names);
     };
     let Some(data) = desc
         .get(b"FontFile")
@@ -441,7 +488,7 @@ fn type1_program_encoding(doc: &Document, fdict: &Dictionary) -> HashMap<u8, cha
         .and_then(|o| o.as_stream().ok())
         .and_then(|s| s.decompressed_content().ok())
     else {
-        return map;
+        return (map, names);
     };
     // The clear-text header (PostScript) ends at `eexec`; the rest is encrypted.
     let head_end = data
@@ -455,6 +502,7 @@ fn type1_program_encoding(doc: &Document, fdict: &Dictionary) -> HashMap<u8, cha
         if w[0] == "dup" && w[3] == "put" {
             if let (Ok(code), Some(name)) = (w[1].parse::<u32>(), w[2].strip_prefix('/')) {
                 if code <= 255 {
+                    names.insert(code as u8, std::sync::Arc::from(name));
                     if let Some(ch) = glyph_name_to_char(name.as_bytes()) {
                         map.insert(code as u8, ch);
                     }
@@ -462,7 +510,7 @@ fn type1_program_encoding(doc: &Document, fdict: &Dictionary) -> HashMap<u8, cha
             }
         }
     }
-    map
+    (map, names)
 }
 
 /// A glyph name that is a synthetic placeholder, not a real Adobe name:
@@ -1276,6 +1324,9 @@ pub struct PageParserCells {
     pub code: Vec<crate::pdfium_backend::TextCell>,
     /// Drawn checkbox squares (#609), in the cells' frame.
     pub checkboxes: Vec<crate::checkbox::CheckBox>,
+    /// The glyphs and thin rules a formula region is rebuilt from
+    /// ([`crate::formula_text`]), in the cells' frame.
+    pub math: crate::formula_text::MathLayer,
 }
 
 /// The parser text layer, driven one page at a time: the document is loaded
@@ -1403,6 +1454,7 @@ impl PageTextParser {
             words,
             code: crate::pdfium_backend::code_cells_from_glyphs(&glyphs, h),
             checkboxes: crate::checkbox::find(&inks, h),
+            math: crate::formula_text::MathLayer::new(&glyphs, &inks, h),
         }
     }
 
@@ -1439,6 +1491,7 @@ impl PageTextParser {
             code_cells: crate::pdfium_backend::code_cells_from_glyphs(&glyphs, h),
             word_cells: words,
             checkboxes: crate::checkbox::find(&inks, h),
+            math: crate::formula_text::MathLayer::new(&glyphs, &inks, h),
             #[cfg(feature = "ocr-prep")]
             image: image::RgbImage::new(1, 1),
             links: Vec::new(),
@@ -2221,6 +2274,22 @@ fn show_text(
         let (ox, oy) = trm.apply(0.0, 0.0);
         let (sx, sy) = trm.apply(0.0, 1.0);
         let pen = Some([ox as f32, oy as f32, (sx - ox).hypot(sy - oy) as f32]);
+        // A code with no ToUnicode entry in a font whose embedded Type1
+        // program names its glyphs: the character the text layer shows is a
+        // guess (the base encoding first — CMEX's `summationdisplay` at 0x58
+        // reads `X`, Latin Modern's `lmex` the same), the program's name is
+        // the glyph's identity. Keep it for `formula_text`, which trusts it
+        // over the guess. Any face, not only one named like a math font:
+        // `lmex`, `txex`, `esint` are not, and a text face's names agree
+        // with its encoding anyway.
+        let unmapped_math = !font.two_byte
+            && !font.program_names.is_empty()
+            && !font.to_unicode.contains_key(&code);
+        let program_name = if unmapped_math {
+            font.program_names.get(&(code as u8)).cloned()
+        } else {
+            None
+        };
         if let Some(s) = text {
             // A run may map one code to multiple chars (ligature/fraction); share box.
             for ch in s.chars() {
@@ -2239,6 +2308,8 @@ fn show_text(
                         quad,
                         pen,
                         math_font: font.math,
+                        unmapped_math,
+                        program_name: program_name.clone(),
                     });
                 }
             }

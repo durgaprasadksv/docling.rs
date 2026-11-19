@@ -62,6 +62,8 @@ ml = [
     "dep:tokenizers",
     "dep:tar",
     "dep:docling-onnx",
+    # `formula_text`'s evaluation dump and regression fixtures.
+    "dep:serde_json",
 ]
 # GPU execution providers (#74). Each feature makes `ort` link/download an
 # ONNX Runtime binary that contains that provider; which provider actually

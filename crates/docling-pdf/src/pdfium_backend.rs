@@ -47,6 +47,10 @@ pub struct PdfPage {
     /// with one in front of it its own checkbox item. Empty without a text
     /// layer (OCR pages) or vector paths.
     pub checkboxes: Vec<crate::checkbox::CheckBox>,
+    /// The glyphs and thin rules a formula region is rebuilt from
+    /// ([`crate::formula_text`]); empty on a scan and on a `/Rotate`d page
+    /// (its glyphs are not in the display frame).
+    pub math: crate::formula_text::MathLayer,
     /// The rendered page bitmap. Present whenever pixels are available at all
     /// (`ocr-prep` ⊂ `ml`): the native pipeline renders it with pdfium, the
     /// browser pipeline receives it from the host canvas. Picture regions are
@@ -118,6 +122,7 @@ impl PdfPage {
             code_cells: Vec::new(),
             word_cells: Vec::new(),
             checkboxes: Vec::new(),
+            math: Default::default(),
             #[cfg(feature = "ocr-prep")]
             image: RgbImage::new(0, 0),
             #[cfg(feature = "ocr-prep")]
@@ -1212,6 +1217,11 @@ fn extract_page(
     let rc = rust_cells.unwrap_or_default();
     let (mut cells, mut code_cells, mut word_cells) = (rc.prose, rc.code, rc.words);
     let mut checkboxes = rc.checkboxes;
+    let math = if rotation == 0 {
+        rc.math
+    } else {
+        Default::default()
+    };
     if rotation != 0 {
         for c in cells
             .iter_mut()
@@ -1414,6 +1424,7 @@ fn extract_page(
         code_cells,
         word_cells,
         checkboxes,
+        math,
         image,
         links,
         rotation: 0,
@@ -1522,6 +1533,11 @@ pub(crate) struct Glyph {
     /// `has_math_positioning_semantics`): a sub- or superscript in it next to
     /// its base is attached, not a new word (#921).
     pub(crate) math_font: bool,
+    /// A math face's glyph with no ToUnicode entry: `ch` is a guess, and
+    /// `program_name` (the embedded Type1 program's name for the code, when
+    /// it has one) is what `formula_text` reads instead.
+    pub(crate) unmapped_math: bool,
+    pub(crate) program_name: Option<std::sync::Arc<str>>,
 }
 
 impl Glyph {

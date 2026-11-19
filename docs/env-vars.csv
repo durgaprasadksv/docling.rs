@@ -1,5 +1,6 @@
 name,category,source
 DOCLING_RS_DJVU_RENDER_PX,limit,crates/docling/src/backend/djvu.rs
+DOCLING_RS_FORMULA_TEXT_LAYER,operational,crates/docling-pdf/src/formula_text.rs
 DOCLING_RS_MAX_FETCH_BYTES,limit,crates/docling/src/fetch.rs
 DOCLING_RS_MAX_HTML_DEPTH,limit,crates/docling/src/backend/html.rs
 DOCLING_RS_MAX_IMAGE_PIXELS,limit,crates/docling-pdf/src/lib.rs

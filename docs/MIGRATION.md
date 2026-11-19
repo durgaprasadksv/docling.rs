@@ -2493,6 +2493,28 @@ These are deliberate or unavoidable divergences, not bugs.
    `document_index` table of entry and page with the cells' boxes
    (`assemble::toc_rows`); the `reader` export reads it as contents entries.
    `DOCLING_RS_TOC_ROWS=0` restores the paragraph.
+24. **A formula typeset as text is rebuilt from the text layer, not
+   decoded by the VLM.** With formula enrichment on, docling crops every
+   `formula` region from a page render and has CodeFormulaV2 write its
+   LaTeX — seconds of GPU per formula — even when the PDF holds the formula
+   as glyphs (TeX's Computer Modern faces, a word processor's equation
+   runs). Those glyphs carry every symbol with its exact size and baseline,
+   and the structure the flat text loses is geometry: a script is a smaller
+   glyph raised or lowered from its base, a fraction two stacks either side
+   of a drawn rule, a root a radical with a vinculum. `formula_text`
+   rebuilds it (scripts, fractions, roots, accents, over/underlines,
+   operator limits, function names, multi-line displays) in microseconds and
+   spells it the way the model does (`a ^ { 2 } + 8 = 1 2`, byte-identical
+   to docling's on `code_and_formula.pdf`). It gives up — and the region
+   goes to the model as before — on anything it cannot explain: an unmapped
+   glyph or extensible-delimiter piece, a rule that is neither bar nor
+   vinculum, stacked full-size glyphs (a matrix), rotated text, and a
+   formula drawn as vector outlines (MathJax output printed to PDF), which
+   has no glyphs at all. A document whose formulas all rebuild never loads
+   the model. On pdf-parse-bench's born-digital PDFs it rebuilds 84% of the
+   display formulas the layout model boxes, 76% of those exactly as the
+   ground truth (docs/PDF_CONFORMANCE.md). `DOCLING_RS_FORMULA_TEXT_LAYER=0`
+   sends every formula to the model.
 
 ## 5. Not migrated / out of scope
 

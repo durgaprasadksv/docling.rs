@@ -37,6 +37,9 @@ pub use docling_onnx as ep;
 #[cfg(feature = "render")]
 pub mod dparse_render;
 mod font_style;
+// Formulas rebuilt from the text layer before the VLM is asked. Public for
+// its replay example (`examples/formula_text_replay.rs`) and fixture test.
+pub mod formula_text;
 mod heading_hierarchy;
 pub mod layout;
 #[cfg(feature = "ml")]
@@ -2617,11 +2620,58 @@ impl Worker {
                 });
             }
         }
+        // A formula typeset as text is rebuilt from the text layer first
+        // (`formula_text`): its glyphs carry every symbol, size and baseline
+        // the VLM would read off the pixels, so the structure is a few
+        // microseconds of geometry instead of seconds of decoding — and the
+        // model is not even loaded for a document whose formulas all read
+        // this way. A region it cannot rebuild with confidence (a formula
+        // drawn as outlines, an unmapped glyph, a matrix) still goes to the
+        // model below. Deliberate divergence (docs/MIGRATION.md):
+        // `DOCLING_RS_FORMULA_TEXT_LAYER=0` sends every formula to the model.
+        let mut from_text = vec![false; regions.len()];
+        if self.enrich.formula && formula_text::enabled() && !page.math.is_empty() {
+            for (i, r) in regions.iter().enumerate() {
+                if r.label != "formula" || is_nested_formula(r, &regions) {
+                    continue;
+                }
+                let bbox = match assemble::region_cell_bbox(r, &page.cells) {
+                    Some([cl, ct, cr, cb]) => [cl.min(r.l), ct.min(r.t), cr.max(r.r), cb.max(r.b)],
+                    None => [r.l, r.t, r.r, r.b],
+                };
+                let rebuilt =
+                    timing::timed("formula_text", || formula_text::explain(&page.math, bbox));
+                if let Some(dir) = docling_core::env::nonempty("DOCLING_RS_FORMULA_TEXT_DUMP") {
+                    use std::sync::atomic::{AtomicUsize, Ordering};
+                    static SEQ: AtomicUsize = AtomicUsize::new(0);
+                    let k = SEQ.fetch_add(1, Ordering::Relaxed);
+                    let mut rec = formula_text::dump_json(&page.math, bbox, &rebuilt);
+                    rec["page"] = serde_json::json!(n + 1);
+                    let _ =
+                        std::fs::write(format!("{dir}/p{:04}_{k:05}.json", n + 1), rec.to_string());
+                }
+                match rebuilt {
+                    Ok(latex) => {
+                        docling_core::debug_log!("formula_text: page {}: {latex}", n + 1);
+                        enrich_out[i] = Some(assemble::Enrichment::Formula { latex });
+                        from_text[i] = true;
+                    }
+                    Err(why) => docling_core::debug_log!(
+                        "formula_text: page {}: left to the model: {why}",
+                        n + 1
+                    ),
+                }
+            }
+        }
         if let Some(slot) = self.code_formula.as_ref() {
             let wants = |label: &str| {
                 (label == "code" && self.enrich.code) || (label == "formula" && self.enrich.formula)
             };
-            if regions.iter().any(|r| wants(r.label)) {
+            if regions
+                .iter()
+                .enumerate()
+                .any(|(i, r)| wants(r.label) && !from_text[i])
+            {
                 timing::timed("code_formula", || {
                     let mut guard = lock_lane(slot);
                     if matches!(*guard, EnrichSlot::Unloaded) {
@@ -2657,7 +2707,7 @@ impl Worker {
                             }
                         };
                         for (i, r) in regions.iter().enumerate() {
-                            if !wants(r.label) {
+                            if !wants(r.label) || from_text[i] {
                                 continue;
                             }
                             // A formula nested inside a larger one is consumed
@@ -4484,6 +4534,7 @@ impl Pipeline {
             cells: Vec::new(),
             code_cells: Vec::new(),
             checkboxes: Vec::new(),
+            math: Default::default(),
             word_cells: Vec::new(),
             // A standalone image *is* its own scale-1.0 page image, so the
             // layout model sees it through the docling-exact PIL kernel.

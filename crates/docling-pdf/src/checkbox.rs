@@ -66,7 +66,11 @@ impl Ink {
     pub(crate) fn worth_keeping(&self) -> bool {
         let (l, b, r, t) = self.bbox();
         let reach = MAX_SIDE + TOL;
-        (r - l) <= reach && (t - b) <= reach
+        // A thin horizontal rule of any length is kept too: a fraction bar
+        // or a radical's vinculum, which `formula_text` reads (`find` never
+        // takes one for a checkbox side: too long, or too thin to square).
+        let rule = (t - b) <= 2.0 && (r - l) >= 3.0 * (t - b);
+        ((r - l) <= reach && (t - b) <= reach) || rule
     }
 }
 

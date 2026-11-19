@@ -1308,6 +1308,8 @@ mod tests {
             quad: None,
             pen: None,
             math_font: false,
+            unmapped_math: false,
+            program_name: None,
         }
     }
 
@@ -1403,6 +1405,8 @@ mod tests {
             quad: None,
             pen: None,
             math_font: false,
+            unmapped_math: false,
+            program_name: None,
         };
         let mut g = Vec::new();
         let mut run = |text: &str, edges: &[f32], font: u64| {
@@ -1462,6 +1466,8 @@ mod tests {
             t: y + 0.8 * size,
             pen: pen.then_some([l, y, size]),
             math_font: math,
+            unmapped_math: false,
+            program_name: None,
             ..glyph(ch, l, l + 0.5 * size)
         };
         let line = |rise: f32, math: bool, pen: bool| {
