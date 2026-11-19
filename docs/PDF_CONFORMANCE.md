@@ -870,6 +870,47 @@ These are deviations from OpenDataLoader, not from docling — docling's own
 pipeline makes the same layout-model calls on these pages. They are recorded
 here as measured targets; closing one updates its case to `pass`.
 
+## pdf-parse-bench: every element of 300 born-digital PDFs (measured)
+
+[pdf-parse-bench](https://huggingface.co/datasets/piushorn/pdf-parse-bench)
+compiles PDFs from LaTeX with randomised fonts, classes and layouts and ships
+the exact ground truth of each: text passages, inline and display formulas
+(Wikipedia's), tables (LaTeX `tabular`). All three sets — the 2026-q1
+formulas and tables configs and the repository's 2025-q4 set, 300 PDFs —
+are converted (layout model on, formula VLM off, so formulas measure the
+text-layer reconstruction alone) and every ground-truth element is scored;
+`scripts/conformance/pdf_parse_bench.sh` re-runs it and fails on any element
+that got worse than `tests/data/pdf/pdf_parse_bench/expected.json`.
+
+| Element | Count | Result |
+|---|---|---|
+| Text passage | 5,921 | 5,897 found word for word, 24 partial |
+| Inline formula | 2,824 | 2,573 with every character in the text, 251 missing some |
+| Display formula | 1,298 | 643 exact, 77 near, 125 wrong, 166 left to the model, 287 never boxed as a formula |
+| Table | 451 | 103 exact grid, 138 cell F1 ≥ 0.9, 142 ≥ 0.5, 68 below |
+
+Display formulas are scored after canonicalising both sides
+(`scripts/conformance/formula_text_eval.py`: `\left`, spacing and font
+switches dropped, synonyms unified); of the 1,011 the layout model boxed, the
+text layer rebuilt 845 (84%), 76% of those exactly and 15% wrong. Every one
+of the 1,011 regions is frozen in `tests/data/pdf/formula_text/cases.json`
+and replayed by a unit test with no PDF or model.
+
+What the misses are, as measured:
+
+- **Display formulas never boxed** (287): the layout model labels them text
+  or merges them into a paragraph; nothing downstream sees them.
+- **Wrong rebuilds** (125): mostly matrices and `aligned` blocks read as
+  rows without their columns, a region that swallowed a neighbouring
+  formula, and a few binomials and stacked operators.
+- **Inline formulas missing characters** (251): math-italic Greek in running
+  text dropped or misread by the text layer (`χ` lost, `π` read as `9`),
+  and inline formulas the layout model boxed that the reconstruction
+  refused (with the VLM off they leave only the placeholder).
+- **Tables** below F1 0.5 (68): TableFormer merging several rows into one
+  cell, rows shifted by one, and a calligraphic letter extracted as a
+  private-use character.
+
 ## Remaining blockers (model-level)
 
 These yield smaller or uncertain gains than the text-layer work already shipped.
