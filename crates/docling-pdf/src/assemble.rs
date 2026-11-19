@@ -1970,6 +1970,89 @@ fn list_item_node(text: &str, loc: [u16; 4], first_in_list: bool) -> Node {
     }
 }
 
+/// [`list_item_node`] with the item's word spans, which index `text` as the
+/// region (or list line) read it — marker included. The item's own text has
+/// the marker split off (`• Explain the…` → `Explain the…`), so the spans are
+/// rebased onto it: the marker's span goes, the rest move back by the
+/// marker's length. Without this every word's `charspan` pointed a marker's
+/// length too far right (`Explain` → `plain t`) while its box was right — a
+/// client highlighting word *n* by its character range found the wrong box.
+/// When the item text cannot be located in `text` the spans are dropped: no
+/// word boxes beat wrong ones.
+fn list_item_with_spans(
+    text: &str,
+    spans: Option<Vec<CellSpan>>,
+    loc: [u16; 4],
+    first_in_list: bool,
+) -> Node {
+    let mut node = list_item_node(text, loc, first_in_list);
+    if let Node::ListItem {
+        text: item,
+        spans: own,
+        ..
+    } = &mut node
+    {
+        *own = spans
+            .filter(|s| !s.is_empty())
+            .and_then(|s| rebase_item_spans(text, &md_unescape(item), &s));
+    }
+    node
+}
+
+/// The inverse of [`md_escape`].
+fn md_unescape(text: &str) -> String {
+    text.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("\\_", "_")
+}
+
+/// Spans over `original` re-expressed over `item`, a marker-less (or
+/// marker-respaced) version of it; `None` when `item` cannot be placed.
+fn rebase_item_spans(original: &str, item: &str, spans: &[CellSpan]) -> Option<Vec<CellSpan>> {
+    let chars = |s: &str| s.chars().count() as u32;
+    // Pieces of `item` found in `original`: (start in original, length,
+    // start in item). The item verbatim; else the marker it re-spells and
+    // its body separately (`a) text` from `a)  text`).
+    let pieces: Vec<(u32, u32, u32)> = match original.find(item) {
+        Some(at) => vec![(chars(&original[..at]), chars(item), 0)],
+        None => {
+            let (head, body) = item.split_once(' ')?;
+            let body = body.trim_start();
+            let at = original.find(body)?;
+            let mut pieces = Vec::new();
+            if let Some(h) = original[..at].find(head) {
+                pieces.push((chars(&original[..h]), chars(head), 0));
+            }
+            pieces.push((
+                chars(&original[..at]),
+                chars(body),
+                chars(item) - chars(body),
+            ));
+            pieces
+        }
+    };
+    let out: Vec<CellSpan> = spans
+        .iter()
+        .filter_map(|s| {
+            // The piece the span ends in; a span that starts before it — a
+            // whole line read as one cell, marker and all — is clipped to it,
+            // and one inside a dropped marker has none and goes.
+            let &(from, len, to) = pieces
+                .iter()
+                .find(|&&(from, len, _)| s.char_end > from && s.char_start < from + len)?;
+            let start = s.char_start.max(from) - from + to;
+            let end = s.char_end.min(from + len) - from + to;
+            (start < end).then_some(CellSpan {
+                char_start: start,
+                char_end: end,
+                ..*s
+            })
+        })
+        .collect();
+    (!out.is_empty()).then_some(out)
+}
+
 fn parse_ordered_marker(s: &str) -> Option<(u64, String)> {
     let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
     if digits.is_empty() {
@@ -3046,6 +3129,22 @@ fn refine_with_words(spans: Vec<CellSpan>, text: &str, word_cells: &[TextCell]) 
         if toks.len() != inside.len() {
             out.push(span);
             continue;
+        }
+        // x order is reading order only for a line that runs left to right.
+        // On a page turned 180° (`/Rotate 180`, boxes in the display frame)
+        // or in a right-to-left script the first token is the right-most
+        // word, and pairing by ascending x handed every word its mirror's
+        // box. Take whichever direction the word cells' own text agrees with.
+        let agree = |ws: &mut dyn Iterator<Item = &&TextCell>| {
+            toks.iter()
+                .zip(ws)
+                .filter(|(&(cs, ce), w)| {
+                    w.text.trim() == chars[cs as usize..ce as usize].iter().collect::<String>()
+                })
+                .count()
+        };
+        if agree(&mut inside.iter().rev()) > agree(&mut inside.iter()) {
+            inside.reverse();
         }
         for ((cs, ce), w) in toks.into_iter().zip(inside) {
             out.push(CellSpan {
@@ -4328,7 +4427,12 @@ pub fn assemble_page(
             // for an `N.` marker and `- a) text` for any other marker holding a
             // letter or digit (see [`list_item_node`]). The symbol-font bullets
             // docling-parse filters out of its cells are stripped first.
-            "list_item" => nodes.push(list_item_node(&text, loc, false)),
+            "list_item" => nodes.push(list_item_with_spans(
+                &text,
+                region_spans[i].clone(),
+                loc,
+                false,
+            )),
             // TableFormer structure (cells + spans, text matched from word cells)
             // when available; otherwise geometric grid reconstruction; finally a
             // single cell.
@@ -4537,15 +4641,12 @@ pub fn assemble_page(
                                 r: item.bbox[2],
                                 b: item.bbox[3],
                             };
-                            let mut node = list_item_node(
+                            nodes.push(list_item_with_spans(
                                 &item.text,
+                                Some(item.spans),
                                 norm_loc(&item_region, page.width, page_h),
                                 k == 0,
-                            );
-                            if let Node::ListItem { spans, .. } = &mut node {
-                                *spans = (!item.spans.is_empty()).then_some(item.spans);
-                            }
-                            nodes.push(node);
+                            ));
                         }
                         continue;
                     }
@@ -4688,11 +4789,9 @@ pub fn assemble_page(
             // match, so the items would silently stop being lists in
             // JSON/DCLX while Markdown (which renders through wrappers)
             // still looked right.
-            if let Node::ListItem { spans: own, .. } = node {
-                // An item split out of a list run already carries its own.
-                if own.is_none() {
-                    *own = Some(spans.clone());
-                }
+            // Its spans were attached, rebased past the marker, when it was
+            // built (`list_item_with_spans`).
+            if matches!(node, Node::ListItem { .. }) {
                 continue;
             }
             let inner = std::mem::replace(node, Node::PageBreak);
@@ -6475,6 +6574,102 @@ mod tests {
     /// one per marker line, a wrapped (indented) line joining the item above
     /// it, each with its own word spans — while prose that merely contains a
     /// dash stays one paragraph, and a run of two marker families does too.
+    /// A line whose words run right to left on the page — a `/Rotate 180`
+    /// page in its display frame, or a right-to-left script — pairs each
+    /// word with its own box, not its mirror's.
+    #[test]
+    fn word_boxes_follow_the_line_direction() {
+        use super::{refine_with_words, CellSpan};
+        let line = CellSpan {
+            char_start: 0,
+            char_end: 16,
+            l: 0.0,
+            t: 0.0,
+            r: 300.0,
+            b: 10.0,
+        };
+        let text = "alpha beta gamma";
+        let ltr = [
+            cell("alpha", 0.0, 0.0, 50.0, 10.0),
+            cell("beta", 60.0, 0.0, 100.0, 10.0),
+            cell("gamma", 110.0, 0.0, 300.0, 10.0),
+        ];
+        let rtl = [
+            cell("gamma", 0.0, 0.0, 190.0, 10.0),
+            cell("beta", 200.0, 0.0, 240.0, 10.0),
+            cell("alpha", 250.0, 0.0, 300.0, 10.0),
+        ];
+        for (cells, want) in [(&ltr, [0.0, 60.0, 110.0]), (&rtl, [250.0, 200.0, 0.0])] {
+            let got: Vec<f32> = refine_with_words(vec![line], text, cells)
+                .iter()
+                .map(|s| s.l)
+                .collect();
+            assert_eq!(got, want);
+        }
+    }
+
+    #[test]
+    fn list_item_word_spans_index_the_text_without_its_marker() {
+        use super::{list_item_with_spans, CellSpan};
+        let span = |a: u32, b: u32| CellSpan {
+            char_start: a,
+            char_end: b,
+            l: a as f32,
+            t: 0.0,
+            r: b as f32,
+            b: 10.0,
+        };
+        // (line as read, its words' ranges, the item text's words)
+        let cases: [(&str, Vec<CellSpan>, &[&str]); 4] = [
+            (
+                "• Explain the Lewis model",
+                vec![
+                    span(0, 1),
+                    span(2, 9),
+                    span(10, 13),
+                    span(14, 19),
+                    span(20, 25),
+                ],
+                &["Explain", "the", "Lewis", "model"],
+            ),
+            (
+                "3. Third step",
+                vec![span(0, 2), span(3, 8), span(9, 13)],
+                &["Third", "step"],
+            ),
+            // A marker kept in the text (`case_auto`), re-spaced.
+            (
+                "a)  Option one",
+                vec![span(0, 2), span(4, 10), span(11, 14)],
+                &["a)", "Option", "one"],
+            ),
+            // A glued symbol-font bullet docling strips: the first word's
+            // range loses the glyph.
+            (
+                "•Glued bullet",
+                vec![span(0, 6), span(7, 13)],
+                &["Glued", "bullet"],
+            ),
+        ];
+        for (line, spans, want) in cases {
+            let node = list_item_with_spans(line, Some(spans), [0; 4], true);
+            let Node::ListItem { text, spans, .. } = node else {
+                panic!("{line}: not a list item");
+            };
+            let chars: Vec<char> = text.chars().collect();
+            let got: Vec<String> = spans
+                .unwrap_or_default()
+                .iter()
+                .map(|s| {
+                    chars[s.char_start as usize..s.char_end as usize]
+                        .iter()
+                        .collect()
+                })
+                .collect();
+            assert_eq!(got, want, "{line} → {text:?}");
+        }
+    }
+
     #[test]
     fn a_text_region_of_bullet_lines_becomes_list_items() {
         let lines = vec![

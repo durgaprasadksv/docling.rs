@@ -67,6 +67,20 @@ covered words from their boxes and falls back to spacing the rest evenly over
 the chunk box. Formula chunks carry no `w`: the spoken form is not the item's
 text.
 
+### Matching the page a viewer draws
+
+The boxes are computed from the page's text drawing instructions, the same
+arithmetic every conforming PDF library does, in the page's display frame:
+the CropBox (clipped to the MediaBox) with `/Rotate` applied, the frame
+pdfium and `pageSizes` use. Measured against pdfium's own character boxes
+(`scripts/conformance/word_boxes_vs_pdfium.py`) on textbook, paper, novel and
+math pages and on pages with an offset CropBox, a shifted MediaBox and each
+`/Rotate`: left, right and top edges agree to 0.01 pt, the bottom within 0.3 pt
+(the two take a font's descent differently); on a page turned 90°, 180° or
+270° the edges across the line differ by up to 2 pt the same way. A viewer maps a box to pixels with its own page scale
+(`x·s`, `(pageHeight − tp)·s`), so zoom, a landscape screen or a reflowed
+layout change the scale, never the box.
+
 ### Dot leaders
 
 `Notices . . . . . . . . 1` — four or more periods, optionally
