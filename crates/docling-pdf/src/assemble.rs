@@ -1715,6 +1715,170 @@ fn list_run_items(lines: &[&TextCell], word_cells: &[TextCell]) -> Option<Vec<Li
     Some(items)
 }
 
+/// `DOCLING_RS_TOC_ROWS` (default on): read a `text` region whose lines are
+/// the rows of a table of contents as those rows — see [`toc_rows`]. Off
+/// reproduces docling's one-paragraph output for such a region.
+fn toc_rows_enabled() -> bool {
+    docling_core::env::nonempty("DOCLING_RS_TOC_ROWS").is_none()
+        || docling_core::env::flag("DOCLING_RS_TOC_ROWS")
+}
+
+/// One row of a table of contents read out of a `text` region: the entry,
+/// its page number, and the two boxes (top-left page points).
+struct TocRow {
+    entry: String,
+    page: String,
+    entry_box: [f32; 4],
+    page_box: [f32; 4],
+}
+
+/// Whether a cell is a dot leader (`. . . . .` or `......`) and nothing else.
+fn is_leader(text: &str) -> bool {
+    let t = text.trim();
+    t.chars().filter(|c| *c == '.' || *c == '·').count() >= 3
+        && t.chars().all(|c| c == '.' || c == '·' || c.is_whitespace())
+}
+
+/// The page number a contents entry ends in, with the text before it:
+/// `Introduction . . . . 03` → (`Introduction`, `03`). Up to five digits,
+/// after some text; the leaders between them are dropped.
+fn split_toc_page(text: &str) -> Option<(String, String)> {
+    let t = text.trim_end();
+    let digits = t.chars().rev().take_while(char::is_ascii_digit).count();
+    if digits == 0 || digits > 5 {
+        return None;
+    }
+    let page = t[t.len() - digits..].to_string();
+    let head = t[..t.len() - digits].trim_end();
+    let head = head.trim_end_matches(|c: char| c == '.' || c == '·' || c.is_whitespace());
+    if head.is_empty() || !head.chars().any(char::is_alphanumeric) {
+        return None;
+    }
+    Some((head.to_string(), page))
+}
+
+/// The region's line cells grouped into visual rows: cells whose vertical
+/// extents overlap by at least half the smaller height share a row; rows top
+/// to bottom, cells left to right.
+fn visual_rows<'a>(lines: &[&'a TextCell]) -> Vec<Vec<&'a TextCell>> {
+    let mut sorted: Vec<&TextCell> = lines.to_vec();
+    sorted.sort_by(|a, b| (a.t.min(a.b)).total_cmp(&(b.t.min(b.b))));
+    let mut rows: Vec<Vec<&TextCell>> = Vec::new();
+    for c in sorted {
+        let (ct, cb) = (c.t.min(c.b), c.t.max(c.b));
+        let joined = rows.last_mut().filter(|row| {
+            let (rt, rb) = row
+                .iter()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(t, b), x| {
+                    (t.min(x.t.min(x.b)), b.max(x.t.max(x.b)))
+                });
+            let overlap = cb.min(rb) - ct.max(rt);
+            overlap > 0.5 * (cb - ct).min(rb - rt).max(0.1)
+        });
+        match joined {
+            Some(row) => row.push(c),
+            None => rows.push(vec![c]),
+        }
+    }
+    for row in &mut rows {
+        row.sort_by(|a, b| a.l.total_cmp(&b.l));
+    }
+    rows
+}
+
+/// The rows of a table of contents a `text` region holds — or `None` when
+/// the region is prose.
+///
+/// A contents page drawn column by column (the numbers, then the titles,
+/// then the page numbers, each as its own text run) reaches the assembler as
+/// one `text` region whose cells arrive in content-stream order, so its
+/// paragraph reads "01 02 03 Introduction Methods Results 03 14 22": every
+/// word present, no row intact. OpenDataLoader's synthetic page corpus
+/// (`tests/data/pdf/opendataloader/`, issues 389, 878, 888) scored zero on
+/// structural parity for exactly this. The cells' geometry still holds the
+/// rows: cells on one baseline are one row, and a row that ends in a page
+/// number is an entry. docling itself emits the paragraph; a deliberate
+/// divergence (docs/MIGRATION.md), behind `DOCLING_RS_TOC_ROWS`.
+///
+/// Conservative, so prose is never cut into rows: at least three rows; every
+/// row ends in a page number ([`split_toc_page`]); and each row is either
+/// several cells (the columns), one cell with a dot leader, or one cell in a
+/// region whose rows all end at the same right edge — page numbers set flush
+/// right — while a paragraph's lines end ragged, and rarely all in numbers.
+fn toc_rows(lines: &[&TextCell]) -> Option<Vec<TocRow>> {
+    let rows = visual_rows(lines);
+    if rows.len() < 3 {
+        return None;
+    }
+    // Flush-right rows: every row's right edge within a line height of the
+    // rightmost.
+    let line_h = rows
+        .iter()
+        .flat_map(|r| r.iter().map(|c| (c.b - c.t).abs()))
+        .fold(0.0f32, f32::max)
+        .max(1.0);
+    let row_right = |r: &Vec<&TextCell>| r.iter().map(|c| c.r).fold(f32::NEG_INFINITY, f32::max);
+    let right = rows.iter().map(row_right).fold(f32::NEG_INFINITY, f32::max);
+    let flush_right = rows.iter().all(|r| right - row_right(r) <= line_h);
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let cells: Vec<&TextCell> = row
+            .iter()
+            .copied()
+            .filter(|c| !is_leader(&c.text))
+            .collect();
+        if cells.is_empty() {
+            return None;
+        }
+        let text = cells_text_keep_wrap(cells.clone());
+        let text = text.trim_end_matches('\u{ad}').to_string();
+        let (entry, page) = split_toc_page(&text)?;
+        let has_leader = row.iter().any(|c| is_leader(&c.text))
+            || text.contains(". . .")
+            || text.contains("...");
+        if cells.len() < 2 && !has_leader && !flush_right {
+            return None;
+        }
+        let union = |cs: &[&TextCell]| {
+            cs.iter().fold(
+                [
+                    f32::INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::NEG_INFINITY,
+                ],
+                |a, c| {
+                    [
+                        a[0].min(c.l),
+                        a[1].min(c.t.min(c.b)),
+                        a[2].max(c.r),
+                        a[3].max(c.t.max(c.b)),
+                    ]
+                },
+            )
+        };
+        // The page number's own cell when it is one (a column of numbers),
+        // else the row's box for both.
+        let last = cells[cells.len() - 1];
+        let (entry_box, page_box) = if cells.len() >= 2 && last.text.trim() == page {
+            (
+                union(&cells[..cells.len() - 1]),
+                union(&cells[cells.len() - 1..]),
+            )
+        } else {
+            let all = union(&cells);
+            (all, all)
+        };
+        out.push(TocRow {
+            entry,
+            page,
+            entry_box,
+            page_box,
+        });
+    }
+    Some(out)
+}
+
 /// A PDF `list_item` region as docling emits it: `ListItemMarkerProcessor`
 /// splits the marker off (see [`split_list_marker`]), and docling-core's
 /// Markdown list serializer (default `orig_list_item_marker_mode = AUTO`,
@@ -4386,6 +4550,74 @@ pub fn assemble_page(
                         continue;
                     }
                 }
+                // A `text` region whose lines are the rows of a table of
+                // contents becomes a two-column table of entry and page (see
+                // `toc_rows`); the reader export reads such a table as
+                // contents entries.
+                if region.label == "text" && merge_suffix[i].is_empty() && toc_rows_enabled() {
+                    let lines: Vec<&TextCell> =
+                        owned_cells[i].iter().map(|&c| &page.cells[c]).collect();
+                    if let Some(rows) = toc_rows(&lines) {
+                        let mut union = [
+                            f32::INFINITY,
+                            f32::INFINITY,
+                            f32::NEG_INFINITY,
+                            f32::NEG_INFINITY,
+                        ];
+                        let mut cells = Vec::with_capacity(rows.len() * 2);
+                        let mut grid = Vec::with_capacity(rows.len());
+                        for (r, row) in rows.iter().enumerate() {
+                            for b in [row.entry_box, row.page_box] {
+                                union = [
+                                    union[0].min(b[0]),
+                                    union[1].min(b[1]),
+                                    union[2].max(b[2]),
+                                    union[3].max(b[3]),
+                                ];
+                            }
+                            for (c, (text, bbox)) in
+                                [(&row.entry, row.entry_box), (&row.page, row.page_box)]
+                                    .into_iter()
+                                    .enumerate()
+                            {
+                                cells.push(docling_core::TableCell {
+                                    text: text.clone(),
+                                    bbox: Some(bbox),
+                                    start_row: r,
+                                    start_col: c,
+                                    row_span: 1,
+                                    col_span: 1,
+                                    column_header: false,
+                                    row_header: false,
+                                    row_section: false,
+                                });
+                            }
+                            grid.push(vec![md_escape(&row.entry), row.page.clone()]);
+                        }
+                        let table_region = Region {
+                            label: "document_index",
+                            score: region.score,
+                            l: union[0],
+                            t: union[1],
+                            r: union[2],
+                            b: union[3],
+                        };
+                        nodes.push(located(
+                            norm_loc(&table_region, page.width, page_h),
+                            Node::Table(Table {
+                                rows: grid,
+                                location: None,
+                                structure: None,
+                                cell_blocks: None,
+                                cells: Some(cells),
+                                caption: None,
+                                caption_parent: CaptionParent::Item,
+                                caption_location: None,
+                            }),
+                        ));
+                        continue;
+                    }
+                }
                 // docling parity (`PageAssembleModel._match_hyperlink`): when
                 // link annotations cover ≥ half of the region's box, the
                 // hyperlink attaches to the item and the legacy Markdown
@@ -6307,7 +6539,7 @@ mod tests {
 
         // Prose with a dash at a line start is not a list: the dash line is
         // not the first, and the other lines sit at the margin.
-        let prose = vec![
+        let prose = [
             cell(
                 "The board meets in the town hall on",
                 72.0,
@@ -6328,7 +6560,7 @@ mod tests {
         assert!(super::list_run_items(&refs, &[]).is_none());
 
         // Two marker families in one region are not one run.
-        let mixed = vec![
+        let mixed = [
             cell("· First bullet", 72.0, 100.0, 300.0, 112.0),
             cell("1. First step", 72.0, 114.0, 300.0, 126.0),
         ];
@@ -6356,6 +6588,136 @@ mod tests {
             })
             .collect();
         assert_eq!(numbers, [1, 2, 3], "{nodes:?}");
+    }
+
+    /// A contents page drawn column by column — numbers, titles, page numbers
+    /// as separate cells on shared baselines — becomes one row per entry
+    /// (entry, page) with the cells' boxes; rows drawn as whole lines with dot
+    /// leaders too; prose whose lines end in numbers does not.
+    #[test]
+    fn a_text_region_of_contents_rows_becomes_entries() {
+        let mut lines = Vec::new();
+        for (i, (n, title, pg)) in [
+            ("01", "Introduction", "03"),
+            ("02", "Background of the plan", "09"),
+            ("03", "Methods", "14"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            let y = 100.0 + 18.0 * i as f32;
+            lines.push(cell(n, 100.0, y, 112.0, y + 10.0));
+            lines.push(cell(title, 128.0, y, 260.0, y + 10.0));
+            lines.push(cell(". . . . . .", 262.0, y + 3.0, 318.0, y + 10.0));
+            lines.push(cell(pg, 322.0, y, 340.0, y + 10.0));
+        }
+        // Drawn by columns: the cells arrive column by column, not row by row.
+        lines.sort_by(|a, b| a.l.total_cmp(&b.l).then(a.t.total_cmp(&b.t)));
+        let refs: Vec<&TextCell> = lines.iter().collect();
+        let rows = super::toc_rows(&refs).expect("a table of contents");
+        let got: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|r| (r.entry.as_str(), r.page.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("01 Introduction", "03"),
+                ("02 Background of the plan", "09"),
+                ("03 Methods", "14")
+            ]
+        );
+        assert_eq!(rows[0].page_box, [322.0, 100.0, 340.0, 110.0]);
+        assert_eq!(rows[0].entry_box[0], 100.0);
+
+        // Through the assembler: a two-column table whose cells carry boxes.
+        let page = PdfPage::from_cells(400.0, 300.0, 2.0, lines.clone());
+        let regions = vec![region("text", 0.9, 98.0, 98.0, 342.0, 148.0)];
+        let (nodes, _) = super::assemble_page(&page, regions, &[None], &[None], None);
+        let table = nodes
+            .iter()
+            .find_map(|n| match super::content(n) {
+                Node::Table(t) => Some(t),
+                _ => None,
+            })
+            .expect("a table node: {nodes:?}");
+        assert_eq!(table.rows.len(), 3);
+        assert_eq!(table.rows[1], ["02 Background of the plan", "09"]);
+        assert_eq!(table.cells.as_ref().map(Vec::len), Some(6));
+
+        // Whole-line rows with leaders.
+        let whole = [
+            cell(
+                "01 Introduction . . . . . . . . 03",
+                100.0,
+                100.0,
+                340.0,
+                110.0,
+            ),
+            cell(
+                "02 Background of the plan . . . 09",
+                100.0,
+                118.0,
+                340.0,
+                128.0,
+            ),
+            cell(
+                "03 Methods . . . . . . . . . . . 14",
+                100.0,
+                136.0,
+                340.0,
+                146.0,
+            ),
+        ];
+        let refs: Vec<&TextCell> = whole.iter().collect();
+        let rows = super::toc_rows(&refs).expect("rows with leaders");
+        assert_eq!(rows[2].entry, "03 Methods");
+        assert_eq!(rows[2].page, "14");
+
+        // Rows drawn as whole lines without leaders, page numbers flush right.
+        let flush = [
+            cell("Introduction 7", 100.0, 100.0, 340.0, 110.0),
+            cell(
+                "1. Changing practices of the town 7",
+                100.0,
+                118.0,
+                340.0,
+                128.0,
+            ),
+            cell(
+                "Part I: New streets, different houses 21",
+                100.0,
+                136.0,
+                340.0,
+                146.0,
+            ),
+        ];
+        let refs: Vec<&TextCell> = flush.iter().collect();
+        let rows = super::toc_rows(&refs).expect("flush-right rows");
+        assert_eq!(rows[2].entry, "Part I: New streets, different houses");
+        assert_eq!(rows[2].page, "21");
+
+        // Prose whose lines end in numbers is not a table of contents: its
+        // lines end ragged.
+        let prose = [
+            cell("The board was founded in 1998", 100.0, 100.0, 300.0, 110.0),
+            cell(
+                "and met for the first time in 2001",
+                100.0,
+                118.0,
+                338.0,
+                128.0,
+            ),
+            cell(
+                "with a budget set for the year 2026",
+                100.0,
+                136.0,
+                322.0,
+                146.0,
+            ),
+        ];
+        let refs: Vec<&TextCell> = prose.iter().collect();
+        assert!(super::toc_rows(&refs).is_none());
     }
 
     #[test]

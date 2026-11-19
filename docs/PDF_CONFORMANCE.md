@@ -799,10 +799,10 @@ text layer):
 
 | | |
 |---|---|
-| cases with a counterpart check | 78 — **38 pass, 40 xfail** |
+| cases with a counterpart check | 78 — **41 pass, 37 xfail** |
 | cases without one (assertions on OpenDataLoader's JSON shape, or on one element's content) | 95, fixtures kept for recall and parity |
 | word recall against OpenDataLoader's Markdown | **0.988** mean over 113 fixtures; lowest 0.50 (a struct-tree link fixture), then 0.86 |
-| structural parity with OpenDataLoader's JSON, mean over 170 fixtures | elements matched **0.79**, same role **0.72**, same order **0.83**, box overlap **0.67** |
+| structural parity with OpenDataLoader's JSON, mean over 170 fixtures | elements matched **0.82**, same role **0.72**, same order **0.86**, box overlap **0.69** |
 
 **Structural parity** is the measure of the property a read-aloud client
 needs when a page may be parsed on the device (TalkingText's Dart port of
@@ -814,14 +814,25 @@ text, the share of those with the same role, how many keep their relative
 order, and the mean box overlap. The `reader` export's mapping itself follows
 OpenDataLoader's `DoclingSchemaTransformer` (its 34 unit tests are ported to
 `docling-core/src/reader.rs`), so the differences the measure reports are in
-what the pipelines *see*, not in how they name it. Where the two disagree
-most today, all fixtures scoring zero on element match:
+what the pipelines *see*, not in how they name it.
 
-- **A table of contents drawn column by column** (389, 878, 888): one `text`
-  region whose cells arrive in content-stream order, so the entry text comes
-  out as all numbers, then all titles, then all page numbers — one paragraph
-  where OpenDataLoader reads rows. Three cases that had passed on a weak
-  same-line check moved to xfail when the check learned to require order.
+The first parity measurement scored zero on every contents page drawn column
+by column (issues 389, 878, 888): one `text` region whose cells arrive in
+content-stream order, so the entry text came out as all numbers, then all
+titles, then all page numbers — one paragraph where OpenDataLoader reads
+rows. `assemble::toc_rows` (docs/MIGRATION.md §4; `DOCLING_RS_TOC_ROWS`)
+now rebuilds the rows from the cells' baselines and emits a two-column
+`document_index` table the reader export reads as `toc_entry` chunks with
+their page numbers: five of those fixtures went to full element match, three
+cases to pass, and the means moved from 0.79 / 0.83 to 0.82 / 0.86 on
+elements and order, with no docling fixture's output changed. Where the two
+pipelines disagree most now, the fixtures scoring zero on element match:
+
+- **A contents page without leaders or alignment** (888): the page numbers
+  follow the titles directly, so the rows are ragged and nothing marks them
+  as entries; one paragraph here, numbered list items there (with two lines
+  merged into one item on their side too). Left as it is: a rule loose enough
+  to take it would take prose whose lines end in years.
 - **Numbered section titles under a heading** (626) and **steps with a note
   between them** (904): boxed together by the layout model and joined in
   content-stream order; the list-run split does not fire because the first

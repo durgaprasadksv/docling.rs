@@ -2480,6 +2480,20 @@ These are deliberate or unavoidable divergences, not bugs.
    docling's own list items for it (`assemble::list_run_items`).
    `DOCLING_RS_SPLIT_LIST_RUNS=0` restores the one-paragraph output.
 
+23. **A `text` region holding the rows of a table of contents is read as
+   rows.** A contents page drawn column by column — the numbers, the
+   titles, the page numbers as separate text runs — reaches the assembler as
+   one `text` region whose cells arrive in content-stream order; docling
+   emits the paragraph "01 02 03 Introduction Methods Results 03 14 22",
+   every word present and no row intact, and OpenDataLoader's synthetic page
+   corpus scored zero structural parity on it (issues 389, 878, 888). The
+   assembler groups the region's cells into visual rows by baseline and,
+   when there are at least three rows that each end in a page number and are
+   either several cells or a line with a dot leader, emits a two-column
+   `document_index` table of entry and page with the cells' boxes
+   (`assemble::toc_rows`); the `reader` export reads it as contents entries.
+   `DOCLING_RS_TOC_ROWS=0` restores the paragraph.
+
 ## 5. Not migrated / out of scope
 
 Nothing here blocks day-to-day conversion: every remaining item is either a

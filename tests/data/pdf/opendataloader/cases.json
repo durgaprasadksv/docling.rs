@@ -4,8 +4,8 @@
   "commit": "5a7976a"
  },
  "counts": {
-  "pass": 38,
-  "xfail": 40,
+  "pass": 41,
+  "xfail": 37,
   "unchecked": 95
  },
  "cases": [
@@ -807,13 +807,13 @@
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": 1.0,
    "structure": {
-    "elements": 0.0,
+    "elements": 1.0,
     "roles": 0.0,
-    "order": 0.0,
-    "boxes": 0.0
+    "order": 1.0,
+    "boxes": 0.834
    }
   },
   {
@@ -1017,10 +1017,10 @@
    "status": "pass",
    "recall": 1.0,
    "structure": {
-    "elements": 0.0,
+    "elements": 1.0,
     "roles": 0.0,
-    "order": 0.0,
-    "boxes": 0.0
+    "order": 1.0,
+    "boxes": 0.834
    }
   },
   {
@@ -1153,13 +1153,13 @@
    },
    "list_items": null,
    "unparsed": [],
-   "status": "xfail",
+   "status": "pass",
    "recall": 1.0,
    "structure": {
-    "elements": 0.0,
+    "elements": 1.0,
     "roles": 0.0,
-    "order": 0.0,
-    "boxes": 0.0
+    "order": 1.0,
+    "boxes": 0.834
    }
   },
   {
@@ -1224,13 +1224,13 @@
    "unparsed": [
     "assertTrue(lastRow < north && north < markdown.indexOf(\"East\")\n                && markdown.indexOf(\"East\") < markdown.indexOf(\"Sout)"
    ],
-   "status": "xfail",
+   "status": "pass",
    "recall": 1.0,
    "structure": {
-    "elements": 0.4,
-    "roles": 1.0,
+    "elements": 1.0,
+    "roles": 0.4,
     "order": 1.0,
-    "boxes": 0.825
+    "boxes": 0.831
    }
   },
   {
@@ -4235,10 +4235,10 @@
    "status": "unchecked",
    "recall": 1.0,
    "structure": {
-    "elements": 0.0,
-    "roles": 0.0,
-    "order": 0.0,
-    "boxes": 0.0
+    "elements": 1.0,
+    "roles": 1.0,
+    "order": 1.0,
+    "boxes": 0.826
    }
   },
   {
@@ -5424,10 +5424,10 @@
    "status": "unchecked",
    "recall": null,
    "structure": {
-    "elements": 0.0,
+    "elements": 0.444,
     "roles": 0.0,
-    "order": 0.0,
-    "boxes": 0.0
+    "order": 1.0,
+    "boxes": 0.843
    }
   },
   {
@@ -5458,7 +5458,7 @@
     "elements": 1.0,
     "roles": 0.0,
     "order": 1.0,
-    "boxes": 0.962
+    "boxes": 0.195
    }
   },
   {

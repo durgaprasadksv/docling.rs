@@ -2375,7 +2375,10 @@ fn render_stored(
             confidence,
             redaction: None,
             pdf_repairs: None,
-            body: document.export_to_reader_json().into_bytes(),
+            // Compact: the word boxes make this the largest export, and a
+            // client decodes it, nobody reads it.
+            body: serde_json::to_vec(&document.export_to_reader_value())
+                .expect("the reader export is always serializable"),
         },
         // #614: docling's `--to vtt`, a text body like Markdown.
         "vtt" => StoredResponse {
