@@ -978,6 +978,34 @@ impl Builder {
         loop {
             let found = self.atoms.iter().enumerate().find_map(|(i, a)| {
                 let cmd = accent(a.ch?)?;
+                // A combining mark the text layer set on its letter's own
+                // baseline and box (`ċ` as `c` + U+0307) belongs to that
+                // letter: the glyph below it can be another row's (the
+                // denominator's `t` under a numerator's `ċ`).
+                let combining = a.ch.is_some_and(|c| {
+                    ('\u{300}'..='\u{36F}').contains(&c) || ('\u{20D0}'..='\u{20FF}').contains(&c)
+                });
+                if combining {
+                    let own = self
+                        .atoms
+                        .iter()
+                        .enumerate()
+                        .filter(|(j, g)| {
+                            *j != i
+                                && g.ch.is_some_and(|c| accent(c).is_none())
+                                && (a.base - g.base).abs() < 0.05 * g.size
+                                && a.xc() >= g.l - 0.05 * g.size
+                                && a.xc() <= g.r + 0.05 * g.size
+                        })
+                        .min_by(|x, y| {
+                            (x.1.xc() - a.xc())
+                                .abs()
+                                .total_cmp(&(y.1.xc() - a.xc()).abs())
+                        });
+                    if let Some((j, _)) = own {
+                        return Some((i, j, cmd));
+                    }
+                }
                 let below = self
                     .atoms
                     .iter()

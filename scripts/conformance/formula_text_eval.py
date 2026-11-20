@@ -24,6 +24,7 @@ see `\\left`, spacing commands or font switches.
 
 import glob
 import json
+import unicodedata
 import os
 import re
 import sys
@@ -318,8 +319,10 @@ def region_chars(rec):
         xc, yc = (g[1] + g[3]) / 2, (g[2] + g[4]) / 2
         if not (l - 1 <= xc <= r + 1 and t - 1 <= yc <= b + 1):
             continue
-        ch = g[0]
-        if ch.isascii() and ch.isalnum():
+        # Math alphanumerics (`𝑀`, the text layer's reading of TeX's
+        # `u1D440` glyph names) count as the letters they style.
+        ch = unicodedata.normalize('NFKC', g[0])
+        if len(ch) == 1 and ch.isascii() and ch.isalnum():
             out[ch] += 1
     return out
 

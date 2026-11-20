@@ -42,9 +42,20 @@ pub(crate) fn symbol_face(names: &[&[u8]]) -> Option<SymbolFace> {
     names.iter().find_map(|n| {
         let lower = n.to_ascii_lowercase();
         let has = |t: &str| lower.windows(t.len()).any(|w| w == t.as_bytes());
+        // The face name proper, past a subset tag (`NKEKHF+`).
+        let face = match lower.iter().position(|&b| b == b'+') {
+            Some(i) if i == 6 => &lower[i + 1..],
+            _ => &lower[..],
+        };
         if has("zapfdingbats") {
             Some(SymbolFace::ZapfDingbats)
-        } else if has("symbol") {
+        } else if face.starts_with(b"symbol") || face.starts_with(b"opensymbol") {
+            // Adobe's Symbol (`Symbol`, `SymbolMT`, `Symbol,Bold`) and
+            // LibreOffice's OpenSymbol — by the name's start, not anywhere
+            // in it: a TeX math face that says `Symbol` (MathDesign's
+            // `MathDesign-CH-Regular-Symbol-10`, its `MathDesignSymbolA`)
+            // has its own encoding, and read through Symbol's its
+            // blackboard `R` and `Z` came out as the Greek `Ρ` and `Ζ`.
             Some(SymbolFace::Symbol)
         } else {
             None
@@ -384,6 +395,15 @@ mod tests {
         );
         assert_eq!(symbol_face(&[b"Wingdings-Regular"]), None);
         assert_eq!(symbol_face(&[b"F3", b"Symbol"]), Some(SymbolFace::Symbol));
+        assert_eq!(
+            symbol_face(&[b"FWQHIK+MathDesign-CH-Regular-Symbol-10"]),
+            None
+        );
+        assert_eq!(
+            symbol_face(&[b"IZMDQO+MathDesign-CH-Regular-MathDesignSymbolA-10"]),
+            None
+        );
+        assert_eq!(symbol_face(&[b"LMMathSymbols10-Regular"]), None);
         let sym = SymbolFace::Symbol;
         assert_eq!(fold_private_use(sym, "\u{F0AE}"), Some('→'));
         assert_eq!(fold_private_use(sym, "\u{F0B7}"), Some('•'));

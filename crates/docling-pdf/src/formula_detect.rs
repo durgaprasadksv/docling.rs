@@ -184,11 +184,20 @@ pub fn display_pieces(layer: &MathLayer, bbox: [f32; 4]) -> Option<Vec<Piece>> {
             .iter()
             .flat_map(|row| row.glyphs.iter().copied());
         let mut fb = extent(&mut ids);
-        // The rules inside the block's rows (fraction bars, vincula).
+        // The rules of the block (fraction bars, vincula), and the over- and
+        // underlines just outside its glyphs: a glyph's box is its letter's
+        // cap height, and `\overline{AV}`'s bar sits above it — left out,
+        // the reader sees a bar hugging its box and refuses the formula.
+        let reach = 0.35 * main;
         for ru in &layer.rules {
             let y = (ru.t + ru.b) / 2.0;
-            if y >= fb[1] && y <= fb[3] && ru.r > fb[0] && ru.l < fb[2] {
-                fb = [fb[0].min(ru.l), fb[1], fb[2].max(ru.r), fb[3]];
+            if y >= fb[1] - reach && y <= fb[3] + reach && ru.r > fb[0] && ru.l < fb[2] {
+                fb = [
+                    fb[0].min(ru.l),
+                    fb[1].min(ru.t),
+                    fb[2].max(ru.r),
+                    fb[3].max(ru.b),
+                ];
             }
         }
         // Several formulas in one block (consecutive displays) read one by
