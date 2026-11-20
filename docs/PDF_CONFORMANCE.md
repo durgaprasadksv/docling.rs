@@ -885,8 +885,8 @@ that got worse than `tests/data/pdf/pdf_parse_bench/expected.json`.
 | Element | Count | Result |
 |---|---|---|
 | Text passage | 5,921 | 5,897 found word for word, 24 partial |
-| Inline formula | 2,824 | 2,573 with every character in the text, 251 missing some |
-| Display formula | 1,298 | 1,037 correct, 16 wrong, 5 one line of a multi-line display, 205 left to the model, 35 never boxed as a formula |
+| Inline formula | 2,824 | 2,574 with every character in the text, 250 missing some |
+| Display formula | 1,298 | 1,044 correct, 16 wrong, 5 one line of a multi-line display, 205 left to the model, 28 never found |
 | Table | 451 | 103 exact grid, 138 cell F1 ≥ 0.9, 142 ≥ 0.5, 68 below |
 
 A display formula counts as correct only when our LaTeX equals the ground
@@ -900,17 +900,21 @@ unread glyph, a tall bracket without its partner, a script with no base, an
 unpaired bracket, a fraction bar or glyphs just outside the box (the
 formula is cut) — goes to the model. A layout box around several
 consecutive display formulas (it held 113 of them) is split into one
-formula per row band of its glyphs. Every one of the 1,263 boxed formulas
+formula per row band of its glyphs. A display formula the layout model
+labelled text, a heading or a page header is found from the glyphs
+(`formula_detect`: math faces, script geometry, rows with no prose word) and
+cut out of its region when it rebuilds and has its lines to itself (7 of the
+35 it never boxed). Every one of the 1,270 formulas
 is frozen in `tests/data/pdf/formula_text/cases.json` (with the glyphs
 around it, which the cut guards read) and replayed by a unit test with no
 PDF or model.
 
 What is left, as measured:
 
-- **Display formulas never boxed** (35): the layout model labels them text
-  or a heading; nothing downstream sees them. Finding formulas from the
-  glyphs themselves (math fonts, script geometry, rules) is the planned fix,
-  which also replaces the box splitting and the cut guards.
+- **Display formulas never found** (28): the layout model's formula box
+  went to a neighbouring formula (11), the formula's line holds an upright
+  word the detector cannot tell from prose (`\operatorname{Core}`,
+  `\text{ is isosceles}`), or its glyphs lie in no region at all.
 - **Wrong** (16): formulas cut at the layout box's edge that the guards do
   not catch, a few structures read wrong, and two chemistry formulas in
   `\ce{…}` notation the scorer cannot compare (ours are right).

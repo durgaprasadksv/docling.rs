@@ -39,6 +39,7 @@ pub mod dparse_render;
 mod font_style;
 // Formulas rebuilt from the text layer before the VLM is asked. Public for
 // its replay example (`examples/formula_text_replay.rs`) and fixture test.
+pub mod formula_detect;
 pub mod formula_text;
 mod heading_hierarchy;
 pub mod layout;
@@ -2558,6 +2559,80 @@ impl Worker {
             ocr_cells,
             parse,
         } = prepared;
+        if let Some(dir) = docling_core::env::nonempty("DOCLING_RS_FORMULA_PAGE_DUMP") {
+            let boxes: Vec<(&str, [f32; 4])> = regions
+                .iter()
+                .map(|r| {
+                    let bbox = match assemble::region_cell_bbox(r, &page.cells) {
+                        Some(b) => b,
+                        None => [r.l, r.t, r.r, r.b],
+                    };
+                    (r.label, bbox)
+                })
+                .collect();
+            let rec = formula_text::dump_page_json(&page.math, page.width, page.height, &boxes);
+            let _ = std::fs::write(format!("{dir}/page{:04}.json", n + 1), rec.to_string());
+        }
+        // Display formulas the layout model took for prose or a heading,
+        // found from the glyphs (`formula_detect`): the region is cut into
+        // its prose bands and the formula, which `formula_text` has already
+        // rebuilt — a formula it cannot rebuild stays the text it was.
+        let (regions, table_rows) =
+            if self.enrich.formula && formula_text::enabled() && !page.math.is_empty() {
+                let boxes: Vec<(&str, [f32; 4])> = regions
+                    .iter()
+                    .map(|r| {
+                        let bbox = assemble::region_cell_bbox(r, &page.cells)
+                            .unwrap_or([r.l, r.t, r.r, r.b]);
+                        (r.label, bbox)
+                    })
+                    .collect();
+                let found = formula_detect::detect(&page.math, &boxes);
+                if found.is_empty() {
+                    (regions, table_rows)
+                } else {
+                    let mut pieces: Vec<Option<Vec<formula_detect::Piece>>> =
+                        vec![None; regions.len()];
+                    for (i, p) in found {
+                        pieces[i] = Some(p);
+                    }
+                    let mut rs = Vec::with_capacity(regions.len() + 2);
+                    let mut ts = Vec::with_capacity(regions.len() + 2);
+                    for ((r, t), p) in regions.into_iter().zip(table_rows).zip(pieces) {
+                        let Some(p) = p else {
+                            rs.push(r);
+                            ts.push(t);
+                            continue;
+                        };
+                        for piece in p {
+                            let [l, tp, rr, b] = piece.bbox;
+                            let label = if piece.latex.is_some() {
+                                docling_core::debug_log!(
+                                    "formula_detect: page {}: {} -> formula {}",
+                                    n + 1,
+                                    r.label,
+                                    piece.latex.as_deref().unwrap_or_default()
+                                );
+                                "formula"
+                            } else {
+                                r.label
+                            };
+                            rs.push(layout::Region {
+                                label,
+                                score: r.score,
+                                l,
+                                t: tp,
+                                r: rr,
+                                b,
+                            });
+                            ts.push(None);
+                        }
+                    }
+                    (rs, ts)
+                }
+            } else {
+                (regions, table_rows)
+            };
         // One layout box around several consecutive display formulas is
         // split into one formula per row band of its glyphs
         // (`formula_text::split_rows`): read as one it was several rows,

@@ -28,6 +28,87 @@
 use crate::checkbox::Ink;
 use crate::pdfium_backend::Glyph;
 
+/// What a font is for in typeset math, by its name — the glyph-first
+/// formula detector's strongest signal: TeX sets every math variable in
+/// math italic (`cmmi`, Latin Modern's `lmmathitalic`), relations and
+/// operators in the symbol face (`cmsy`), big operators and delimiters in
+/// the extension face (`cmex`), while prose, digits and function names stay
+/// in the text face. (docling-parse's `has_math_positioning_semantics`
+/// counts `cmr` too, which is the prose face of every TeX document.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Face {
+    /// A text face (or one the name says nothing about).
+    #[default]
+    Text,
+    /// Math italic: TeX's variables.
+    Italic,
+    /// A math symbol face (`cmsy`, the AMS `msam`/`msbm`, script and
+    /// fraktur alphabets, the Symbol font).
+    Symbol,
+    /// TeX's extension face: big operators, tall delimiters, radicals.
+    Extension,
+    /// An OpenType math font (Cambria Math, STIX Two Math, Latin Modern
+    /// Math): every math glyph, variables included, comes from it.
+    Math,
+}
+
+impl Face {
+    /// The face of a font by its `/BaseFont` name (a subset prefix
+    /// `ABCDEF+` is ignored).
+    pub fn of_font_name(name: &str) -> Self {
+        let lower = name.to_ascii_lowercase();
+        let n = match lower.split_once('+') {
+            Some((tag, rest)) if tag.len() == 6 => rest,
+            _ => lower.as_str(),
+        };
+        let has = |keys: &[&str]| keys.iter().any(|k| n.contains(k));
+        if has(&[
+            "cmex",
+            "mathextension",
+            "lmex",
+            "mtextra",
+            "esint",
+            "txex",
+            "pxex",
+            "mathex",
+        ]) {
+            Face::Extension
+        } else if has(&["cmmi", "mathitalic", "lmmi", "txmi", "pxmi", "mathi"]) {
+            Face::Italic
+        } else if has(&[
+            "cmsy",
+            "cmbsy",
+            "mathsymbols",
+            "lmsy",
+            "msam",
+            "msbm",
+            "symbol",
+            "stmary",
+            "wasy",
+            "rsfs",
+            "eufm",
+            "eusm",
+            "eurm",
+            "bbold",
+            "dsrom",
+            "txsy",
+            "pxsy",
+            "mathsy",
+        ]) {
+            Face::Symbol
+        } else if has(&["math"]) {
+            Face::Math
+        } else {
+            Face::Text
+        }
+    }
+
+    /// Whether the face is one only math is set in.
+    pub fn is_math(self) -> bool {
+        self != Face::Text
+    }
+}
+
 /// One glyph of the page in top-left page points (the cells' frame).
 #[derive(Debug, Clone, PartialEq)]
 pub struct MathGlyph {
@@ -49,6 +130,8 @@ pub struct MathGlyph {
     /// Set on a glyph whose baseline is not upright (rotated or tilted text):
     /// a region holding one is not rebuilt.
     pub tilted: bool,
+    /// The glyph's font's role in typeset math.
+    pub face: Face,
 }
 
 impl MathGlyph {
@@ -69,7 +152,7 @@ impl MathGlyph {
 
     /// Whether this glyph is an extension-font glyph placed by its centre,
     /// not its baseline.
-    fn hangs(&self) -> bool {
+    pub(crate) fn hangs(&self) -> bool {
         self.name.as_deref().and_then(extension_depth).is_some()
     }
 }
@@ -181,6 +264,7 @@ impl MathLayer {
                     base,
                     size,
                     tilted: g.quad.is_some(),
+                    face: g.face,
                 }
                 .with_true_extent()
             })
@@ -252,22 +336,7 @@ pub fn dump_json(
         .cloned()
         .collect();
     kept.extend(around);
-    let glyphs: Vec<serde_json::Value> = kept
-        .iter()
-        .map(|g| {
-            serde_json::json!([
-                g.ch.to_string(),
-                r2(g.l),
-                r2(g.t),
-                r2(g.r),
-                r2(g.b),
-                r2(g.base),
-                r2(g.size),
-                g.tilted,
-                g.name.as_deref()
-            ])
-        })
-        .collect();
+    let glyphs: Vec<serde_json::Value> = kept.iter().map(glyph_json).collect();
     // Rules up to 12 pt above or below the box too: `explain` reads a bar
     // just outside it as a cut formula, and a replay must see it.
     let rules: Vec<serde_json::Value> = layer
@@ -286,6 +355,63 @@ pub fn dump_json(
         "latex": outcome.as_ref().ok(),
         "error": outcome.as_ref().err(),
     })
+}
+
+#[cfg(feature = "ml")]
+/// One glyph in the dumps' array form (`layer_from_json` reads it back).
+fn glyph_json(g: &MathGlyph) -> serde_json::Value {
+    let r2 = |v: f32| (v * 100.0).round() / 100.0;
+    serde_json::json!([
+        g.ch.to_string(),
+        r2(g.l),
+        r2(g.t),
+        r2(g.r),
+        r2(g.b),
+        r2(g.base),
+        r2(g.size),
+        g.tilted,
+        g.name.as_deref(),
+        face_code(g.face)
+    ])
+}
+
+#[cfg(feature = "ml")]
+/// A whole page for the detector's evaluation
+/// (`DOCLING_RS_FORMULA_PAGE_DUMP=<dir>`): every glyph and rule, and the
+/// layout regions as `[label, l, t, r, b]`. `layer_from_json` reads the
+/// layer back (with `bbox` the page box).
+pub fn dump_page_json(
+    layer: &MathLayer,
+    width: f32,
+    height: f32,
+    regions: &[(&str, [f32; 4])],
+) -> serde_json::Value {
+    let r2 = |v: f32| (v * 100.0).round() / 100.0;
+    serde_json::json!({
+        "bbox": [0.0, 0.0, r2(width), r2(height)],
+        "glyphs": layer.glyphs.iter().map(glyph_json).collect::<Vec<_>>(),
+        "rules": layer
+            .rules
+            .iter()
+            .map(|ru| serde_json::json!([r2(ru.l), r2(ru.t), r2(ru.r), r2(ru.b)]))
+            .collect::<Vec<_>>(),
+        "regions": regions
+            .iter()
+            .map(|(label, [l, t, r, b])| serde_json::json!([label, r2(*l), r2(*t), r2(*r), r2(*b)]))
+            .collect::<Vec<_>>(),
+    })
+}
+
+#[cfg(feature = "ml")]
+/// A [`Face`] as one letter in the dumps.
+fn face_code(f: Face) -> &'static str {
+    match f {
+        Face::Text => "t",
+        Face::Italic => "i",
+        Face::Symbol => "s",
+        Face::Extension => "x",
+        Face::Math => "m",
+    }
 }
 
 #[cfg(feature = "ml")]
@@ -315,6 +441,13 @@ pub fn layer_from_json(v: &serde_json::Value) -> Option<(MathLayer, [f32; 4])> {
                     base: f(&g[5])?,
                     size: f(&g[6])?,
                     tilted: g[7].as_bool()?,
+                    face: match g.get(9).and_then(|v| v.as_str()) {
+                        Some("i") => Face::Italic,
+                        Some("s") => Face::Symbol,
+                        Some("x") => Face::Extension,
+                        Some("m") => Face::Math,
+                        _ => Face::Text,
+                    },
                 }
                 .with_true_extent(),
             )
@@ -660,7 +793,7 @@ fn union(atoms: &[Atom]) -> (f32, f32, f32, f32) {
     )
 }
 
-fn median(mut v: Vec<f32>) -> f32 {
+pub(crate) fn median(mut v: Vec<f32>) -> f32 {
     if v.is_empty() {
         return 0.0;
     }
@@ -748,8 +881,10 @@ impl Builder {
                 }
                 let joined = match (ca, cb) {
                     ('↦', '→') | ('↦', '⟶') => Some('↦'),
-                    ('−', '→') | ('-', '→') => Some('⟶'),
-                    ('←', '−') => Some('⟵'),
+                    // An arrow extended by more bars (mhchem's `->`
+                    // draws `−−→`) is still one arrow.
+                    ('−', '→') | ('-', '→') | ('−', '⟶') | ('-', '⟶') => Some('⟶'),
+                    ('←', '−') | ('⟵', '−') => Some('⟵'),
                     ('=', '⇒') => Some('⟹'),
                     ('⇐', '=') => Some('⟸'),
                     ('⇐', '⇒') => Some('⟺'),
@@ -2073,6 +2208,7 @@ mod tests {
             base,
             size,
             tilted: false,
+            face: Face::Text,
         }
     }
 

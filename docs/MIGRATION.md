@@ -2511,11 +2511,16 @@ These are deliberate or unavoidable divergences, not bugs.
    vinculum, stacked full-size glyphs (a matrix), rotated text, and a
    formula drawn as vector outlines (MathJax output printed to PDF), which
    has no glyphs at all. A document whose formulas all rebuild never loads
-   the model. On pdf-parse-bench's born-digital PDFs, of the 1,155 display
-   formulas the layout model boxes it reads 1,037 exactly as the ground
-   truth, gets 16 wrong and leaves 205 to the model (docs/PDF_CONFORMANCE.md);
-   a layout box around several consecutive formulas is split per formula. `DOCLING_RS_FORMULA_TEXT_LAYER=0`
-   sends every formula to the model.
+   the model. A display formula the layout model took for prose, a heading
+   or a page header is found from the glyphs themselves (`formula_detect`:
+   math-italic, symbol and extension faces, script geometry, rows without a
+   prose word) and cut out of that region as a formula — only when
+   `formula_text` rebuilds it and nothing else shares its lines. On
+   pdf-parse-bench's born-digital PDFs it reads 1,044 of the 1,298 display
+   formulas exactly as the ground truth, gets 16 wrong and leaves 205 to the
+   model (docs/PDF_CONFORMANCE.md); a layout box around several consecutive
+   formulas is split per formula. `DOCLING_RS_FORMULA_TEXT_LAYER=0` sends
+   every formula to the model and turns the detection off.
 
 ## 5. Not migrated / out of scope
 

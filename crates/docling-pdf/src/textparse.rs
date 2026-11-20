@@ -106,6 +106,9 @@ struct Font {
     /// ([`is_math_font_name`]) — for the word contraction's local
     /// attachments (#921).
     math: bool,
+    /// The face's role in typeset math by its name (`formula_text::Face`):
+    /// the glyph-first formula detector's strongest signal.
+    face: crate::formula_text::Face,
     /// Weight and slant read from the `/BaseFont` name (the heading
     /// hierarchy's style signal, #302).
     style: crate::font_style::FontStyle,
@@ -351,6 +354,9 @@ fn parse_font(doc: &Document, name: &[u8], fdict: &Dictionary) -> Font {
         descent,
         hash: hash_name(&sanitizer_name),
         math: is_math_font_name(&sanitizer_name),
+        face: crate::formula_text::Face::of_font_name(&String::from_utf8_lossy(
+            &base_font_name(fdict).unwrap_or_else(|| name.to_vec()),
+        )),
         style: crate::font_style::parse_font_style(&String::from_utf8_lossy(
             &base_font_name(fdict).unwrap_or_else(|| name.to_vec()),
         )),
@@ -2323,6 +2329,7 @@ fn show_text(
                         quad,
                         pen,
                         math_font: font.math,
+                        face: font.face,
                         unmapped_math,
                         program_name: program_name.clone(),
                         formula_only: false,
@@ -2348,6 +2355,7 @@ fn show_text(
                 quad,
                 pen,
                 math_font: font.math,
+                face: font.face,
                 unmapped_math,
                 program_name: Some(name),
                 formula_only: true,

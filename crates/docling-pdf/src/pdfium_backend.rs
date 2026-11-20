@@ -1533,6 +1533,8 @@ pub(crate) struct Glyph {
     /// `has_math_positioning_semantics`): a sub- or superscript in it next to
     /// its base is attached, not a new word (#921).
     pub(crate) math_font: bool,
+    /// The font's role in typeset math (`formula_text::Face`).
+    pub(crate) face: crate::formula_text::Face,
     /// A math face's glyph with no ToUnicode entry: `ch` is a guess, and
     /// `program_name` (the embedded Type1 program's name for the code, when
     /// it has one) is what `formula_text` reads instead.
