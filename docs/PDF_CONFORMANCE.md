@@ -921,10 +921,10 @@ that got worse than `tests/data/pdf/pdf_parse_bench/expected.json`.
 
 | Element | Count | Result |
 |---|---|---|
-| Text passage | 5,921 | 5,897 found word for word, 24 partial |
-| Inline formula | 2,824 | 2,574 with every character in the text, 250 missing some |
-| Display formula | 1,298 | 1,044 correct, 16 wrong, 5 one line of a multi-line display, 205 left to the model, 28 never found |
-| Table | 451 | 103 exact grid, 138 cell F1 ≥ 0.9, 142 ≥ 0.5, 68 below |
+| Text passage | 5,921 | 5,899 found word for word, 22 partial |
+| Inline formula | 2,824 | 2,717 with every character in the text, 107 missing some |
+| Display formula | 1,298 | 1,066 correct, 16 wrong, 5 one line of a multi-line display, 184 left to the model, 27 never found |
+| Table | 451 | 102 exact grid, 138 cell F1 ≥ 0.9, 141 ≥ 0.5, 70 below |
 
 A display formula counts as correct only when our LaTeX equals the ground
 truth after canonicalising both sides (`scripts/conformance/formula_text_eval.py`:
@@ -941,7 +941,7 @@ formula per row band of its glyphs. A display formula the layout model
 labelled text, a heading or a page header is found from the glyphs
 (`formula_detect`: math faces, script geometry, rows with no prose word) and
 cut out of its region when it rebuilds and has its lines to itself (7 of the
-35 it never boxed). Every one of the 1,270 formulas
+35 it never boxed). Every one of the 1,271 formulas
 is frozen in `tests/data/pdf/formula_text/cases.json` (with the glyphs
 around it, which the cut guards read) and replayed by a unit test with no
 PDF or model.
