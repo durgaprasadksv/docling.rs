@@ -14,6 +14,7 @@
 //! { "file": "biology.pdf",                    // the source's name (logs, `source`)
 //!   "source_url": "<GET  …/biology.pdf>",
 //!   "markdown_url": "<PUT …/rag/biology.md>",   // the `llm` export
+//!   "manifest_url": "<PUT …/chunks/manifest.json>", // written last
 //!   "pages_per_chunk": 20,
 //!   "page_count": 392,                          // optional: checked before any upload
 //!   "chunk_urls": {                             // one per window, named by its pages
@@ -55,6 +56,7 @@ struct R2Request {
     file: Option<String>,
     source_url: String,
     markdown_url: String,
+    manifest_url: String,
     pages_per_chunk: usize,
     #[serde(default)]
     page_count: Option<usize>,
@@ -115,6 +117,7 @@ pub(crate) async fn convert_r2(
     }
     check_outbound_url(&req.source_url)?;
     check_outbound_url(&req.markdown_url)?;
+    check_outbound_url(&req.manifest_url)?;
     for url in req.chunk_urls.values() {
         check_outbound_url(url)?;
     }
@@ -211,29 +214,131 @@ fn run(state: &AppState, req: R2Request, options: &ConvertOptions) -> Result<Val
             .map_err(|e| ApiError::Upstream(format!("uploading to {}: {e}", redact_url(url))))
     };
     let mut uploaded = Vec::with_capacity(wins.len());
+    let mut listed = Vec::with_capacity(wins.len());
     for (name, first, last) in &wins {
         let body = serde_json::to_vec(&window_json(&reader, *first, *last))
             .expect("the reader export is always serializable");
         put(&req.chunk_urls[name], "application/json", &body)?;
+        listed.push(json!({
+            "name": name,
+            "firstPage": first,
+            "lastPage": last,
+            "bytes": body.len(),
+        }));
         uploaded.push(name.clone());
     }
+    let words = page_word_counts(&reader, pages);
     drop(reader);
     put(
         &req.markdown_url,
         "text/markdown; charset=utf-8",
         document.export_to_llm_markdown().as_bytes(),
     )?;
+    // Last: the manifest's presence says every file it lists is in place.
+    let manifest = manifest_json(pages, req.pages_per_chunk, listed, words);
+    put(
+        &req.manifest_url,
+        "application/json",
+        &serde_json::to_vec(&manifest).expect("the manifest is always serializable"),
+    )?;
     Ok(json!({
         "status": if converted.errors.is_empty() { "success" } else { "partial_success" },
         "pages": pages,
         "chunks": uploaded,
         "markdown": true,
+        "manifest": true,
     }))
+}
+
+/// The words on each page (0-based index), as the `reader` export counts
+/// them: its chunks' `s`/`e` run over the page, so the last end is the
+/// page's total. A page with no text is 0.
+pub(crate) fn page_word_counts(reader: &Value, pages: usize) -> Vec<u64> {
+    let offset = reader["firstPageNumber"].as_u64().unwrap_or(0) as usize;
+    let all = reader["pages"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    (0..pages)
+        .map(|p| {
+            p.checked_sub(offset)
+                .and_then(|i| all.get(i))
+                .and_then(Value::as_array)
+                .map_or(0, |chunks| {
+                    chunks
+                        .iter()
+                        .filter_map(|c| c["e"].as_u64())
+                        .max()
+                        .unwrap_or(0)
+                })
+        })
+        .collect()
+}
+
+/// `manifest.json`: the shape of TalkingText's cache manifest
+/// (`chunkSize`, `pageCount`, `pageWordCounts`, `updatedAt`) — the files
+/// drop into the client's cache as they are — with `converter` naming this
+/// server in place of the client's `parserVersion`, and the windows listed.
+pub(crate) fn manifest_json(
+    pages: usize,
+    chunk_size: usize,
+    chunks: Vec<Value>,
+    page_word_counts: Vec<u64>,
+) -> Value {
+    json!({
+        "schema": "docling-rs/r2-manifest/1",
+        "converter": concat!("docling-rs ", env!("CARGO_PKG_VERSION")),
+        "chunkSize": chunk_size,
+        "pageCount": pages,
+        "updatedAt": iso8601_utc_now(),
+        "pageWordCounts": page_word_counts,
+        "chunks": chunks,
+        "markdown": true,
+    })
+}
+
+/// Now as an ISO 8601 UTC timestamp (`2026-11-20T08:15:30Z`), the form the
+/// client's `DateTime.parse` reads.
+fn iso8601_utc_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let (days, rem) = (secs / 86_400, secs % 86_400);
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        rem / 3_600,
+        rem % 3_600 / 60,
+        rem % 60
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_manifest_counts_each_pages_words() {
+        let reader = json!({
+            "firstPageNumber": 0,
+            "pages": [[{"s": 0, "e": 4}, {"s": 4, "e": 9}], [], [{"s": 0, "e": 3}]],
+        });
+        assert_eq!(page_word_counts(&reader, 3), vec![9, 0, 3]);
+        let m = manifest_json(3, 50, vec![], vec![9, 0, 3]);
+        assert_eq!(m["chunkSize"], 50);
+        assert_eq!(m["pageCount"], 3);
+        let at = m["updatedAt"].as_str().unwrap();
+        assert!(
+            at.len() == 20 && at.ends_with('Z') && at.starts_with("20"),
+            "{at}"
+        );
+    }
 
     #[test]
     fn windows_are_named_by_their_pages() {

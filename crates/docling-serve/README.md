@@ -85,6 +85,7 @@ POST /v1/convert/r2
 { "file": "biology.pdf",
   "source_url": "<GET …/biology.pdf>",
   "markdown_url": "<PUT …/rag/biology.md>",
+  "manifest_url": "<PUT …/chunks/manifest.json>",
   "pages_per_chunk": 20,
   "page_count": 392,                   // optional, checked before any upload
   "chunk_urls": { "0001_0020": "<PUT …/chunks/0001_0020_chunk.json>", …,
@@ -99,7 +100,12 @@ POST /v1/convert/r2
   the last window ending at the last page.
 - **Markdown** is the `llm` export: the whole document in reading order,
   compact pipe tables, no image markers, unescaped.
-- **Answer**: `200 {"status", "pages", "chunks": [names], "markdown": true}`
+- **`manifest.json`**, uploaded last (its presence means every file is in
+  place): TalkingText's cache-manifest fields — `chunkSize`, `pageCount`,
+  `pageWordCounts` (every word the reader chunks carry, figure text
+  included), `updatedAt` — with `converter` naming this server, and
+  `chunks`: each window's `name`, `firstPage`, `lastPage` and `bytes`.
+- **Answer**: `200 {"status", "pages", "chunks": [names], "markdown": true, "manifest": true}`
   once everything is uploaded. Every window's URL is checked before the first
   upload (`422` naming the missing windows), extra URLs are left unused; a
   failed download or upload is `502` and the request can simply be repeated —
