@@ -32,10 +32,16 @@ FROM nvidia/cuda:13.0.3-cudnn-devel-ubuntu24.04 AS chef
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl build-essential pkg-config ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
+# RunPod's builder caps every process at 30 CPU-minutes (`--ulimit cpu=1800`)
+# and the whole `docker build` at 30 minutes: no link-time optimization (one
+# long, many-threaded process at the end) and more codegen units — the work
+# that matters runs on the GPU, not in this binary's CPU code.
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    ORT_CUDA_VERSION=13
+    ORT_CUDA_VERSION=13 \
+    CARGO_PROFILE_RELEASE_LTO=false \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.96.0 --profile minimal \
     && cargo install cargo-chef --locked
 WORKDIR /src

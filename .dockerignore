@@ -10,3 +10,5 @@
 !scripts/install
 !tests/data/pdf/sources
 !tests/data/scanned/sources
+# The RunPod queue worker (crates/docling-serve/Dockerfile.runpod copies it).
+!handler.py
