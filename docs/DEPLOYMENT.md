@@ -400,8 +400,10 @@ time). Together they put the scanned mathematics textbook under $0.10.
 RunPod can build an endpoint's image from a GitHub repository, but builds the
 Dockerfile as it is — no `--target`, no build arguments — so
 [`crates/docling-serve/Dockerfile.runpod`](../crates/docling-serve/Dockerfile.runpod)
-bakes every choice in: the CUDA 13 + cuDNN 9 runtime (the host supplies only
-the driver), the `cuda,speech` build with MathCAT's rules (the `reader`
+bakes every choice in: RunPod's own CUDA 13 + cuDNN 9 base image
+(`runpod/base:2.1.0-cuda1300-ubuntu2404` — the host supplies only the driver,
+and RunPod's hosts usually have the base cached, which is what FlashBoot and a
+short cold start build on), the `cuda,speech` build with MathCAT's rules (the `reader`
 export's spoken formulas), and fp32 layout, TableFormer, OCR and CodeFormula
 models — nothing else (no Tesseract, ffmpeg, speech-recognition or chunking
 models), since every megabyte is pull time on a cold start.
@@ -409,8 +411,10 @@ models), since every megabyte is pull time on a cold start.
 - **Endpoint settings:** branch `claude/port-v2`, Dockerfile path
   `crates/docling-serve/Dockerfile.runpod`, build context the repository root;
   `DOCLING_SERVE_API_KEY` in the environment (callers send `X-Api-Key`).
-- **Health:** `GET /ping` answers 200 when ready, 204 while `--warmup` loads
-  the models, 503 if loading failed.
+- **Port and health:** the server listens on `PORT`, 80 by default — RunPod's
+  load-balancer default, so the endpoint needs no port settings. `GET /ping`
+  answers 200 when ready, 204 while `--warmup` loads the models, 503 if loading
+  failed. Endpoint type **Load Balancer**, FlashBoot on.
 - **Conversions:** `POST /v1/convert/r2` (the object-store flow, see the
   [serve README](../crates/docling-serve/README.md#object-store-conversion-v1convertr2)),
   one conversion per worker (`--concurrency 1`).

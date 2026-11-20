@@ -3,8 +3,9 @@
 # arguments), so the final stage below is the image and every choice is
 # baked in:
 #
-#   - CUDA 13 + cuDNN 9 runtime: the host gives the driver only; ONNX
-#     Runtime's CUDA provider loads cudart / cuBLAS / cuDNN from the image.
+#   - RunPod's CUDA 13 + cuDNN 9 base image: the host gives the driver only;
+#     ONNX Runtime's CUDA provider loads cudart / cuBLAS / cuDNN from the
+#     image, and RunPod's hosts usually have that base cached.
 #   - `cuda,speech` features and MathCAT's rules: the `reader` export's
 #     spoken formulas.
 #   - Models: layout, TableFormer, OCR and the CodeFormula model, all fp32
@@ -18,7 +19,7 @@
 #
 # Runtime environment (RunPod endpoint settings):
 #   DOCLING_SERVE_API_KEY   the API key callers send as the `X-Api-Key` header
-#   PORT                    listen port (default 5001)
+#   PORT                    listen port (default 80, RunPod's load-balancer default)
 #
 # Health: `GET /ping` — 200 ready, 204 while the models load, 503 if they
 # failed to (RunPod's load-balancing endpoint convention); `/ready` likewise
@@ -73,7 +74,12 @@ RUN sh scripts/install/download_dependencies.sh --enrich --no-int8 --no-asr --no
 # ------------------------------------------------------------------------------
 # Runtime
 # ------------------------------------------------------------------------------
-FROM nvidia/cuda:13.0.3-cudnn-runtime-ubuntu24.04
+# RunPod's own CUDA 13 base (`nvidia/cuda:13.0.0-cudnn-devel-ubuntu24.04`
+# underneath, so cuDNN 9 and every library ONNX Runtime's CUDA provider loads):
+# common across RunPod's fleet, so its layers are usually on the host already
+# and a cold start pulls only the layers below — the models and the binary.
+# Its `/start.sh` (SSH, Jupyter, nginx) is replaced by our CMD.
+FROM runpod/base:2.1.0-cuda1300-ubuntu2404
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
        fonts-liberation fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
@@ -85,12 +91,15 @@ COPY --from=build /src/.models/mathcat ./.models/mathcat
 COPY --from=build /src/cuda-dylibs/ /usr/local/lib/
 RUN ln -s /usr/local/lib/libonnxruntime_providers_*.so /usr/local/bin/
 COPY --from=build /src/target/release/docling-serve /usr/local/bin/docling-serve
-ENV LD_LIBRARY_PATH=/usr/local/lib \
+ENV LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH} \
     DOCLING_RS_EP=auto \
     DOCLING_RS_SYSTEM_FONTS=0 \
     DOCLING_RS_FONT_DIRS=/usr/share/fonts/truetype/liberation:/usr/share/fonts/truetype/dejavu \
-    PORT=5001
-EXPOSE 5001
+    PORT=80
+# RunPod's load balancer sends traffic and health checks to `PORT` (80 unless
+# the endpoint sets it) and polls `/ping`: 204 while `--warmup` loads the
+# models, 200 once ready.
+EXPOSE 80
 # `--allow-url-fetch`: /v1/convert/r2 reads and writes through the caller's
 # pre-signed URLs. `--warmup`: the models load before the server reports
 # ready, so the first request does not pay for them. One conversion at a
