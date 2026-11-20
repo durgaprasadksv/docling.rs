@@ -551,6 +551,21 @@ impl<'a> Builder<'a> {
                 })
                 .collect::<Vec<_>>()
         });
+        // A paragraph merged with its continuation (the next column, a
+        // block resumed after a figure) keeps the first fragment's box as
+        // its location, as docling does, but carries the words of every
+        // fragment on the page (a tail on the next page brings none): the
+        // chunk's box grows to hold them, so a client scrolling to the chunk
+        // or bounding its highlights sees every word inside it.
+        let mut bbox = bbox;
+        for w in words.iter().flatten() {
+            bbox = [
+                bbox[0].min(w.b[0]),
+                bbox[1].max(w.b[1]),
+                bbox[2].max(w.b[2]),
+                bbox[3].min(w.b[3]),
+            ];
+        }
         let mut m = Map::new();
         m.insert("kind".into(), json!(kind));
         self.text_fields(&mut m, text, page_no, bbox, words);
@@ -581,6 +596,20 @@ impl<'a> Builder<'a> {
         words: Option<Vec<WordBox>>,
     ) {
         let (text, words) = drop_dot_leaders(text, words.unwrap_or_default());
+        // A box with no height or width (a label drawn as a zero-height run
+        // inside a figure) still has `tp > b` and `r > l`: half a point each
+        // way around its line.
+        let mut bbox = bbox;
+        if bbox[1] - bbox[3] < 1.0 {
+            let mid = (bbox[1] + bbox[3]) / 2.0;
+            bbox[1] = mid + 0.5;
+            bbox[3] = mid - 0.5;
+        }
+        if bbox[2] - bbox[0] < 1.0 {
+            let mid = (bbox[0] + bbox[2]) / 2.0;
+            bbox[0] = mid - 0.5;
+            bbox[2] = mid + 0.5;
+        }
         let p = page_no.saturating_sub(1);
         self.last_page = p;
         let n = count_words(&text);
@@ -1281,6 +1310,39 @@ mod tests {
             .iter()
             .map(|c| c["t"].as_str().unwrap_or("").to_string())
             .collect()
+    }
+
+    /// A paragraph merged with its continuation in the next column keeps the
+    /// first fragment's box but every fragment's words: the chunk box grows
+    /// to hold them (the client checks each word lies inside its chunk). A
+    /// label with a zero-height box still gets `tp > b`.
+    #[test]
+    fn a_chunk_box_holds_its_words_and_is_never_flat() {
+        let mut merged = text_item(
+            "text",
+            "left column right",
+            prov(1, 50.0, 700.0, 250.0, 712.0),
+        );
+        merged["words"] = json!([
+            {"charspan": [0, 4], "text": "left", "bbox": {"l": 50.0, "t": 712.0, "r": 70.0, "b": 700.0, "coord_origin": "BOTTOMLEFT"}},
+            {"charspan": [12, 17], "text": "right", "bbox": {"l": 320.0, "t": 512.0, "r": 350.0, "b": 500.0, "coord_origin": "BOTTOMLEFT"}},
+        ]);
+        let out = from_docling_json(&json!({"texts": [
+            merged,
+            text_item("text", "Knob", prov(1, 442.0, 506.0, 445.0, 506.0)),
+        ], "pages": pages(1)}));
+        let chunks = page_chunks(&out, 0);
+        let c = chunks
+            .iter()
+            .find(|c| c["t"] == "left column right")
+            .unwrap();
+        let f = |k: &str| c[k].as_f64().unwrap();
+        assert_eq!(
+            (f("l"), f("tp"), f("r"), f("b")),
+            (50.0, 712.0, 350.0, 500.0)
+        );
+        let k = chunks.iter().find(|c| c["t"] == "Knob").unwrap();
+        assert!(k["tp"].as_f64().unwrap() > k["b"].as_f64().unwrap(), "{k}");
     }
 
     #[test]

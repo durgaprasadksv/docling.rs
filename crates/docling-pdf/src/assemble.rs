@@ -4615,11 +4615,21 @@ pub fn assemble_page(
                 if let Some(ci) = code_caption_for[i] {
                     let cap = md_escape(&region_texts[ci]);
                     if !cap.is_empty() {
-                        // With its own region box, like every caption (#609).
-                        nodes.push(located(
+                        // With its own region box, like every caption (#609),
+                        // and its own region's word spans: the pass below hands
+                        // region `i`'s spans to every node `i` produced, and
+                        // the code block's would index the caption's text.
+                        let node = located(
                             norm_loc(&regions[ci], page.width, page_h),
                             Node::Paragraph { text: cap },
-                        ));
+                        );
+                        nodes.push(match region_spans[ci].as_ref().filter(|s| !s.is_empty()) {
+                            Some(spans) => Node::Spanned {
+                                spans: spans.clone(),
+                                inner: Box::new(node),
+                            },
+                            None => node,
+                        });
                     }
                 }
             }
@@ -4791,7 +4801,9 @@ pub fn assemble_page(
             // still looked right.
             // Its spans were attached, rebased past the marker, when it was
             // built (`list_item_with_spans`).
-            if matches!(node, Node::ListItem { .. }) {
+            // A node that came with spans of its own (a code block's caption,
+            // from its own region) keeps them.
+            if matches!(node, Node::ListItem { .. } | Node::Spanned { .. }) {
                 continue;
             }
             let inner = std::mem::replace(node, Node::PageBreak);
