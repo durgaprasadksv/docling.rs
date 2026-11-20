@@ -2558,6 +2558,104 @@ impl Worker {
             ocr_cells,
             parse,
         } = prepared;
+        // One layout box around several consecutive display formulas is
+        // split into one formula per row band of its glyphs
+        // (`formula_text::split_rows`): read as one it was several rows,
+        // refused or wrong. Text-layer formulas only, with the reconstruction
+        // on; `table_rows` keeps step with the regions.
+        let (regions, table_rows) =
+            if self.enrich.formula && formula_text::enabled() && !page.math.is_empty() {
+                let mut rs = Vec::with_capacity(regions.len());
+                let mut ts = Vec::with_capacity(table_rows.len());
+                let mut split = Vec::with_capacity(regions.len());
+                for (r, t) in regions.into_iter().zip(table_rows) {
+                    if r.label == "formula" {
+                        let bbox = match assemble::region_cell_bbox(&r, &page.cells) {
+                            Some([cl, ct, cr, cb]) => {
+                                [cl.min(r.l), ct.min(r.t), cr.max(r.r), cb.max(r.b)]
+                            }
+                            None => [r.l, r.t, r.r, r.b],
+                        };
+                        let bands = formula_text::split_rows(&page.math, bbox);
+                        if bands.len() >= 2 {
+                            docling_core::debug_log!(
+                                "formula_text: page {}: one formula box split into {}",
+                                n + 1,
+                                bands.len()
+                            );
+                            for [l, t, rr, b] in bands {
+                                rs.push(layout::Region {
+                                    label: "formula",
+                                    score: r.score,
+                                    l,
+                                    t,
+                                    r: rr,
+                                    b,
+                                });
+                                ts.push(None);
+                                split.push(true);
+                            }
+                            continue;
+                        }
+                    }
+                    rs.push(r);
+                    ts.push(t);
+                    split.push(false);
+                }
+                // The layout model sometimes boxes one of the formulas on its
+                // own as well as the group around it: a band that repeats
+                // another formula box would read the formula twice.
+                let overlap = |a: &layout::Region, b: &layout::Region| {
+                    let w = (a.r.min(b.r) - a.l.max(b.l)).max(0.0);
+                    let h = (a.b.min(b.b) - a.t.max(b.t)).max(0.0);
+                    let area = |x: &layout::Region| ((x.r - x.l) * (x.b - x.t)).max(1e-3);
+                    w * h / area(a).min(area(b))
+                };
+                // The same box twice (one row boxed alone, and as a band of the
+                // group): keep one. A box that is only part of a band (the
+                // model boxed `H_n = 1 + ½` inside the whole sum): the band,
+                // the whole formula, wins.
+                let iou = |a: &layout::Region, b: &layout::Region| {
+                    let w = (a.r.min(b.r) - a.l.max(b.l)).max(0.0);
+                    let h = (a.b.min(b.b) - a.t.max(b.t)).max(0.0);
+                    let i = w * h;
+                    let area = |x: &layout::Region| ((x.r - x.l) * (x.b - x.t)).max(1e-3);
+                    i / (area(a) + area(b) - i)
+                };
+                let mut keep = vec![true; rs.len()];
+                for i in 0..rs.len() {
+                    if !split[i] || !keep[i] {
+                        continue;
+                    }
+                    for j in 0..rs.len() {
+                        if j == i || !keep[j] || rs[j].label != "formula" {
+                            continue;
+                        }
+                        if overlap(&rs[i], &rs[j]) <= 0.8 {
+                            continue;
+                        }
+                        if iou(&rs[i], &rs[j]) > 0.7 {
+                            // the same formula: drop the band (or the later
+                            // of two bands)
+                            if !split[j] || j < i {
+                                keep[i] = false;
+                                break;
+                            }
+                        } else if !split[j] {
+                            // an original box inside the band: the band reads
+                            // the whole formula
+                            keep[j] = false;
+                        }
+                    }
+                }
+                let mut k = keep.iter();
+                let mut k2 = keep.iter();
+                rs.retain(|_| *k.next().unwrap());
+                ts.retain(|_| *k2.next().unwrap());
+                (rs, ts)
+            } else {
+                (regions, table_rows)
+            };
         // The crops and the page image below read the bitmap (#897).
         self.ensure_bitmap(page, &regions)?;
         if env::flag("DOCLING_RS_DEBUG_REGIONS") {

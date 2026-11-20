@@ -886,7 +886,7 @@ that got worse than `tests/data/pdf/pdf_parse_bench/expected.json`.
 |---|---|---|
 | Text passage | 5,921 | 5,897 found word for word, 24 partial |
 | Inline formula | 2,824 | 2,573 with every character in the text, 251 missing some |
-| Display formula | 1,298 | 907 correct, 23 wrong, 225 left to the model, 143 never boxed as a formula |
+| Display formula | 1,298 | 1,037 correct, 16 wrong, 5 one line of a multi-line display, 205 left to the model, 35 never boxed as a formula |
 | Table | 451 | 103 exact grid, 138 cell F1 ≥ 0.9, 142 ≥ 0.5, 68 below |
 
 A display formula counts as correct only when our LaTeX equals the ground
@@ -897,20 +897,26 @@ page cannot tell apart — `\bigcap`/`\cap`, `\Longrightarrow`/`\Rightarrow`,
 near miss included. The reconstruction is built to be right or silent: what
 it cannot vouch for — matrices and multi-row blocks, stacked notation, an
 unread glyph, a tall bracket without its partner, a script with no base, an
-unpaired bracket — goes to the model. Every one of the 1,155 boxed formulas
-is frozen in `tests/data/pdf/formula_text/cases.json` and replayed by a unit
-test with no PDF or model.
+unpaired bracket, a fraction bar or glyphs just outside the box (the
+formula is cut) — goes to the model. A layout box around several
+consecutive display formulas (it held 113 of them) is split into one
+formula per row band of its glyphs. Every one of the 1,263 boxed formulas
+is frozen in `tests/data/pdf/formula_text/cases.json` (with the glyphs
+around it, which the cut guards read) and replayed by a unit test with no
+PDF or model.
 
 What is left, as measured:
 
-- **Display formulas never boxed** (143): the layout model labels them text
-  or merges them into a paragraph; nothing downstream sees them. A
-  glyph-based formula detector is the planned fix.
-- **Wrong** (23): mostly a formula cut at the layout box's edge (an
-  `\overline`, an `\int_D`, the tail of a sum outside the box) and two
-  chemistry formulas in `\ce{…}` notation that the scorer cannot compare
-  (ours are right). Delimiting formulas from their own glyphs addresses the
-  first.
+- **Display formulas never boxed** (35): the layout model labels them text
+  or a heading; nothing downstream sees them. Finding formulas from the
+  glyphs themselves (math fonts, script geometry, rules) is the planned fix,
+  which also replaces the box splitting and the cut guards.
+- **Wrong** (16): formulas cut at the layout box's edge that the guards do
+  not catch, a few structures read wrong, and two chemistry formulas in
+  `\ce{…}` notation the scorer cannot compare (ours are right).
+- **One line of a multi-line display** (5): an `aligned` block read as its
+  separate equations; reads well aloud, but is not the ground truth's one
+  formula.
 - **Inline formulas missing characters** (251): math-italic Greek in running
   text dropped or misread by the text layer, and inline formulas the layout
   model boxed that the reconstruction refused (with the VLM off they leave

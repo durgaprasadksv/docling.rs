@@ -73,7 +73,7 @@ VARIANTS = {
     r"\dotsm": "...", r"\dotsi": "...", r"\vdots": "...",
     r"\vDash": r"\models", r"\geqslant": r"\geq", r"\leqslant": r"\leq",
     r"\bot": r"\perp", r"\bigtriangleup": r"\triangle", r"\varnothing": r"\emptyset",
-    r"\backepsilon": r"\ni",
+    r"\backepsilon": r"\ni", r"\varpropto": r"\propto",
 }
 SYN = {
     r"\le": r"\leq", r"\ge": r"\geq", r"\ne": r"\neq", r"\to": r"\rightarrow",
@@ -258,7 +258,26 @@ def canonical(latex):
     toks = tokens(latex)
     # split multi-char plain tokens are already single chars; digits split.
     tree, _ = parse(toks)
-    return canon(tree)
+    out = canon(tree)
+    # `{e'}^{2}` and `e^{\prime 2}`: two superscripts in a row are one
+    k = 0
+    while k + 1 < len(out):
+        if out[k] == "}" and out[k + 1] == "^":
+            # find the group this `}` closes and the `^` that opened it
+            depth, j = 0, k
+            while j >= 0:
+                depth += {"}": 1, "{": -1}.get(out[j], 0)
+                if depth == 0:
+                    break
+                j -= 1
+            if j >= 1 and out[j - 1] == "^" and k + 2 < len(out) and out[k + 2] == "{":
+                del out[k:k + 3]  # drop "} ^ {" — the two groups become one
+                continue
+        k += 1
+    # a trailing row break (`…\\ \end{matrix}`) ends no row
+    while out and out[-1] == "\\\\":
+        out.pop()
+    return out
 
 
 def lev(a, b):
@@ -291,8 +310,14 @@ def visible(canon_toks):
 
 
 def region_chars(rec):
+    """The letters and digits inside the region's box (a dump also carries
+    the glyphs around it, for the guards that read the surroundings)."""
     out = Counter()
+    l, t, r, b = rec["bbox"]
     for g in rec["glyphs"]:
+        xc, yc = (g[1] + g[3]) / 2, (g[2] + g[4]) / 2
+        if not (l - 1 <= xc <= r + 1 and t - 1 <= yc <= b + 1):
+            continue
         ch = g[0]
         if ch.isascii() and ch.isalnum():
             out[ch] += 1
@@ -360,6 +385,12 @@ def evaluate(bench, out_dir, replayed=None, label=""):
                 # Anything but an exact match is wrong: a near miss read aloud
                 # is a wrong formula. `sim` stays for diagnosis only.
                 row["status"] = "exact" if ours == gt_c[bi] else "wrong"
+                # One line of a multi-line display read as its own formula
+                # (the region was split per row): not wrong, not the whole.
+                if row["status"] == "wrong" and "\\\\" in gt_c[bi] and "\\\\" not in ours:
+                    rows_gt = " ".join(gt_c[bi]).split(" \\\\ ")
+                    if " ".join(ours) in [r.strip() for r in rows_gt]:
+                        row["status"] = "one row"
             else:
                 row["status"] = "refused"
                 row["why"] = re.sub(r"[\d.]+", "#", rec.get("error") or "")[:70]
@@ -372,11 +403,12 @@ def evaluate(bench, out_dir, replayed=None, label=""):
 
 def report(rows):
     st = Counter(r["status"] for r in rows)
-    regions = sum(st[k] for k in ("exact", "wrong", "refused"))
-    rebuilt = sum(st[k] for k in ("exact", "wrong"))
+    regions = sum(st[k] for k in ("exact", "one row", "wrong", "refused"))
+    rebuilt = sum(st[k] for k in ("exact", "one row", "wrong"))
     print("display formulas with a matched region:", regions)
     print("  rebuilt from the text layer:", rebuilt, f"({100*rebuilt/max(regions,1):.1f}%)")
     print("    exact after canonicalisation:", st["exact"], f"({100*st['exact']/max(rebuilt,1):.1f}% of rebuilt)")
+    print("    one row of a multi-line display:", st["one row"])
     print("    wrong:", st["wrong"], f"({100*st['wrong']/max(rebuilt,1):.1f}% of rebuilt)")
     sims = [r["sim"] for r in rows if "sim" in r]
     if sims:

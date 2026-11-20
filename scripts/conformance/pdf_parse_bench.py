@@ -283,7 +283,7 @@ RANK = {
     "text": {"found": 2, "partial": 1, "missing": 0},
     "inline": {"found": 1, "missing": 0},
     # a wrong formula is worse than one left to the model
-    "display": {"exact": 3, "refused": 2, "no region": 2, "wrong": 1},
+    "display": {"exact": 3, "one row": 2, "refused": 2, "no region": 2, "wrong": 1},
     "table": {"exact": 3, "good": 2, "partial": 1, "missing": 0},
 }
 

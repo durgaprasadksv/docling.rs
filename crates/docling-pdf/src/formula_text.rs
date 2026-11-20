@@ -232,7 +232,27 @@ pub fn dump_json(
     let inside =
         |x: f32, y: f32| x >= l - SLACK && x <= r + SLACK && y >= t - SLACK && y <= b + SLACK;
     let r2 = |v: f32| (v * 100.0).round() / 100.0;
-    let glyphs: Vec<serde_json::Value> = select(layer, bbox)
+    // The formula's glyphs and, for the guards that read the surroundings
+    // (`continues_outside`), every glyph within 12 pt of the box: a replay
+    // selects the formula from them exactly as `explain` does on the page.
+    let near = |g: &MathGlyph| {
+        let (x, y) = ((g.l + g.r) / 2.0, (g.t + g.b) / 2.0);
+        x >= l - 12.0 && x <= r + 12.0 && y >= t - 12.0 && y <= b + 12.0
+    };
+    let mut kept = select(layer, bbox);
+    let around: Vec<MathGlyph> = layer
+        .glyphs
+        .iter()
+        .filter(|g| {
+            near(g)
+                && !kept
+                    .iter()
+                    .any(|k| k.l == g.l && k.t == g.t && k.ch == g.ch)
+        })
+        .cloned()
+        .collect();
+    kept.extend(around);
+    let glyphs: Vec<serde_json::Value> = kept
         .iter()
         .map(|g| {
             serde_json::json!([
@@ -248,10 +268,15 @@ pub fn dump_json(
             ])
         })
         .collect();
+    // Rules up to 12 pt above or below the box too: `explain` reads a bar
+    // just outside it as a cut formula, and a replay must see it.
     let rules: Vec<serde_json::Value> = layer
         .rules
         .iter()
-        .filter(|ru| inside((ru.l + ru.r) / 2.0, (ru.t + ru.b) / 2.0))
+        .filter(|ru| {
+            let (x, y) = ((ru.l + ru.r) / 2.0, (ru.t + ru.b) / 2.0);
+            inside(x, y) || (x >= l - SLACK && x <= r + SLACK && y >= t - 12.0 && y <= b + 12.0)
+        })
         .map(|ru| serde_json::json!([r2(ru.l), r2(ru.t), r2(ru.r), r2(ru.b)]))
         .collect();
     serde_json::json!({
@@ -347,6 +372,164 @@ fn select(layer: &MathLayer, bbox: [f32; 4]) -> Vec<MathGlyph> {
         .collect()
 }
 
+/// The formulas one layout box holds, as one box per formula. The layout
+/// model routinely draws a single box around two or three consecutive
+/// display formulas; read as one formula that is several rows, which was
+/// refused (and, measured on pdf-parse-bench, cost 113 formulas the model had
+/// in fact found). The glyphs' own vertical extents — fraction bars and
+/// hanging operators bridging the stacks of one formula — fall into bands
+/// separated by display spacing; a gap of more than 0.6 em between bands
+/// separates formulas, the much smaller gap between the lines of one
+/// aligned display does not. Empty when the box holds one band (or no
+/// glyphs): the box stands as it is.
+pub fn split_rows(layer: &MathLayer, bbox: [f32; 4]) -> Vec<[f32; 4]> {
+    let glyphs = select(layer, bbox);
+    if glyphs.len() < 2 {
+        return Vec::new();
+    }
+    let size = median(glyphs.iter().map(|g| g.size).collect());
+    let [l, t, r, b] = bbox;
+    let rules: Vec<Rule> = layer
+        .rules
+        .iter()
+        .filter(|ru| {
+            let (x, y) = ((ru.l + ru.r) / 2.0, (ru.t + ru.b) / 2.0);
+            x >= l - 1.0 && x <= r + 1.0 && y >= t - 1.0 && y <= b + 1.0
+        })
+        .copied()
+        .collect();
+    // Vertical extents: glyph boxes and rules, as (top, bottom, glyph index).
+    let mut spans: Vec<(f32, f32, Option<usize>)> = glyphs
+        .iter()
+        .enumerate()
+        .map(|(i, g)| (g.t, g.b, Some(i)))
+        .chain(rules.iter().map(|ru| (ru.t, ru.b, None)))
+        .collect();
+    spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let gap = 0.6 * size;
+    let mut bands: Vec<(f32, f32, Vec<usize>)> = Vec::new();
+    for (top, bottom, gi) in spans {
+        match bands.last_mut() {
+            Some(band) if top <= band.1 + gap => {
+                band.1 = band.1.max(bottom);
+                band.2.extend(gi);
+            }
+            _ => bands.push((top, bottom, gi.into_iter().collect())),
+        }
+    }
+    bands.retain(|band| !band.2.is_empty());
+    // A band of script-size glyphs only (the limits of a `∑` whose box
+    // hides its height, a lone subscript) is never a formula of its own:
+    // it joins the band it is closest to.
+    let full = glyphs.iter().map(|g| g.size).fold(0.0, f32::max);
+    loop {
+        let small = bands
+            .iter()
+            .position(|band| band.2.iter().all(|&i| glyphs[i].size < 0.85 * full));
+        match small {
+            Some(k) if bands.len() > 1 => {
+                let gap_up = (k > 0).then(|| bands[k].0 - bands[k - 1].1);
+                let gap_down = (k + 1 < bands.len()).then(|| bands[k + 1].0 - bands[k].1);
+                let into = match (gap_up, gap_down) {
+                    (Some(u), Some(d)) if d < u => k + 1,
+                    (Some(_), _) => k - 1,
+                    _ => k + 1,
+                };
+                let band = bands.remove(k);
+                let target = if into > k { into - 1 } else { into };
+                let t = &mut bands[target];
+                t.0 = t.0.min(band.0);
+                t.1 = t.1.max(band.1);
+                t.2.extend(band.2);
+            }
+            _ => break,
+        }
+    }
+    if bands.len() < 2 {
+        return Vec::new();
+    }
+    bands
+        .iter()
+        .map(|(_, _, ids)| {
+            let (mut bl, mut bt, mut br, mut bb) = (
+                f32::INFINITY,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::NEG_INFINITY,
+            );
+            for &i in ids {
+                let g = &glyphs[i];
+                (bl, bt, br, bb) = (bl.min(g.l), bt.min(g.t), br.max(g.r), bb.max(g.b));
+            }
+            [bl, bt, br, bb]
+        })
+        .collect()
+}
+
+/// Whether a fraction bar lies just outside `bbox`, above or below the
+/// glyphs and over them: the layout model drew the box through a fraction
+/// (numerators and bars in one box, denominators in the next), and what is
+/// inside reads as a formula it is only half of.
+fn cut_through_a_fraction(layer: &MathLayer, bbox: [f32; 4], glyphs: &[MathGlyph]) -> bool {
+    if glyphs.is_empty() {
+        return false;
+    }
+    let [_, t, _, b] = bbox;
+    let size = median(glyphs.iter().map(|g| g.size).collect());
+    let (gl, gr) = glyphs
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(l, r), g| {
+            (l.min(g.l), r.max(g.r))
+        });
+    layer.rules.iter().any(|ru| {
+        let y = (ru.t + ru.b) / 2.0;
+        let outside = y < t - 1.0 || y > b + 1.0;
+        let near = (t - y).max(y - b) < 0.6 * size;
+        let over = ru.r.min(gr) - ru.l.max(gl) > 0.5 * (ru.r - ru.l);
+        outside && near && over
+    })
+}
+
+/// Whether glyphs just outside `bbox` belong to the formula in it: on its
+/// rows within half an em of its left or right edge (a `∑` or a `ρ` the box
+/// left out), or under/over its glyphs within half an em of its bottom or
+/// top (the limit of a `\max`). A display formula stands clear of its
+/// neighbours by more than that; glyphs this close are the formula
+/// continuing past a box drawn too tight.
+fn continues_outside(layer: &MathLayer, bbox: [f32; 4], glyphs: &[MathGlyph]) -> bool {
+    if glyphs.is_empty() {
+        return false;
+    }
+    let [l, t, r, b] = bbox;
+    let size = median(glyphs.iter().map(|g| g.size).collect());
+    let (gl, gr) = glyphs
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(a, z), g| {
+            (a.min(g.l), z.max(g.r))
+        });
+    let selected = |g: &MathGlyph| {
+        glyphs
+            .iter()
+            .any(|s| s.l == g.l && s.t == g.t && s.ch == g.ch)
+    };
+    layer.glyphs.iter().any(|g| {
+        if selected(g) || g.ch.is_whitespace() {
+            return false;
+        }
+        let (xc, yc) = ((g.l + g.r) / 2.0, (g.t + g.b) / 2.0);
+        let beside = yc > t
+            && yc < b
+            && ((g.r <= l && l - g.r < 0.5 * size) || (g.l >= r && g.l - r < 0.5 * size));
+        // over or under: only script-size glyphs (a limit); the next line
+        // of body text can sit this close under a display
+        let stacked = g.size < 0.85 * size
+            && xc > gl
+            && xc < gr
+            && ((g.b <= t && t - g.b < 0.5 * size) || (g.t >= b && g.t - b < 0.5 * size));
+        beside || stacked
+    })
+}
+
 /// Whether the tall brackets among `glyphs` pair up: a `\Big)` without a
 /// `\Big(` means part of the formula is missing.
 fn tall_brackets_pair(glyphs: &[MathGlyph]) -> bool {
@@ -363,6 +546,12 @@ fn tall_brackets_pair(glyphs: &[MathGlyph]) -> bool {
 
 pub fn explain(layer: &MathLayer, bbox: [f32; 4]) -> Result<String, String> {
     let glyphs = select(layer, bbox);
+    if cut_through_a_fraction(layer, bbox, &glyphs) {
+        return Err("a fraction bar just outside the box (the formula is cut)".into());
+    }
+    if continues_outside(layer, bbox, &glyphs) {
+        return Err("glyphs hugging the box from outside (the formula continues)".into());
+    }
     if !tall_brackets_pair(&glyphs) {
         return Err("a tall bracket without its partner (part of the formula is missing)".into());
     }
@@ -1317,6 +1506,11 @@ fn line(mut atoms: Vec<Atom>) -> Option<String> {
             if big && (delimiter(c) || big_operator(c)) {
                 return Level::Base;
             }
+            // a radical sign without a vinculum (`\surd 6`) hangs from its
+            // own baseline like the extension glyphs; it is on the line
+            if c == '√' && a.size >= 0.85 * main {
+                return Level::Base;
+            }
         }
         let shift = a.base - base; // + is lower
         if shift < -0.12 * main || (!big && shift < -0.05 * main) {
@@ -1336,6 +1530,21 @@ fn line(mut atoms: Vec<Atom>) -> Option<String> {
         ch: Option<char>,
         /// The script group the last script atom joined, and its right edge.
         last: Option<(Level, f32)>,
+    }
+    // A script-level atom standing over a base atom of the row (an arrow
+    // over `=`, `\overset{→}{=}`) is stacked notation, not a script.
+    let bases: Vec<(f32, f32)> = atoms
+        .iter()
+        .filter(|a| level(a) == Level::Base && has_relation(&a.tex))
+        .map(|a| (a.l, a.r))
+        .collect();
+    if atoms.iter().any(|a| {
+        level(a) != Level::Base
+            && bases
+                .iter()
+                .any(|&(l, r)| a.xc() > l + 0.2 * (r - l) && a.xc() < r - 0.2 * (r - l))
+    }) {
+        return None;
     }
     let mut items: Vec<Item> = Vec::new();
     for a in atoms {
@@ -1391,6 +1600,15 @@ fn line(mut atoms: Vec<Atom>) -> Option<String> {
                     });
                 }
                 let it = items.last_mut().unwrap();
+                // Two stacked atoms right after an opening bracket are a
+                // binomial (`\binom{n}{k}`), not scripts of the bracket; and
+                // a relation carries no scripts (`Z = _ { n } \sum …` is a
+                // limit the operator lost).
+                let opening = matches!(it.ch, Some('(' | '[' | '{' | '⟨'));
+                let other = if lv == Level::Sup { &it.sub } else { &it.sup };
+                if opening && !other.is_empty() {
+                    return None;
+                }
                 // A script standing over its base rather than after it is
                 // stacked notation — `\overset`, `\binom`, `\underset` —
                 // which reads wrong as a script.
@@ -1417,6 +1635,19 @@ fn line(mut atoms: Vec<Atom>) -> Option<String> {
             .collect();
         for (k, tex) in function_names(&letters, &scripted) {
             items[k].tex = tex;
+        }
+    }
+    // A relation carrying scripts right before a large operator: the
+    // operator's limit, lost to it (`Z = _ { n } \sum …`). (A relation's
+    // script before anything else can be a prescript: `= {}_1 F_1`.)
+    for w in items.windows(2) {
+        let scripted = !w[0].sub.is_empty() || !w[0].sup.is_empty();
+        if scripted
+            && w[0].ch.is_some()
+            && has_relation(&w[0].tex)
+            && w[1].ch.is_some_and(big_operator)
+        {
+            return None;
         }
     }
     let mut out: Vec<String> = Vec::new();

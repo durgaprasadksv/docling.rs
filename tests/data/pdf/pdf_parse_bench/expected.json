@@ -36,15 +36,15 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -112,7 +112,7 @@
 ],
 [
 "display",
-"refused"
+"no region"
 ],
 [
 "display",
@@ -334,7 +334,7 @@
 ],
 [
 "display",
-"wrong"
+"exact"
 ],
 [
 "display",
@@ -736,7 +736,7 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -833,14 +833,6 @@
 [
 "text",
 "found"
-],
-[
-"display",
-"wrong"
-],
-[
-"display",
-"no region"
 ],
 [
 "display",
@@ -848,7 +840,15 @@
 ],
 [
 "display",
-"no region"
+"exact"
+],
+[
+"display",
+"exact"
+],
+[
+"display",
+"exact"
 ],
 [
 "text",
@@ -1214,7 +1214,7 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
@@ -1978,7 +1978,7 @@
 ],
 [
 "display",
-"wrong"
+"refused"
 ],
 [
 "display",
@@ -2258,15 +2258,15 @@
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -2512,7 +2512,7 @@
 ],
 [
 "display",
-"wrong"
+"refused"
 ],
 [
 "display",
@@ -3474,23 +3474,23 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "text",
@@ -3530,15 +3530,15 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -3554,15 +3554,15 @@
 ],
 [
 "display",
+"exact"
+],
+[
+"display",
 "refused"
 ],
 [
 "display",
-"no region"
-],
-[
-"display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -4064,11 +4064,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -5294,7 +5294,7 @@
 ],
 [
 "display",
-"refused"
+"one row"
 ],
 [
 "text",
@@ -6000,23 +6000,23 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "display",
-"no region"
+"refused"
 ]
 ],
 "2026-q1-formulas-only/031": [
@@ -6130,7 +6130,7 @@
 ],
 [
 "display",
-"refused"
+"one row"
 ],
 [
 "text",
@@ -6780,7 +6780,7 @@
 ],
 [
 "display",
-"wrong"
+"refused"
 ],
 [
 "display",
@@ -7310,7 +7310,7 @@
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "display",
@@ -7564,11 +7564,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -7784,19 +7784,11 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
-],
-[
-"display",
-"no region"
-],
-[
-"display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -7805,6 +7797,14 @@
 [
 "display",
 "exact"
+],
+[
+"display",
+"exact"
+],
+[
+"display",
+"refused"
 ],
 [
 "display",
@@ -7966,11 +7966,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "text",
@@ -7990,11 +7990,11 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
@@ -8554,7 +8554,7 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -8844,11 +8844,11 @@
 ],
 [
 "display",
-"refused"
+"wrong"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -8916,7 +8916,7 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -9034,11 +9034,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -11184,7 +11184,7 @@
 ],
 [
 "display",
-"refused"
+"no region"
 ],
 [
 "display",
@@ -12046,15 +12046,15 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -12510,7 +12510,7 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -13594,11 +13594,11 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
@@ -14644,7 +14644,7 @@
 ],
 [
 "display",
-"wrong"
+"refused"
 ],
 [
 "display",
@@ -14818,15 +14818,15 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -14870,51 +14870,7 @@
 ],
 [
 "display",
-"no region"
-],
-[
-"display",
-"no region"
-],
-[
-"display",
-"no region"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
+"exact"
 ],
 [
 "display",
@@ -14922,15 +14878,59 @@
 ],
 [
 "display",
-"no region"
+"exact"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
+],
+[
+"display",
+"refused"
+],
+[
+"display",
+"exact"
 ]
 ],
 "2026-q1-formulas-only/076": [
@@ -15238,15 +15238,15 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -15538,7 +15538,7 @@
 ],
 [
 "display",
-"refused"
+"no region"
 ],
 [
 "display",
@@ -15830,15 +15830,15 @@
 ],
 [
 "display",
-"wrong"
+"refused"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "text",
@@ -17006,115 +17006,115 @@
 ],
 [
 "display",
-"refused"
+"exact"
+],
+[
+"display",
+"exact"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"text",
+"found"
 ],
 [
 "display",
 "no region"
 ],
 [
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"text",
-"found"
-],
-[
 "display",
-"refused"
-],
-[
-"display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -17564,7 +17564,7 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -18676,15 +18676,15 @@
 ],
 [
 "display",
-"no region"
-],
-[
-"display",
 "exact"
 ],
 [
 "display",
 "no region"
+],
+[
+"display",
+"exact"
 ],
 [
 "display",
@@ -19052,11 +19052,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -23722,7 +23722,7 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -23798,11 +23798,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -25180,11 +25180,11 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -25230,7 +25230,7 @@
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "display",
@@ -25238,7 +25238,7 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -25908,11 +25908,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -25950,11 +25950,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -26042,15 +26042,15 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -26456,15 +26456,15 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -26650,7 +26650,7 @@
 ],
 [
 "display",
-"refused"
+"no region"
 ],
 [
 "display",
@@ -27344,11 +27344,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -27684,11 +27684,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -27766,11 +27766,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -28056,15 +28056,15 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -28256,7 +28256,7 @@
 ],
 [
 "display",
-"no region"
+"wrong"
 ],
 [
 "text",
@@ -28910,7 +28910,7 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -29056,7 +29056,7 @@
 ],
 [
 "display",
-"refused"
+"one row"
 ],
 [
 "text",
@@ -29492,11 +29492,11 @@
 ],
 [
 "display",
-"refused"
+"no region"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
@@ -29634,15 +29634,15 @@
 ],
 [
 "display",
+"exact"
+],
+[
+"display",
+"exact"
+],
+[
+"display",
 "refused"
-],
-[
-"display",
-"no region"
-],
-[
-"display",
-"no region"
 ],
 [
 "text",
@@ -29694,7 +29694,7 @@
 ],
 [
 "display",
-"refused"
+"one row"
 ],
 [
 "text",
@@ -29714,11 +29714,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -29982,11 +29982,11 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -30988,7 +30988,7 @@
 ],
 [
 "display",
-"wrong"
+"refused"
 ],
 [
 "display",
@@ -31294,7 +31294,7 @@
 ],
 [
 "display",
-"wrong"
+"refused"
 ],
 [
 "text",
@@ -31303,10 +31303,6 @@
 [
 "text",
 "found"
-],
-[
-"display",
-"no region"
 ],
 [
 "display",
@@ -31314,7 +31310,11 @@
 ],
 [
 "display",
-"no region"
+"exact"
+],
+[
+"display",
+"exact"
 ]
 ],
 "2025-q4/042": [
@@ -32104,7 +32104,7 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -32506,15 +32506,15 @@
 ],
 [
 "display",
+"exact"
+],
+[
+"display",
+"exact"
+],
+[
+"display",
 "refused"
-],
-[
-"display",
-"no region"
-],
-[
-"display",
-"no region"
 ],
 [
 "text",
@@ -32522,11 +32522,11 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "text",
@@ -32742,11 +32742,11 @@
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "text",
@@ -34150,11 +34150,11 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "text",
@@ -34728,11 +34728,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -34826,11 +34826,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -36444,11 +36444,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -36513,18 +36513,6 @@
 [
 "inline",
 "found"
-],
-[
-"text",
-"found"
-],
-[
-"display",
-"refused"
-],
-[
-"display",
-"no region"
 ],
 [
 "text",
@@ -36536,7 +36524,19 @@
 ],
 [
 "display",
-"refused"
+"exact"
+],
+[
+"text",
+"found"
+],
+[
+"display",
+"exact"
+],
+[
+"display",
+"no region"
 ],
 [
 "text",
@@ -37234,11 +37234,11 @@
 "2025-q4/073": [
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -37944,19 +37944,19 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -38154,7 +38154,7 @@
 ],
 [
 "display",
-"exact"
+"refused"
 ],
 [
 "text",
@@ -38384,11 +38384,11 @@
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -40052,15 +40052,15 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"refused"
+"exact"
 ],
 [
 "text",
@@ -40472,15 +40472,15 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -41642,11 +41642,11 @@
 ],
 [
 "display",
-"refused"
+"one row"
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -42226,7 +42226,7 @@
 ],
 [
 "display",
-"no region"
+"refused"
 ],
 [
 "display",
@@ -42234,7 +42234,7 @@
 ],
 [
 "display",
-"no region"
+"exact"
 ],
 [
 "text",
@@ -42310,47 +42310,47 @@
 ],
 [
 "display",
-"no region"
+"exact"
+],
+[
+"display",
+"exact"
+],
+[
+"text",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"inline",
+"found"
+],
+[
+"text",
+"found"
+],
+[
+"display",
+"exact"
 ],
 [
 "display",
 "refused"
 ],
 [
-"text",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
-"inline",
-"found"
-],
-[
-"text",
-"found"
-],
-[
 "display",
-"refused"
-],
-[
-"display",
-"no region"
-],
-[
-"display",
-"no region"
+"exact"
 ]
 ],
 "2025-q4/098": [
