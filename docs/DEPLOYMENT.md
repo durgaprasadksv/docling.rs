@@ -411,7 +411,8 @@ models), since every megabyte is pull time on a cold start.
 - **Endpoint settings:** branch `claude/port-v2`, Dockerfile path
   `crates/docling-serve/Dockerfile.runpod`, build context the repository root.
   The servers listen on localhost only, behind RunPod's authenticated job API.
-- **Endpoint type: Queue.** The image runs `crates/docling-serve/runpod/handler.py`,
+- **Endpoint type: Queue.** The image runs `handler.py` (at the repository root, where RunPod's GitHub
+  integration looks for `runpod.serverless.start()`),
   a RunPod queue worker. At start it sizes a pool to the machine — one
   docling-serve process per document the GPU can hold (GPU memory less a
   1.5 GB reserve, at 5 GB a document: two on a 16 GB card, four on 24 GB,

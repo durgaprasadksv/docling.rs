@@ -1,5 +1,9 @@
 """RunPod queue worker for docling-serve: sizes itself to the GPU it lands on.
 
+At the repository root because RunPod's GitHub integration looks for the
+`runpod.serverless.start()` call there; the image is built from
+`crates/docling-serve/Dockerfile.runpod`.
+
 RunPod queue endpoints hand jobs to a worker through the `runpod` SDK, not as
 HTTP requests, and the worker decides how many it takes at once. One
 docling-serve process converts one PDF at a time (its warm pipeline is shared

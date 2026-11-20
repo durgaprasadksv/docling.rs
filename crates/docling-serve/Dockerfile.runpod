@@ -100,5 +100,5 @@ ENV LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH} \
 # 16 GB card, more on a bigger one) and takes that many jobs at once, each
 # going to an idle server's /v1/convert/r2 on localhost.
 RUN python3 -m pip install --no-cache-dir runpod==2.4.0
-COPY crates/docling-serve/runpod/handler.py /app/handler.py
+COPY handler.py /app/handler.py
 CMD ["python3", "-u", "/app/handler.py"]
