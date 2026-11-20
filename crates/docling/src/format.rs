@@ -480,6 +480,7 @@ impl InputFormat {
 /// cannot drift apart.
 pub const OUTPUT_FORMATS: &[&str] = &[
     "md", "json", "html", "text", "dclx", "chunks", "images", "latex", "pandoc", "vtt", "reader",
+    "llm",
 ];
 
 /// File extension → format, the table behind

@@ -2521,6 +2521,16 @@ These are deliberate or unavoidable divergences, not bugs.
    model (docs/PDF_CONFORMANCE.md); a layout box around several consecutive
    formulas is split per formula. `DOCLING_RS_FORMULA_TEXT_LAYER=0` sends
    every formula to the model and turns the detection off.
+25. **`--to llm`: Markdown for an LLM to read whole.** docling's Markdown is
+   written for renderers and people: padded table columns, `&amp;` and `\_`
+   escapes, an `<!-- image -->` marker per picture, and an unread formula as
+   `<!-- formula-not-decoded -->`, which loses it. The `llm` export
+   (`MarkdownExportOptions::llm`, `DoclingDocument::export_to_llm_markdown`;
+   CLI, serve and MCP `to=llm`, `<stem>.llm.md`) is the same walk in reading
+   order, body layer only, with compact GitHub pipe tables, the text
+   unescaped, pictures reduced to their caption (or description), and an
+   unread formula as its glyphs' text. One file per document, no chunking:
+   it is meant to be handed to the model whole for summaries and questions.
 
 ## 5. Not migrated / out of scope
 

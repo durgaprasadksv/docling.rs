@@ -53,6 +53,8 @@ enum Format {
     Doclang,
     /// This server's own: the reader export (`docs/READER_FORMAT.md`).
     Reader,
+    /// This server's own: Markdown for an LLM (`MarkdownExportOptions::llm`).
+    Llm,
 }
 
 impl Format {
@@ -68,6 +70,7 @@ impl Format {
             "doctags" => Self::Doctags,
             "doclang" => Self::Doclang,
             "reader" => Self::Reader,
+            "llm" => Self::Llm,
             _ => return None,
         })
     }
@@ -82,6 +85,7 @@ impl Format {
             Self::Doctags => "doctags_content",
             Self::Doclang => "doclang_content",
             Self::Reader => "reader_content",
+            Self::Llm => "llm_content",
         }
     }
 
@@ -95,6 +99,7 @@ impl Format {
             Self::Doctags => "doctags",
             Self::Doclang => "dclg.xml",
             Self::Reader => "reader.json",
+            Self::Llm => "llm.md",
         }
     }
 }
@@ -383,6 +388,7 @@ fn export_document(
             Format::Text => json!(text_string(state, doc, opts)),
             Format::Doclang => json!(doc.export_to_doclang()),
             Format::Reader => doc.export_to_reader_value(),
+            Format::Llm => json!(doc.export_to_llm_markdown()),
             Format::Doctags => Value::Null,
         };
     }

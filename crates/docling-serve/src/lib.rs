@@ -251,6 +251,7 @@ use tokio::sync::Semaphore;
 mod compat;
 pub mod o11y;
 mod passthrough;
+mod r2;
 
 /// Server configuration (see the binary's `--help` for the flag spellings).
 #[derive(Clone, Debug)]
@@ -626,6 +627,9 @@ pub fn router(cfg: ServeConfig) -> Router {
         .route("/v1/config", get(config))
         .route("/v1/convert", post(convert))
         .route("/v1/convert/async", post(convert_async))
+        // A book in an object store converted into it through pre-signed
+        // URLs: reader chunks by page window and the LLM Markdown (`r2.rs`).
+        .route("/v1/convert/r2", post(r2::convert_r2))
         .route("/v1/status/{id}", get(job_status))
         .route("/v1/result/{id}", get(job_result))
         // #615: upstream docling-serve's API — what Open WebUI, n8n, Dify
@@ -902,6 +906,9 @@ enum ApiError {
     Overloaded(String),
     /// The request body is over `--max-body-mb` (#619) — 413.
     TooLarge(String),
+    /// A store this server reads from or writes to failed (a pre-signed
+    /// download or upload) — 502, the request can be retried.
+    Upstream(String),
 }
 
 /// A multipart read error: 413 when the body went past `--max-body-mb`
@@ -942,6 +949,7 @@ fn api_error_parts(e: ApiError) -> (StatusCode, String) {
         ApiError::Busy(m) => (StatusCode::TOO_MANY_REQUESTS, m),
         ApiError::Overloaded(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
         ApiError::TooLarge(m) => (StatusCode::PAYLOAD_TOO_LARGE, m),
+        ApiError::Upstream(m) => (StatusCode::BAD_GATEWAY, m),
     }
 }
 
@@ -1862,6 +1870,7 @@ impl OutputNames {
             "pandoc" => "pandoc.json",
             "vtt" => "vtt",
             "reader" => "reader.json",
+            "llm" => "llm.md",
             _ => unreachable!("validated above"),
         };
         Self {
@@ -2380,6 +2389,16 @@ fn render_stored(
             body: serde_json::to_vec(&document.export_to_reader_value())
                 .expect("the reader export is always serializable"),
         },
+        // Markdown for an LLM to read whole (`MarkdownExportOptions::llm`).
+        "llm" => StoredResponse {
+            errors: Vec::new(),
+            content_type: "text/markdown; charset=utf-8",
+            disposition: None,
+            confidence,
+            redaction: None,
+            pdf_repairs: None,
+            body: document.export_to_llm_markdown().into_bytes(),
+        },
         // #614: docling's `--to vtt`, a text body like Markdown.
         "vtt" => StoredResponse {
             errors: Vec::new(),
@@ -2489,6 +2508,7 @@ fn batch_item(
         "text" => item["text"] = json!(text_string(state, document, options)),
         "vtt" => item["vtt"] = json!(document.export_to_vtt()),
         "reader" => item["reader"] = document.export_to_reader_value(),
+        "llm" => item["llm"] = json!(document.export_to_llm_markdown()),
         "html" => item["html"] = json!(html_string(document, image_mode)),
         // #515: the AST inline as an object, like the docling JSON document.
         "pandoc" => {

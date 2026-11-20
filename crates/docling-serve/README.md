@@ -69,8 +69,43 @@ last counts.
 | `POST /v1/convert` | one `file` part, several (a batch), a ZIP, or a JSON body with `url` / `sources` / `target`; options as query parameters, multipart fields or JSON keys |
 | `POST /v1/convert/async` · `GET /v1/status/{id}` · `GET /v1/result/{id}` | the same request as a job: a task id now, the result when done (kept `--result-ttl` seconds) |
 | `POST /v1/convert/file` · `POST /v1/convert/source` (+ `/async`, `/v1alpha/…`) | Python docling-serve's routes and response shape (`ConvertDocumentResponse`), for its clients |
+| `POST /v1/convert/r2` | a document in an object store (Cloudflare R2, any S3-compatible store) converted through pre-signed URLs the caller minted: the `reader` export uploaded in page windows, the `llm` Markdown beside it, a 2xx when all are up — [below](#object-store-conversion-v1convertr2) |
 | `GET /v1/config` | the server's policies (`allow_url_fetch`, limits), resolved models and Tesseract's installed languages (`tesseract_languages`, the web UI's `ocr_lang` hints) |
 | `GET /` · `GET /openapi.yaml` · `GET /health` · `GET /ready` · `GET /metrics` | docs and test form · OpenAPI · liveness · readiness (503 until `--warmup` finishes) · Prometheus |
+
+## Object-store conversion (`/v1/convert/r2`)
+
+For a pipeline where users upload documents to a bucket and an upload event
+starts a worker: the worker mints pre-signed URLs and calls this route; the
+server reads the source and writes every output through those URLs alone,
+so it holds no storage credentials.
+
+```jsonc
+POST /v1/convert/r2
+{ "file": "biology.pdf",
+  "source_url": "<GET …/biology.pdf>",
+  "markdown_url": "<PUT …/rag/biology.md>",
+  "pages_per_chunk": 20,
+  "page_count": 392,                   // optional, checked before any upload
+  "chunk_urls": { "0001_0020": "<PUT …/chunks/0001_0020_chunk.json>", …,
+                  "0381_0392": "<PUT …/chunks/0381_0392_chunk.json>" },
+  "options": { "do_formula_enrichment": true } }
+```
+
+- **Chunks** are the `reader` export ([READER_FORMAT.md](../../docs/READER_FORMAT.md))
+  cut to `pages_per_chunk`-page windows, each with its 1-based `firstPage` /
+  `lastPage` — a client parses one window at a time. A window's name is its
+  first and last page, zero-padded to four digits (more from 10,000 pages),
+  the last window ending at the last page.
+- **Markdown** is the `llm` export: the whole document in reading order,
+  compact pipe tables, no image markers, unescaped.
+- **Answer**: `200 {"status", "pages", "chunks": [names], "markdown": true}`
+  once everything is uploaded. Every window's URL is checked before the first
+  upload (`422` naming the missing windows), extra URLs are left unused; a
+  failed download or upload is `502` and the request can simply be repeated —
+  the same objects are written again.
+- Needs `--allow-url-fetch`, like every outbound request this server makes.
+- `options` takes docling-serve's option names, as `/v1/convert/source` does.
 
 ## Request options
 

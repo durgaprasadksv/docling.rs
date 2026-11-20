@@ -70,6 +70,8 @@ struct Ctx {
     image_placeholder: String,
     /// The plain-text export ([`MarkdownExportOptions::plain_text`], #613).
     plain: bool,
+    /// [`MarkdownExportOptions::formula_text_fallback`].
+    formula_text_fallback: bool,
 }
 
 impl Ctx {
@@ -79,7 +81,7 @@ impl Ctx {
         Ctx {
             strict,
             alt_text: strict || doc.picture_alt_text,
-            compact_tables: doc.compact_tables,
+            compact_tables: doc.compact_tables || options.compact_tables,
             images: options.image_mode,
             artifacts_dir: options.artifacts_dir.clone(),
             artifacts: Vec::new(),
@@ -95,6 +97,7 @@ impl Ctx {
             escape_underscores: options.escape_underscores,
             image_placeholder: options.image_placeholder.clone(),
             plain: options.plain_text,
+            formula_text_fallback: options.formula_text_fallback,
         }
     }
 
@@ -421,6 +424,7 @@ pub struct MarkdownStreamer {
     escape_underscores: bool,
     image_placeholder: String,
     plain: bool,
+    formula_text_fallback: bool,
 }
 
 impl MarkdownStreamer {
@@ -467,6 +471,7 @@ impl MarkdownStreamer {
             escape_underscores: true,
             image_placeholder: "<!-- image -->".to_string(),
             plain: false,
+            formula_text_fallback: false,
         }
     }
 
@@ -485,6 +490,8 @@ impl MarkdownStreamer {
         self.escape_underscores = options.escape_underscores;
         self.image_placeholder = options.image_placeholder.clone();
         self.plain = options.plain_text;
+        self.compact_tables |= options.compact_tables;
+        self.formula_text_fallback = options.formula_text_fallback;
         self
     }
 
@@ -573,6 +580,7 @@ impl MarkdownStreamer {
             escape_underscores: self.escape_underscores,
             image_placeholder: std::mem::take(&mut self.image_placeholder),
             plain: self.plain,
+            formula_text_fallback: self.formula_text_fallback,
         };
         let mut blocks: Vec<String> = Vec::new();
         render(nodes, &mut blocks, &mut ctx);
@@ -1221,8 +1229,17 @@ fn render_item(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
         // (the un-enriched pipeline emits a placeholder paragraph instead).
         // … and an undecoded one (empty LaTeX: the layout model found a formula
         // the enrichment did not read) is docling's placeholder comment.
-        Node::Formula { latex, .. } if latex.is_empty() => {
-            blocks.push("<!-- formula-not-decoded -->".to_string())
+        Node::Formula { latex, orig, .. } if latex.is_empty() => {
+            if ctx.formula_text_fallback {
+                // The glyphs' own text, flattened but readable; nothing at
+                // all when the formula had no text (drawn as outlines).
+                let text = orig.split_whitespace().collect::<Vec<_>>().join(" ");
+                if !text.is_empty() {
+                    blocks.push(ctx.text(&text));
+                }
+            } else {
+                blocks.push("<!-- formula-not-decoded -->".to_string())
+            }
         }
         Node::Formula { latex, .. } => blocks.push(format!("$${latex}$$")),
         Node::Table(table) => {
@@ -2671,6 +2688,48 @@ mod tests {
             text: "footer line".into(),
         });
         doc
+    }
+
+    /// The `llm` export: unescaped text, the picture's caption without a
+    /// marker, compact tables, an unread formula as its glyphs' text (and
+    /// nothing for one with no text), furniture out — and the streamer, fed
+    /// the same options, writes the same bytes.
+    #[test]
+    fn llm_export_is_text_an_llm_reads() {
+        let mut doc = options_doc();
+        doc.push(Node::Formula {
+            latex: String::new(),
+            orig: "a2 +  b2".into(),
+            location: None,
+        });
+        doc.push(Node::Formula {
+            latex: String::new(),
+            orig: String::new(),
+            location: None,
+        });
+        doc.push(Node::Formula {
+            latex: "x ^ { 2 }".into(),
+            orig: "x2".into(),
+            location: None,
+        });
+        doc.push(Node::Table(Table {
+            rows: vec![
+                vec!["name".into(), "value".into()],
+                vec!["alpha".into(), "1".into()],
+            ],
+            ..Default::default()
+        }));
+        let md = doc.export_to_llm_markdown();
+        assert_eq!(
+            md,
+            "# R&D _ report\n\nBody a_b <tag>\n\nFigure 1\n\na2 + b2\n\n$$x ^ { 2 }$$\n\n\
+             | name | value |\n| - | - |\n| alpha | 1 |\n"
+        );
+        let mut streamer = MarkdownStreamer::new(false, ImageMode::Placeholder, false)
+            .with_export_options(&MarkdownExportOptions::llm());
+        let mut streamed = streamer.push(&doc.nodes, &[]);
+        streamed.push_str(&streamer.finish());
+        assert_eq!(streamed, md);
     }
 
     /// The defaults are docling's: the options export is the plain export,

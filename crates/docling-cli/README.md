@@ -17,7 +17,8 @@ curl -fsSL https://raw.githubusercontent.com/docling-project/docling.rs/master/s
 ```bash
 docling-rs report.pdf > report.md                # Markdown, streamed page by page (--no-stream to buffer)
 docling-rs --strict report.docx                  # the cleaner Markdown dialect
-docling-rs report.pdf --to json                  # docling JSON; also html, text, dclx, latex, pandoc, vtt, chunks, reader, images
+docling-rs report.pdf --to json                  # docling JSON; also html, text, dclx, latex, pandoc, vtt, chunks, reader, llm, images
+docling-rs report.pdf --to llm                   # the whole document as Markdown for an LLM (compact tables, no image markers)
 docling-rs --images referenced report.pdf > out.md   # pictures to ./artifacts/*.png (embedded = data: URIs)
 docling-rs recording.mp3                         # Whisper transcript; --asr-model whisper_tiny_en for a preset
 cat report.docx | docling-rs --from docx -       # stdin (#668)

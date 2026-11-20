@@ -758,9 +758,37 @@ pub struct MarkdownExportOptions {
     /// with upstream's `PlainTextParams` (no escaping, an empty image
     /// placeholder).
     pub plain_text: bool,
+    /// Compact `| a | b |` tables whatever the document's own setting
+    /// ([`DoclingDocument::compact_tables`]): the padding that aligns the
+    /// columns for a human reader is tokens an LLM pays for and gains nothing
+    /// from.
+    pub compact_tables: bool,
+    /// A formula without LaTeX (one the enrichment could not read) prints the
+    /// text its glyphs extract to — lossy (`a2 + b2`), but the content —
+    /// instead of docling's `<!-- formula-not-decoded -->`, which loses it.
+    pub formula_text_fallback: bool,
 }
 
 impl MarkdownExportOptions {
+    /// Markdown for an LLM to read whole — summaries, questions about the
+    /// document (the `llm` export): GitHub pipe tables in their compact form,
+    /// no picture marker (a caption, or a description when one was made,
+    /// still prints — a text-only model has no use for the image or a
+    /// placeholder), a formula the enrichment could not read as its glyphs'
+    /// text, and the text unescaped (`R&D`, `snake_case`: the escapes are for
+    /// Markdown renderers, and an LLM reads them as noise). Body layer only:
+    /// running headers, footers and page numbers would repeat on every page.
+    pub fn llm() -> Self {
+        Self {
+            escape_html: false,
+            escape_underscores: false,
+            image_placeholder: String::new(),
+            compact_tables: true,
+            formula_text_fallback: true,
+            ..Self::default()
+        }
+    }
+
     /// docling-core's `PlainTextParams` defaults (#613): [`Self::plain_text`]
     /// on, HTML and underscore escaping off, pictures print nothing (their
     /// captions still do), body layer only, no picture traversal — what
@@ -787,6 +815,8 @@ impl Default for MarkdownExportOptions {
             escape_underscores: true,
             image_placeholder: "<!-- image -->".to_string(),
             plain_text: false,
+            compact_tables: false,
+            formula_text_fallback: false,
         }
     }
 }
@@ -1787,6 +1817,18 @@ impl DoclingDocument {
     /// (`omit_hours_if_zero`, `omit_voice_end`).
     pub fn export_to_vtt_with_options(&self, options: &crate::vtt::VttExportOptions) -> String {
         crate::vtt::to_vtt(self, options)
+    }
+
+    /// Markdown for an LLM ([`MarkdownExportOptions::llm`]): the whole
+    /// document in reading order as one file, for summarisation and
+    /// question answering (`--to llm`, `<stem>.llm.md`).
+    pub fn export_to_llm_markdown(&self) -> String {
+        crate::markdown::to_markdown_with_options(
+            self,
+            self.strict_markdown,
+            &MarkdownExportOptions::llm(),
+        )
+        .0
     }
 
     /// Plain text — docling-core's `DoclingDocument.export_to_text()` with
