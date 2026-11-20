@@ -1,0 +1,98 @@
+# docling-serve for a RunPod serverless endpoint built straight from the git
+# repository (RunPod builds the Dockerfile as it is: no `--target`, no build
+# arguments), so the final stage below is the image and every choice is
+# baked in:
+#
+#   - CUDA 13 + cuDNN 9 runtime: the host gives the driver only; ONNX
+#     Runtime's CUDA provider loads cudart / cuBLAS / cuDNN from the image.
+#   - `cuda,speech` features and MathCAT's rules: the `reader` export's
+#     spoken formulas.
+#   - Models: layout, TableFormer, OCR and the CodeFormula model, all fp32
+#     (`--no-int8`: the int8 formula decoder's quantized matmuls fall back to
+#     the CPU under CUDA). No speech-recognition, chunking-tokenizer or
+#     embedding models, no Tesseract, no ffmpeg — this endpoint converts
+#     documents; every megabyte is pull time on a cold start.
+#
+# Build context: the repository root.
+#   docker build -f crates/docling-serve/Dockerfile.runpod -t docling-rs-runpod .
+#
+# Runtime environment (RunPod endpoint settings):
+#   DOCLING_SERVE_API_KEY   the API key callers send as the `X-Api-Key` header
+#   PORT                    listen port (default 5001)
+#
+# Health: `GET /ping` — 200 ready, 204 while the models load, 503 if they
+# failed to (RunPod's load-balancing endpoint convention); `/ready` likewise
+# with a JSON body.
+
+# ------------------------------------------------------------------------------
+# Build: Rust on the CUDA devel image (glibc/GCC match the runtime base).
+# ------------------------------------------------------------------------------
+FROM nvidia/cuda:13.0.3-cudnn-devel-ubuntu24.04 AS chef
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl build-essential pkg-config ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH \
+    ORT_CUDA_VERSION=13
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.96.0 --profile minimal \
+    && cargo install cargo-chef --locked
+WORKDIR /src
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS build
+COPY --from=planner /src/recipe.json recipe.json
+# The dependency graph alone first: a source change rebuilds only the crates.
+RUN cargo chef cook --release -p docling-serve --features cuda,speech --locked --recipe-path recipe.json
+COPY . .
+# ort's copy-dylibs leaves the CUDA provider libraries as symlinks into its
+# download cache: copy the files themselves, and fail on a dangling link.
+RUN cargo build --release -p docling-serve --features cuda,speech --locked \
+    && mkdir -p /src/.models/mathcat \
+    && bash scripts/install/fetch_mathcat_rules.sh \
+    && mkdir -p /src/cuda-dylibs \
+    && test $(find -L target/release -maxdepth 1 -name "libonnxruntime_providers_*.so" -type f | wc -l) -ge 2 \
+    && find target/release -maxdepth 1 -name "libonnxruntime_providers_*.so" -exec cp -vL {} /src/cuda-dylibs/ \; \
+    && ! find /src/cuda-dylibs -type l | grep .
+
+# ------------------------------------------------------------------------------
+# Models: their own stage and their own layer, which changes only when the
+# download script does — a code change re-pulls the binary, not the models.
+# ------------------------------------------------------------------------------
+FROM ubuntu:24.04 AS assets
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY scripts/install/download_dependencies.sh scripts/install/download_dependencies.sh
+RUN sh scripts/install/download_dependencies.sh --enrich --no-int8 --no-asr --no-chunk \
+    && rm -rf .models/granite_docling* .models/asr .models/chunk .models/embed
+
+# ------------------------------------------------------------------------------
+# Runtime
+# ------------------------------------------------------------------------------
+FROM nvidia/cuda:13.0.3-cudnn-runtime-ubuntu24.04
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+       fonts-liberation fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=assets /src/.models ./.models
+COPY --from=build /src/.models/mathcat ./.models/mathcat
+# ONNX Runtime opens its providers from the directory of the binary it is
+# linked into (#664): the files in /usr/local/lib, linked from /usr/local/bin.
+COPY --from=build /src/cuda-dylibs/ /usr/local/lib/
+RUN ln -s /usr/local/lib/libonnxruntime_providers_*.so /usr/local/bin/
+COPY --from=build /src/target/release/docling-serve /usr/local/bin/docling-serve
+ENV LD_LIBRARY_PATH=/usr/local/lib \
+    DOCLING_RS_EP=auto \
+    DOCLING_RS_SYSTEM_FONTS=0 \
+    DOCLING_RS_FONT_DIRS=/usr/share/fonts/truetype/liberation:/usr/share/fonts/truetype/dejavu \
+    PORT=5001
+EXPOSE 5001
+# `--allow-url-fetch`: /v1/convert/r2 reads and writes through the caller's
+# pre-signed URLs. `--warmup`: the models load before the server reports
+# ready, so the first request does not pay for them. One conversion at a
+# time per GPU; RunPod scales by workers.
+CMD ["sh", "-c", "exec /usr/local/bin/docling-serve --addr 0.0.0.0:${PORT} --allow-url-fetch --warmup --concurrency 1 --no-ui"]

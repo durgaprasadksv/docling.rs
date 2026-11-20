@@ -623,6 +623,7 @@ pub fn router(cfg: ServeConfig) -> Router {
         )
         .route("/health", get(|| async { Json(json!({"status": "ok"})) }))
         .route("/ready", get(ready))
+        .route("/ping", get(ping))
         .route("/metrics", get(o11y::metrics_endpoint))
         .route("/v1/config", get(config))
         .route("/v1/convert", post(convert))
@@ -774,6 +775,23 @@ async fn ready(State(state): State<Arc<AppState>>) -> Response {
             Json(json!({"status": "warmup_failed", "error": error})),
         )
             .into_response(),
+    }
+}
+
+/// `GET /ping`: readiness in the convention of RunPod's load-balancing
+/// serverless endpoints — 200 when requests can be served, 204 while the
+/// models are still loading (`--warmup`), so the platform routes traffic to
+/// a worker only once it is warm; 503 when the warmup failed.
+async fn ping(State(state): State<Arc<AppState>>) -> Response {
+    let readiness = state
+        .readiness
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    match readiness {
+        Readiness::Lazy | Readiness::Warm => StatusCode::OK.into_response(),
+        Readiness::Warming => StatusCode::NO_CONTENT.into_response(),
+        Readiness::Failed(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
