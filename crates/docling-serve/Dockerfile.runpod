@@ -65,6 +65,16 @@ RUN cargo build --release -p docling-serve --features cuda,speech --locked \
     && find target/release -maxdepth 1 -name "libonnxruntime_providers_*.so" -exec cp -vL {} /src/cuda-dylibs/ \; \
     && ! find /src/cuda-dylibs -type l | grep .
 
+# The compiled server, its ONNX Runtime CUDA providers and MathCAT's rules on
+# their own — what `.github/workflows/runpod-binary.yml` exports
+# (`--target bin-export`) into a release, for a RunPod build that downloads
+# them instead of compiling. RunPod builds the final stage only, which does
+# not use this one.
+FROM scratch AS bin-export
+COPY --from=build /src/target/release/docling-serve /docling-serve
+COPY --from=build /src/cuda-dylibs/ /lib/
+COPY --from=build /src/.models/mathcat /mathcat
+
 # ------------------------------------------------------------------------------
 # Models: their own stage and their own layer, which changes only when the
 # download script does — a code change re-pulls the binary, not the models.

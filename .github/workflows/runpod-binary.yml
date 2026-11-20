@@ -1,0 +1,51 @@
+# Compile the RunPod worker's docling-serve (CUDA 13, `cuda,speech`) outside
+# RunPod's builder, whose `docker build` step is capped at 30 minutes, and
+# publish it as a release asset a RunPod image can download instead of
+# compiling: the `bin-export` stage of crates/docling-serve/Dockerfile.runpod
+# (the binary, its ONNX Runtime CUDA providers, MathCAT's rules) as
+# `docling-serve-runpod-cuda13.tar.gz` on the release named by the tag.
+#
+# Trigger: push a tag `runpod-bin-<anything>` (the tagged commit is built).
+name: runpod-binary
+
+on:
+  push:
+    tags: ["runpod-bin-*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          docker system prune -af || true
+          df -h /
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the bin-export stage
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: crates/docling-serve/Dockerfile.runpod
+          target: bin-export
+          outputs: type=local,dest=out
+          cache-from: type=gha,scope=runpod-binary
+          cache-to: type=gha,mode=max,scope=runpod-binary
+      - name: Package
+        run: |
+          ls -la out out/lib out/mathcat | head -40
+          tar -czf docling-serve-runpod-cuda13.tar.gz -C out .
+          sha256sum docling-serve-runpod-cuda13.tar.gz | tee docling-serve-runpod-cuda13.tar.gz.sha256
+      - name: Publish the release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          gh release view "$tag" >/dev/null 2>&1 \
+            || gh release create "$tag" --title "$tag" --notes "docling-serve for the RunPod worker (CUDA 13), built from ${GITHUB_SHA}."
+          gh release upload "$tag" docling-serve-runpod-cuda13.tar.gz docling-serve-runpod-cuda13.tar.gz.sha256 --clobber
