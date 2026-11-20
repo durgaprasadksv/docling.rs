@@ -121,6 +121,25 @@ struct PyNativeResult {
     /// the input is a PDF; `None` otherwise.
     #[pyo3(get)]
     pdf_repairs_json: Option<String>,
+    /// Whether the conversion had the OCR it asked for (#1210):
+    /// `"available"`, `"unavailable"` (the OCR model could not be loaded and
+    /// the conversion went on without it), `None` when nothing asked for OCR.
+    #[pyo3(get)]
+    ocr_status: Option<String>,
+    /// The load error behind an `"unavailable"` [`Self::ocr_status`].
+    #[pyo3(get)]
+    ocr_unavailable_reason: Option<String>,
+}
+
+/// [`PyNativeResult::ocr_status`] and its reason (#1210).
+fn ocr_status_fields(status: Option<docling::OcrStatus>) -> (Option<String>, Option<String>) {
+    match status {
+        None => (None, None),
+        Some(docling::OcrStatus::Unavailable { reason }) => {
+            (Some("unavailable".to_string()), Some(reason))
+        }
+        Some(s) => (Some(s.as_str().to_string()), None),
+    }
 }
 
 /// The `metadata` object of `doc`'s JSON (#679), when its output mode
@@ -264,11 +283,14 @@ struct PyDocumentConverter {
     no_table_former: bool,
     no_text_panels: bool,
     heading_hierarchy: bool,
+    script_positions: bool,
     enrich: docling::EnrichmentOptions,
     /// OCR knobs the warm pipeline needs at `initialize_pipeline` time (the
     /// transient `inner` path reads them off the converter instead). Parsed /
     /// validated in `new`, so they hold engine values, not raw strings.
     force_full_page_ocr: bool,
+    /// OCR only the pages whose text layer is broken (#1006).
+    replace_broken_text_layer: bool,
     ocr_lang: Option<docling::OcrLang>,
     ocr_engine: Option<docling::OcrEngine>,
     /// Tesseract's `-l` argument from `ocr_lang` when the engine is Tesseract.
@@ -321,6 +343,10 @@ impl PyDocumentConverter {
     /// * `force_full_page_ocr` — OCR every PDF page even when it carries a
     ///   text layer (docling's `force_full_page_ocr`); ignored when
     ///   `do_ocr=False`.
+    /// * `replace_broken_text_layer` — OCR only the PDF pages whose text
+    ///   layer a broken font mapping produced (docling's
+    ///   `OcrOptions.replace_broken_text_layer`, #1006); ignored when
+    ///   `do_ocr=False`.
     /// * `do_table_structure` — recover table structure with TableFormer
     ///   (docling's `do_table_structure`).
     /// * `no_text_panels` — keep every detected picture as a picture: disable
@@ -331,6 +357,9 @@ impl PyDocumentConverter {
     ///   assembly (docling's `HeadingHierarchyModel`, #302): PDF bookmarks
     ///   are authoritative, then legal/outline numbering, then font style.
     ///   Off by default; headings then keep the flat detected level.
+    /// * `script_positions` — mark PDF superscripts and subscripts as
+    ///   `formatting.script` runs (docling's
+    ///   `script_position_options.enabled`, #1005). Off by default.
     /// * `do_picture_classification` — classify pictures with the
     ///   DocumentFigureClassifier enrichment model (docling's flag of the same
     ///   name; needs .models/picture_classifier.onnx).
@@ -401,6 +430,10 @@ impl PyDocumentConverter {
     ///   `document.pages[n].image` (docling's `generate_page_images`, #520),
     ///   which docling-core's `TableItem.get_image` / `FormulaItem.get_image`
     ///   crop from.
+    /// * `use_embedded_picture_images` — a PDF picture whose region holds
+    ///   exactly one embedded image with nothing drawn over it gets that
+    ///   bitmap at native resolution (`dpi` 72) instead of the render crop
+    ///   (docling's `use_embedded_picture_images`, #1007).
     /// * `ocr_engine` — which OCR engine reads scanned pages (#460):
     ///   `"ppocr"` (default, the built-in PP-OCRv3 recognizer) or
     ///   `"tesseract"` (the system `tesseract` binary, docling's
@@ -476,9 +509,11 @@ impl PyDocumentConverter {
         min_image_bytes = None,
         do_ocr = true,
         force_full_page_ocr = false,
+        replace_broken_text_layer = false,
         do_table_structure = true,
         no_text_panels = false,
         heading_hierarchy = false,
+        script_positions = false,
         use_web_browser = false,
         do_picture_classification = false,
         do_code_enrichment = false,
@@ -529,6 +564,7 @@ impl PyDocumentConverter {
         allowed_formats = None,
         images_scale = None,
         generate_page_images = false,
+        use_embedded_picture_images = false,
         text_layer_only = None,
         list_attachments = false,
         skip_empty_cells = false,
@@ -558,9 +594,11 @@ impl PyDocumentConverter {
         min_image_bytes: Option<u64>,
         do_ocr: bool,
         force_full_page_ocr: bool,
+        replace_broken_text_layer: bool,
         do_table_structure: bool,
         no_text_panels: bool,
         heading_hierarchy: bool,
+        script_positions: bool,
         use_web_browser: bool,
         do_picture_classification: bool,
         do_code_enrichment: bool,
@@ -611,6 +649,7 @@ impl PyDocumentConverter {
         allowed_formats: Option<Vec<String>>,
         images_scale: Option<f32>,
         generate_page_images: bool,
+        use_embedded_picture_images: bool,
         text_layer_only: Option<Py<PyAny>>,
         list_attachments: bool,
         skip_empty_cells: bool,
@@ -677,9 +716,11 @@ impl PyDocumentConverter {
             no_ocr: Some(!do_ocr),
             password: password.clone(),
             force_full_page_ocr: Some(force_full_page_ocr),
+            replace_broken_text_layer: Some(replace_broken_text_layer),
             no_table_former: Some(!do_table_structure),
             no_text_panels: Some(no_text_panels),
             heading_hierarchy: Some(heading_hierarchy),
+            script_positions: Some(script_positions),
             ocr_engine,
             ocr_lang,
             ocr_mode,
@@ -690,6 +731,7 @@ impl PyDocumentConverter {
             ocr_textline_orientation,
             images_scale,
             page_images: Some(generate_page_images),
+            use_embedded_picture_images: Some(use_embedded_picture_images),
             do_picture_classification: Some(do_picture_classification),
             do_code_enrichment: Some(do_code_enrichment),
             do_formula_enrichment: Some(do_formula_enrichment),
@@ -762,8 +804,10 @@ impl PyDocumentConverter {
             no_table_former: !do_table_structure,
             no_text_panels,
             heading_hierarchy,
+            script_positions,
             enrich: opts.enrichments(),
             force_full_page_ocr,
+            replace_broken_text_layer,
             // The typed values the warm pipeline is primed with in
             // `initialize_pipeline` (the transient `inner` path reads the
             // strings off the converter instead).
@@ -806,8 +850,10 @@ impl PyDocumentConverter {
         let skip_ocr = self.skip_ocr;
         let no_text_panels = self.no_text_panels;
         let heading_hierarchy = self.heading_hierarchy;
+        let script_positions = self.script_positions;
         let enrich = self.enrich;
         let force_full_page_ocr = self.force_full_page_ocr;
+        let replace_broken_text_layer = self.replace_broken_text_layer;
         let ocr_lang = self.ocr_lang;
         let ocr_engine = self.ocr_engine;
         let tesseract_lang = self.tesseract_lang.clone();
@@ -830,10 +876,12 @@ impl PyDocumentConverter {
                     .skip_ocr(skip_ocr)
                     .no_text_panels(no_text_panels)
                     .heading_hierarchy(docling::HeadingHierarchyOptions::enabled(heading_hierarchy))
+                    .script_positions(script_positions)
                     // The warm path used to drop the converter's OCR knobs and
                     // page window on the floor (#254) — prime it with the full
                     // option set the transient path honors.
                     .force_full_page_ocr(force_full_page_ocr)
+                    .replace_broken_text_layer(replace_broken_text_layer)
                     .ocr_lang(ocr_lang)
                     .ocr_engine(ocr_engine)
                     .tesseract_lang(tesseract_lang)
@@ -843,6 +891,7 @@ impl PyDocumentConverter {
                     .keep_typography(keep_typography)
                     .images_scale(images.scale)
                     .generate_page_images(images.page_images)
+                    .use_embedded_picture_images(images.embedded_pictures)
                     .pages(page_range)
                     .document_timeout(document_timeout)
                     .enrichments(enrich);
@@ -1153,8 +1202,11 @@ impl PyDocumentConverter {
                 reporter.document_started();
                 pipeline.set_pages(window);
                 pipeline.set_progress(reporter.page_hook());
+                // What an earlier conversion that failed half-way left (#1210).
+                let _ = pipeline.take_ocr_status();
                 let outcome = pipeline.convert_outcome(&src.bytes, password.as_deref(), &src.name);
                 pipeline.set_progress(None);
+                reporter.note_ocr_status(pipeline.take_ocr_status());
                 pipeline.set_pages(default_window);
                 // docling's PARTIAL_SUCCESS (#497): a spent budget leaves the
                 // pages done so far and says so in `errors`.
@@ -1188,7 +1240,11 @@ impl PyDocumentConverter {
                 let redaction = converter
                     .redact(&mut c.document)
                     .map_err(conversion_error)?;
+                let (ocr_status, ocr_unavailable_reason) =
+                    ocr_status_fields(reporter.take_ocr_status());
                 Ok(PyNativeResult {
+                    ocr_status,
+                    ocr_unavailable_reason,
                     status: if errors.is_empty() {
                         "success"
                     } else {
@@ -1302,6 +1358,8 @@ fn parse_format(name: &str) -> Option<docling::InputFormat> {
         "jsonl" => Jsonl,
         "xml" => Xml,
         "ipynb" => Ipynb,
+        "afp" => Afp,
+        "calendar" => Calendar,
         _ => return None,
     })
 }
@@ -1314,7 +1372,10 @@ fn native_result(r: docling::ConversionResult) -> PyNativeResult {
     }
     .to_string();
     let document_json = r.document.export_to_json();
+    let (ocr_status, ocr_unavailable_reason) = ocr_status_fields(r.ocr_status);
     PyNativeResult {
+        ocr_status,
+        ocr_unavailable_reason,
         status,
         input_name: r.input_name,
         metadata_json: metadata_json(&r.document),

@@ -17,7 +17,7 @@
 
 pub mod cmap;
 pub mod dotsection;
-pub mod encodings;
+pub(crate) use crate::encodings;
 pub mod fallback;
 pub mod type1;
 
@@ -111,6 +111,8 @@ pub struct LoadedFont {
     /// Type 3: `/Widths` are in glyph space (through `FontMatrix`).
     /// `ToUnicode`, for a fallback face's cmap lookups.
     to_unicode: HashMap<u32, String>,
+    /// CID → Unicode of the font's Adobe collection.
+    collection: Option<&'static [u8]>,
     /// Standard-14 metrics for a non-embedded font without `/Widths`.
     std14: Option<crate::std14::Std14Widths>,
     /// Glyph cache: code/CID → outline in text space (font size 1).
@@ -303,6 +305,30 @@ impl LoadedFont {
                     encoding_names.insert(c, n.to_string());
                 }
             }
+            // docling-parse#370, as the text parser reads it (#1152): a
+            // non-embedded Symbol / ZapfDingbats that declares a Latin base
+            // encoding draws the face's own glyph wherever that encoding
+            // names one the face lacks — Symbol + WinAnsi `a×b` is `α×β`,
+            // not Latin letters from a text-font fallback.
+            let face = if is_symbol_face {
+                Some(encodings::SYMBOL)
+            } else if is_dingbats {
+                Some(encodings::ZAPF_DINGBATS)
+            } else {
+                None
+            };
+            if let (Some(face), Some(_), Program::None) = (face, base_table, &program) {
+                for code in 0..=255u8 {
+                    let has = encoding_names
+                        .get(&code)
+                        .is_some_and(|n| face.iter().any(|&(_, g)| g == n));
+                    if !has {
+                        if let Some(n) = encodings::lookup(face, code) {
+                            encoding_names.insert(code, n.to_string());
+                        }
+                    }
+                }
+            }
             if let Some(Object::Dictionary(d)) = enc {
                 if let Some(Object::Array(diffs)) = get(doc, d, b"Differences") {
                     let mut code: i64 = 0;
@@ -443,8 +469,13 @@ impl LoadedFont {
                 Object::Stream(s) => s.decompressed_content().ok(),
                 _ => None,
             })
-            .map(|d| crate::textparse::parse_tounicode(&d))
+            .map(|d| crate::tounicode::parse_tounicode(&d))
             .unwrap_or_default();
+
+        let collection = cmap
+            .as_ref()
+            .filter(|c| c.identity)
+            .and_then(|_| crate::textparse::cid_collection(doc, fdict));
 
         let vertical = cmap.as_ref().is_some_and(|c| c.vertical);
         LoadedFont {
@@ -459,6 +490,7 @@ impl LoadedFont {
             widths,
             default_width,
             to_unicode,
+            collection,
             std14,
             cache: RefCell::new(HashMap::new()),
             advance_cache: RefCell::new(HashMap::new()),
@@ -544,9 +576,11 @@ impl LoadedFont {
             return char::from_u32(code).filter(|c| c.is_ascii_graphic() || *c == ' ');
         }
         if self.cmap.as_ref().is_some_and(|c| c.unicode_codes) {
-            return char::from_u32(code);
+            return crate::textparse::unicode_cmap_char(code);
         }
-        None
+        self.collection
+            .and_then(|t| crate::textparse::collection_text(t, cid))
+            .and_then(|s| s.chars().next())
     }
 
     /// A Type 3 font's procedure name for `code` (its `/Encoding /Differences`).
@@ -583,8 +617,149 @@ impl LoadedFont {
         }
     }
 
+    /// Whether the embedded program paints anything for `code`:
+    /// `Some(false)` for a glyph it defines with an empty outline (a space
+    /// glyph), `None` without an embedded program (a substituted face
+    /// decides nothing) or when the glyph is not found. docling-parse 7.24
+    /// asks FreeType the same of a glyph with no Unicode mapping, to tell a
+    /// blank glyph (a word boundary) from a visible one (U+FFFD).
+    pub fn glyph_has_ink(&self, code: u32) -> Option<bool> {
+        if matches!(self.program, Program::None | Program::Fallback { .. }) {
+            return None;
+        }
+        let cid = self.cmap.as_ref().map_or(code, |c| c.cid(code));
+        let g = self.build_glyph(code, cid)?;
+        Some(g.path.is_some())
+    }
+
+    /// The vertical extent of `code`'s embedded glyph outline in 1000-unit
+    /// em (`(y_min, y_max)` of its control box, FreeType's
+    /// `FT_Outline_Get_CBox`), as docling-parse 7.24 reads it for a font
+    /// whose descriptor metrics are invalid (`needs_embedded_glyph_bbox`):
+    /// `Some(None)` for a glyph with no ink, `None` without an embedded
+    /// program or when the glyph is not found.
+    pub fn glyph_ink_y(&self, code: u32) -> Option<Option<(f64, f64)>> {
+        if matches!(self.program, Program::None | Program::Fallback { .. }) {
+            return None;
+        }
+        let cid = self.cmap.as_ref().map_or(code, |c| c.cid(code));
+        let g = self.build_glyph(code, cid)?;
+        let Some(path) = g.path else {
+            return Some(None);
+        };
+        let Some(path) = path.transform(self.program_matrix().to_ts()) else {
+            return Some(None);
+        };
+        let b = path.bounds();
+        Some(
+            (b.width() > 0.0 && b.height() > 0.0)
+                .then(|| (f64::from(b.top()) * 1000.0, f64::from(b.bottom()) * 1000.0)),
+        )
+    }
+
     pub fn has_program(&self) -> bool {
         !matches!(self.program, Program::None)
+    }
+
+    /// The reading text of every single-byte code the embedded program's
+    /// *builtin* encoding resolves — docling-parse 7.25's
+    /// `builtin_font_encoding::decode` (docling-parse#431, #1113), which a
+    /// symbolic simple font without a declared base encoding reads its
+    /// codes through (PDF 32000-1 9.6.6.2 / 9.6.6.4). A code selects a glyph
+    /// through the program's own charmaps, as FreeType exposes them: a
+    /// Type 1's encoding vector (`StandardEncoding` or its `dup … put`
+    /// array), a CFF's encoding, a TrueType's (3,0) symbol table at
+    /// `0xF000 + code` (then the raw code), then any table the program
+    /// carries. The glyph reads as its PostScript name
+    /// ([`crate::textparse::builtin_glyph_text`]), else as the code point
+    /// its TrueType Unicode table gives it, else — a blank outline — as a
+    /// space; a glyph none of these resolves is left out, so the caller
+    /// falls back as docling-parse does. Empty for a program the PDF does
+    /// not embed.
+    pub fn builtin_encoding_text(&self) -> HashMap<u8, String> {
+        let mut out = HashMap::new();
+        let blank = |g: Option<GlyphPath>| g.is_some_and(|g| g.path.is_none());
+        match &self.program {
+            Program::Type1 { font, .. } => {
+                for (&code, name) in &font.encoding {
+                    if !font.has_glyph(name) {
+                        continue;
+                    }
+                    let text = crate::textparse::builtin_glyph_text(name)
+                        .or_else(|| blank(font.glyph(name)).then(|| " ".to_string()));
+                    if let Some(t) = text {
+                        out.insert(code, t);
+                    }
+                }
+            }
+            Program::Cff { font, names, .. } => {
+                let Some(enc) = cff_font(font).and_then(|cff| cff.encoding()) else {
+                    return out;
+                };
+                let by_gid: HashMap<u16, &str> =
+                    names.iter().map(|(n, &g)| (g, n.as_str())).collect();
+                for code in 0..=255u8 {
+                    let Some(gid) = enc.map(code).filter(|g| g.to_u32() != 0) else {
+                        continue;
+                    };
+                    let text = by_gid
+                        .get(&(gid.to_u32() as u16))
+                        .and_then(|n| crate::textparse::builtin_glyph_text(n))
+                        .or_else(|| blank(outline_glyph(font, gid)).then(|| " ".to_string()));
+                    if let Some(t) = text {
+                        out.insert(code, t);
+                    }
+                }
+            }
+            Program::Sfnt { font, names, .. } => {
+                let cm = font.charmap();
+                let subtables: Vec<Encoding> =
+                    cm.encodings().filter(|e| e.sfnt_ids().is_some()).collect();
+                // FreeType's Unicode charmap of a TrueType program is its
+                // Unicode table, not the (3,0) symbol one.
+                let unicode_of: HashMap<u32, u32> = if cm.unicode_is_symbol() {
+                    HashMap::new()
+                } else {
+                    cm.unicodes().map(|(cp, g)| (g.to_u32(), cp)).collect()
+                };
+                let by_gid: HashMap<u16, &str> =
+                    names.iter().map(|(n, &g)| (g, n.as_str())).collect();
+                for code in 0..=255u8 {
+                    let c = u32::from(code);
+                    let symbol = subtables
+                        .iter()
+                        .filter(|e| e.sfnt_ids() == Some((3, 0)))
+                        .find_map(|e| cm.map_code(*e, 0xF000 + c).or_else(|| cm.map_code(*e, c)));
+                    let any = || {
+                        subtables.iter().find_map(|e| {
+                            cm.map_code(*e, c).or_else(|| cm.map_code(*e, 0xF000 + c))
+                        })
+                    };
+                    let Some(gid) = symbol.or_else(any).filter(|g| g.to_u32() != 0) else {
+                        continue;
+                    };
+                    let name = font
+                        .glyph_name(gid)
+                        .filter(|n| !n.is_synthesized())
+                        .map(|n| n.as_str().to_string())
+                        .or_else(|| by_gid.get(&(gid.to_u32() as u16)).map(|n| n.to_string()));
+                    let text = name
+                        .and_then(|n| crate::textparse::builtin_glyph_text(&n))
+                        .or_else(|| {
+                            unicode_of
+                                .get(&gid.to_u32())
+                                .and_then(|&cp| char::from_u32(cp))
+                                .map(String::from)
+                        })
+                        .or_else(|| blank(outline_glyph(font, gid)).then(|| " ".to_string()));
+                    if let Some(t) = text {
+                        out.insert(code, t);
+                    }
+                }
+            }
+            Program::Fallback { .. } | Program::None => {}
+        }
+        out
     }
 
     fn program_advance(&self, code: u32, cid: u32) -> Option<f64> {
@@ -1114,4 +1289,75 @@ impl FontCache {
 #[allow(dead_code)]
 fn _unused(_: &Dictionary) -> Option<&[u8]> {
     None.and_then(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LoadedFont;
+    use lopdf::{dictionary, Document, Object};
+
+    #[test]
+    #[cfg(feature = "cid-collections")]
+    fn collection_cids_have_a_character() {
+        let type0 = dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type0",
+            "BaseFont" => "Test-Font-Light",
+            "Encoding" => "Identity-H",
+            "DescendantFonts" => vec![Object::Dictionary(dictionary! {
+                "Type" => "Font",
+                "Subtype" => "CIDFontType0",
+                "BaseFont" => "Test-Font-Light",
+                "CIDSystemInfo" => dictionary! {
+                    "Registry" => Object::string_literal("Adobe"),
+                    "Ordering" => Object::string_literal("Japan1"),
+                    "Supplement" => 2,
+                },
+            })],
+        };
+        let font = LoadedFont::load(&Document::with_version("1.4"), &type0);
+        assert_eq!(font.unicode_of(0x0CD4, 0x0CD4), Some('日'));
+        assert_eq!(font.unicode_of(0x4507, 0x4507), Some('𢭏'));
+    }
+
+    /// #1152: a non-embedded Symbol declaring WinAnsi draws `a×b` as
+    /// `α×β` — the face's own glyph where WinAnsi names one Symbol lacks.
+    #[test]
+    fn a_symbol_face_draws_its_own_glyph_where_the_declared_encoding_has_none() {
+        let symbol = dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Symbol",
+            "Encoding" => "WinAnsiEncoding",
+        };
+        let font = LoadedFont::load(&Document::with_version("1.4"), &symbol);
+        assert_eq!(font.glyph_name(u32::from(b'a')), Some("alpha"));
+        assert_eq!(font.glyph_name(0xD7), Some("multiply"));
+        assert_eq!(font.glyph_name(u32::from(b'b')), Some("beta"));
+    }
+
+    #[test]
+    fn utf16_codes_have_a_character_and_one_advance() {
+        let type0 = dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type0",
+            "Encoding" => "UniJIS-UTF16-H",
+            "DescendantFonts" => vec![Object::Dictionary(dictionary! {
+                "Subtype" => "CIDFontType0",
+                "DW" => 1000,
+            })],
+        };
+        let font = LoadedFont::load(&Document::with_version("1.4"), &type0);
+        let codes = font.decode(&[0x65, 0xe5, 0xd8, 0x42, 0xdf, 0xb7, 0x8a, 0x9e]);
+        assert_eq!(
+            codes,
+            vec![
+                (0x65e5, 0x65e5, false),
+                (0xd842dfb7, 0xd842dfb7, false),
+                (0x8a9e, 0x8a9e, false)
+            ]
+        );
+        assert_eq!(font.unicode_of(0xd842dfb7, 0xd842dfb7), Some('𠮷'));
+        assert_eq!(font.advance(0xd842dfb7, 0xd842dfb7), 1.0);
+    }
 }

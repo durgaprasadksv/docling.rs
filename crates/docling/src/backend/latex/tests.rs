@@ -242,10 +242,10 @@ fn verbatim_keeps_definitions_and_first_line_indentation() {
 #[test]
 fn custom_macro_arguments_with_inline_math() {
     let markdown = md("\\documentclass{article}\n\\newcommand{\\pair}[2]{#1 and #2}\n\\begin{document}\n\\textbf{\\pair{A}{B} $x$}\n\\end{document}\n");
-    assert_eq!(markdown, "A and B  $x$");
+    assert_eq!(markdown, "A and B $x$");
     let markdown =
         md("\\documentclass{article}\n\\begin{document}\n\\textbf{Before \\begin{math}x\\end{math} after.}\n\\end{document}\n");
-    assert_eq!(markdown, "Before  $x$  after.");
+    assert_eq!(markdown, "Before $x$ after.");
 }
 
 #[test]
@@ -314,11 +314,11 @@ fn inline_math_is_an_inline_group_of_text_and_formulas() {
     assert_eq!(texts[0]["parent"]["$ref"], "#/groups/0");
     assert_eq!(j["groups"][0]["name"], "metadata");
     assert_eq!(j["groups"][1]["name"], "authors");
-    // docling-core joins an inline group's parts with spaces; the text run
-    // keeps its own trailing one (upstream's Markdown, byte for byte).
+    // The text run keeps its own trailing space and docling-core 2.106
+    // concatenates the parts (#997): one space, as written.
     let markdown = md(tex);
     assert!(
-        markdown.contains("## Math\n\nInline math:  $x$\n\nDisplay:\n\n$$y = 1$$"),
+        markdown.contains("## Math\n\nInline math: $x$\n\nDisplay:\n\n$$y = 1$$"),
         "{markdown}"
     );
     assert!(
@@ -333,7 +333,7 @@ fn inline_math_in_headings_captions_and_list_items() {
         \\begin{figure}\\includegraphics{x.png}\\caption{Cap with $q$}\\end{figure}\n\\end{document}";
     assert_eq!(
         md(tex),
-        "## Intro with  $\\alpha$\n\n- First  $z$  item\n\nCap with  $q$\n\n<!-- image -->"
+        "## Intro with $\\alpha$\n\n- First $z$ item\n\nCap with $q$\n\n<!-- image -->"
     );
 }
 
@@ -422,10 +422,10 @@ fn front_matter_keeps_roles_and_inline_math() {
     let markdown = md(tex);
     assert!(!markdown.contains("11cm"), "{markdown}");
     assert!(
-        markdown.contains("Present address: Faculty  $B_3$"),
+        markdown.contains("Present address: Faculty $B_3$"),
         "{markdown}"
     );
-    assert!(markdown.contains("C. Balázs $^{1}$"), "{markdown}");
+    assert!(markdown.contains("C. Balázs$^{1}$"), "{markdown}");
 }
 
 #[test]
@@ -509,11 +509,7 @@ fn table_captions_print_before_the_table() {
     let j = json(tex);
     let caption = resolve(&j, &j["tables"][0]["captions"][0]);
     assert_eq!(caption["label"], "caption");
-    assert!(
-        md(tex).starts_with("Tab  $t$  cap\n\n| x   |"),
-        "{}",
-        md(tex)
-    );
+    assert!(md(tex).starts_with("Tab $t$ cap\n\n| x   |"), "{}", md(tex));
 }
 
 #[test]
@@ -583,5 +579,72 @@ fn collapse_and_preprocess_helpers() {
             ]
         ),
         "\\begin{equation} x \\bea $$"
+    );
+}
+
+/// docling's `test_latex_href_macro` (docling#4600): `\href{url}{text}` stays
+/// in its paragraph as `[text](url)` — it used to split the paragraph into
+/// `Visit` and the glued `https://example.comExample Site for more.`.
+#[test]
+fn href_macro_stays_inline() {
+    let tex = r"\documentclass{article}
+\begin{document}
+Visit \href{https://example.com}{Example Site} for more.
+\end{document}
+";
+    assert_eq!(
+        body_texts(&json(tex)),
+        [(
+            "text".to_string(),
+            "Visit [Example Site](https://example.com) for more.".to_string()
+        )]
+    );
+    assert_eq!(
+        md(tex),
+        "Visit [Example Site](https://example.com) for more."
+    );
+}
+
+/// docling's `test_latex_href_keeps_text_together`: in a heading, a
+/// paragraph and a list item alike the link stays in place and the item
+/// keeps its kind; the `[options]` argument is skipped and the URL kept as
+/// written (`_` and `#` are not markup there).
+#[test]
+fn href_keeps_text_together() {
+    let tex = r"\documentclass{article}
+\usepackage{hyperref}
+\begin{document}
+\section{About \href{https://example.com}{us}}
+Go \href[pdfnewwindow=true]{https://example.com/my_page#top}{there} now.
+\begin{itemize}
+\item See \href{https://example.com}{the site} here
+\end{itemize}
+\end{document}
+";
+    let want = [
+        ("section_header", "About [us](https://example.com)"),
+        ("text", "Go [there](https://example.com/my_page#top) now."),
+        ("list_item", "See [the site](https://example.com) here"),
+    ];
+    assert_eq!(
+        body_texts(&json(tex)),
+        want.map(|(l, t)| (l.to_string(), t.to_string()))
+    );
+}
+
+/// A one-sided `\href`: an empty text keeps the URL, an empty URL the text.
+#[test]
+fn href_with_one_part_keeps_it() {
+    let tex = r"\documentclass{article}
+\begin{document}
+A \href{https://example.com}{} b \href{}{only text} c.
+\end{document}
+";
+    assert_eq!(
+        body_texts(&json(tex)),
+        [(
+            "text".to_string(),
+            "A https://example.com b only text c.".to_string()
+        )]
     );
 }

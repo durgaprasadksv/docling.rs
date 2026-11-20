@@ -22,7 +22,7 @@ pub struct DoclingJsonBackend;
 impl DeclarativeBackend for DoclingJsonBackend {
     fn convert(&self, source: &SourceDocument) -> Result<DoclingDocument, ConversionError> {
         let text = source.text()?;
-        let mut root: Value = match serde_json::from_str(&text) {
+        let root: Value = match serde_json::from_str(&text) {
             Ok(v) => v,
             // Not JSON at all — but not a docling document either (its
             // schema name is nowhere in the text): the bytes as a json
@@ -38,43 +38,67 @@ impl DeclarativeBackend for DoclingJsonBackend {
         if !crate::backend::text::is_docling_document(&root) {
             return crate::backend::text::convert_json_text(source);
         }
-        check_table_budget(&root)?;
-        // Referenced images resolve against the JSON file's directory (#403).
-        inline_referenced_images(
-            &mut root,
+        read_document(
+            root,
+            &source.name,
             source.path.as_deref().and_then(std::path::Path::parent),
-        );
-        let root = root;
-        let name = root["name"].as_str().unwrap_or(&source.name).to_string();
-        let mut doc = DoclingDocument::new(name);
-        // The `metadata` object (#679) a docling.rs export carried.
-        if root["metadata"].is_object() {
-            doc.metadata = docling_core::DocumentMetadata::from_json(&root["metadata"]);
-        }
-        let mut guard = WalkGuard {
-            pages: page_sizes(&root),
-            ..WalkGuard::default()
-        };
-        if let Some(children) = root["body"]["children"].as_array() {
-            for c in children {
-                walk(c, &root, 0, &mut doc, &mut guard);
-            }
-        }
-        // A page no body item sits on (a blank page, a furniture-only one)
-        // is still a page of the document: its marker keeps it in the
-        // exported `pages` map. Trailing markers render nothing — Markdown's
-        // page break goes only between two rendered blocks.
-        for (&page_no, &(width, height)) in &guard.pages {
-            if !guard.seen_pages.contains(&page_no) {
-                doc.push(Node::PageInfo {
-                    page_no,
-                    width,
-                    height,
-                });
-            }
-        }
-        Ok(doc)
+        )
     }
+}
+
+/// Read a parsed `DoclingDocument` JSON value into the flat [`Node`] model —
+/// the walk behind [`DoclingJsonBackend`], shared with backends that build
+/// docling's item tree and take their Markdown nodes from that tree's own
+/// JSON (the Box Note backend, #1033), so both read the same structure the
+/// way docling-core's serializers do. `base` resolves referenced images;
+/// `fallback_name` names a document whose JSON has no `name`.
+pub(crate) fn read_document(
+    mut root: Value,
+    fallback_name: &str,
+    base: Option<&std::path::Path>,
+) -> Result<DoclingDocument, ConversionError> {
+    // docling-core's `RefItem` reads a reference under either key
+    // (`populate_by_name`): upstream fixtures written with `cref`
+    // (`table_footnotes_496.json`) read like `$ref` ones (#1014).
+    normalize_crefs(&mut root);
+    check_table_budget(&root)?;
+    // A document saved before schema 1.11.0 has trimmed inline runs its
+    // producer expected joined with `" "`; put that join back in the
+    // runs, as docling-core does on load (#997), before the faithful join.
+    docling_core::inline::migrate_legacy_json(&mut root);
+    // Referenced images resolve against the JSON file's directory (#403).
+    inline_referenced_images(&mut root, base);
+    let root = root;
+    let name = root["name"].as_str().unwrap_or(fallback_name).to_string();
+    let mut doc = DoclingDocument::new(name);
+    // The `metadata` object (#679) a docling.rs export carried.
+    if root["metadata"].is_object() {
+        doc.metadata = docling_core::DocumentMetadata::from_json(&root["metadata"]);
+    }
+    let mut guard = WalkGuard {
+        pages: page_sizes(&root),
+        claimed_footnotes: claimed_footnotes(&root),
+        ..WalkGuard::default()
+    };
+    if let Some(children) = root["body"]["children"].as_array() {
+        for c in children {
+            walk(c, &root, 0, &mut doc, &mut guard);
+        }
+    }
+    // A page no body item sits on (a blank page, a furniture-only one)
+    // is still a page of the document: its marker keeps it in the
+    // exported `pages` map. Trailing markers render nothing — Markdown's
+    // page break goes only between two rendered blocks.
+    for (&page_no, &(width, height)) in &guard.pages {
+        if !guard.seen_pages.contains(&page_no) {
+            doc.push(Node::PageInfo {
+                page_no,
+                width,
+                height,
+            });
+        }
+    }
+    Ok(doc)
 }
 
 /// Every table of the file against the cell budget (#861; docling-core
@@ -104,28 +128,66 @@ fn check_table_budget(root: &Value) -> Result<(), ConversionError> {
     Ok(())
 }
 
+/// The JSON pointer of a reference: `$ref`, or `cref` — docling-core's
+/// `RefItem` is `cref` with the `$ref` alias and `populate_by_name`, so a
+/// document written by field name (`{"cref": "#/texts/3"}`, upstream's
+/// `table_footnotes_496.json` and docling-core's own test files) is the
+/// same document (#1014).
+fn ref_str(reference: &Value) -> Option<&str> {
+    reference["$ref"]
+        .as_str()
+        .or_else(|| reference["cref"].as_str())
+}
+
 /// Resolve a `{"$ref": "#/texts/3"}` reference into its array element.
 fn resolve<'a>(reference: &Value, root: &'a Value) -> Option<&'a Value> {
-    let path = reference["$ref"].as_str()?.strip_prefix("#/")?;
+    let path = ref_str(reference)?.strip_prefix("#/")?;
     let (kind, idx) = path.rsplit_once('/')?;
     root.get(kind)?.get(idx.parse::<usize>().ok()?)
 }
 
 fn ref_kind(reference: &Value) -> &str {
-    reference["$ref"].as_str().unwrap_or("")
+    ref_str(reference).unwrap_or("")
 }
 
+/// An inline group child's Markdown: a run's formatted text, a nested
+/// inline group's runs concatenated (docling-core's `_collect_subtree_text`
+/// joins an inline group with `""`), anything else empty.
 fn text_of(reference: &Value, root: &Value) -> String {
-    resolve(reference, root)
-        .map(formatted_text)
-        .unwrap_or_default()
+    inline_text(reference, root, 0)
+}
+
+fn inline_text(reference: &Value, root: &Value, depth: usize) -> String {
+    let Some(item) = resolve(reference, root) else {
+        return String::new();
+    };
+    if ref_kind(reference).starts_with("#/groups/") {
+        if item["label"].as_str() != Some("inline") || depth >= MAX_DEPTH {
+            return String::new();
+        }
+        let empty = Vec::new();
+        return item["children"]
+            .as_array()
+            .unwrap_or(&empty)
+            .iter()
+            .map(|c| inline_text(c, root, depth + 1))
+            .collect();
+    }
+    formatted_text(item)
 }
 
 /// Escaped item text with docling-core's inline markers applied in order:
 /// bold → italic → strikethrough → hyperlink (underline/script are no-ops in
-/// Markdown).
+/// Markdown), the run's edge whitespace hoisted outside them all and a
+/// whitespace-only run left undecorated (`hoist_decoration_whitespace`, #997).
 fn formatted_text(item: &Value) -> String {
-    let mut res = escape_text(item["text"].as_str().unwrap_or(""));
+    docling_core::inline::hoist(item["text"].as_str().unwrap_or(""), |core| {
+        decorate(core, item)
+    })
+}
+
+fn decorate(text: &str, item: &Value) -> String {
+    let mut res = escape_text(text);
     let fmt = &item["formatting"];
     if fmt["bold"].as_bool() == Some(true) {
         res = format!("**{res}**");
@@ -159,6 +221,86 @@ struct WalkGuard {
     cur_page: usize,
     /// Pages a [`Node::PageInfo`] marker was emitted for.
     seen_pages: std::collections::BTreeSet<usize>,
+    /// Refs some table, picture or code item lists in its `footnotes`
+    /// (docling-core#675): rendered by that item, skipped by the walk.
+    claimed_footnotes: std::collections::HashSet<String>,
+}
+
+/// Rewrite every `{"cref": …}` reference object to `{"$ref": …}`.
+/// serde_json's own recursion limit (128) bounds the depth.
+fn normalize_crefs(v: &mut Value) {
+    match v {
+        Value::Object(map) => {
+            if map.len() == 1 {
+                if let Some(r) = map.remove("cref") {
+                    map.insert("$ref".into(), r);
+                    return;
+                }
+            }
+            for child in map.values_mut() {
+                normalize_crefs(child);
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(normalize_crefs),
+        _ => {}
+    }
+}
+
+/// Every ref a floating item (table, picture, code) lists as a footnote.
+fn claimed_footnotes(root: &Value) -> std::collections::HashSet<String> {
+    ["tables", "pictures", "texts"]
+        .iter()
+        .filter_map(|bucket| root[bucket].as_array())
+        .flatten()
+        .filter_map(|it| it["footnotes"].as_array())
+        .flatten()
+        .filter_map(|r| r["$ref"].as_str().map(String::from))
+        .collect()
+}
+
+/// An item's `footnotes`, each footnote item's plain text escaped (the flat
+/// nodes' convention) — docling-core#675's `serialize_footnotes` prints
+/// `it.text` without the run's formatting. A note whose text lives in its
+/// inline runs — an empty item holding an inline group, JATS's table notes
+/// (docling#4818, #1010) — reads as those runs' Markdown, which docling's
+/// walk prints after the table.
+fn footnotes_of(item: &Value, root: &Value) -> Vec<String> {
+    item["footnotes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| resolve(r, root))
+        .filter(|it| it["content_layer"].as_str() != Some("furniture"))
+        .filter_map(|it| match it["text"].as_str() {
+            Some(t) if !t.is_empty() => Some(escape_text(t)),
+            _ => {
+                let empty = Vec::new();
+                let runs: String = it["children"]
+                    .as_array()
+                    .unwrap_or(&empty)
+                    .iter()
+                    .map(|c| text_of(c, root))
+                    .collect();
+                let runs = runs.trim();
+                (!runs.is_empty()).then(|| runs.to_string())
+            }
+        })
+        .collect()
+}
+
+/// A picture's or code item's footnotes as standalone `footnote` items
+/// after it: the flat [`Node::Picture`] / [`Node::Code`] carry no list of
+/// their own, so the Markdown matches docling's (one paragraph each, after
+/// the element) while the JSON re-export loses the item's `footnotes` link —
+/// see `docs/MIGRATION.md`.
+fn push_footnotes(item: &Value, root: &Value, doc: &mut DoclingDocument) {
+    for text in footnotes_of(item, root) {
+        doc.push(Node::LabeledText {
+            label: "footnote".into(),
+            text,
+            href: None,
+        });
+    }
 }
 
 /// The document's `pages` map: `{"1": {"size": {"width", "height"}, …}}`.
@@ -310,7 +452,7 @@ fn grid_location(prov: &Prov, g: &WalkGuard) -> Option<[u16; 4]> {
 const MAX_DEPTH: usize = 256;
 
 fn walk(reference: &Value, root: &Value, level: u8, doc: &mut DoclingDocument, g: &mut WalkGuard) {
-    let key = reference["$ref"].as_str().unwrap_or("");
+    let key = ref_kind(reference);
     if g.depth >= MAX_DEPTH || !g.seen.insert(key.to_string()) {
         return;
     }
@@ -333,6 +475,10 @@ fn walk_inner(
         return;
     }
     let kind = ref_kind(reference);
+    if g.claimed_footnotes.contains(kind) {
+        // A footnote renders with the floating item listing it.
+        return;
+    }
     if kind.starts_with("#/texts/") {
         text_item(item, root, level, doc, g);
         // docling nests a section's content under its heading (and a list
@@ -392,11 +538,15 @@ fn text_node(
 ) {
     let label = item["label"].as_str().unwrap_or("text");
     // docling does not serialize empty text items (an undecoded formula is the
-    // one exception — it becomes a placeholder comment).
+    // one exception — its Markdown prints a placeholder; the node stays a
+    // formula with its `orig` and place, #1120, so a JSON read back writes
+    // the item it read).
     if item["text"].as_str().unwrap_or("").is_empty() {
         if label == "formula" {
-            doc.push(Node::Paragraph {
-                text: "<!-- formula-not-decoded -->".into(),
+            doc.push(Node::Formula {
+                latex: String::new(),
+                orig: item["orig"].as_str().unwrap_or("").to_string(),
+                location,
             });
         }
         return;
@@ -425,6 +575,9 @@ fn text_node(
                 orig: None,
                 pretty: None,
             });
+            // docling-core#675: the footnotes come right after the code,
+            // ahead of its trailing captions.
+            push_footnotes(item, root, doc);
             // A `CodeItem` is docling's only *floating* text item, and the
             // text serializer appends a floating item's captions **after** its
             // own text — the opposite of a picture or a table, which lead with
@@ -441,6 +594,7 @@ fn text_node(
             level,
             marker: None,
             location,
+            split: None,
             dclx: None,
             href: None,
             layer: None,
@@ -469,8 +623,29 @@ fn text_node(
                 doc.push(Node::Caption { text, href: None });
             }
         }
-        _ => doc.push(Node::Paragraph { text }), // text, paragraph, footnote, …
+        // text, paragraph, footnote, … A linked one keeps its link as the
+        // item's `hyperlink` (#1014), not as `[x](url)` baked into its text —
+        // which the HTML export then printed literally. The Markdown is the
+        // same `[x](url)` either way (`Node::labeled_as_paragraph`). A
+        // formatted link stays a paragraph: the node has no formatting.
+        _ => match item["hyperlink"].as_str() {
+            Some(url) if !has_formatting(item) => doc.push(Node::LabeledText {
+                label: label.to_string(),
+                text: escape_text(item["text"].as_str().unwrap_or("")),
+                href: Some(url.to_string()),
+            }),
+            _ => doc.push(Node::Paragraph { text }),
+        },
     }
+}
+
+/// Whether bold, italic or strikethrough — what [`formatted_text`] marks
+/// up — is set on the item.
+fn has_formatting(item: &Value) -> bool {
+    let fmt = &item["formatting"];
+    ["bold", "italic", "strikethrough"]
+        .iter()
+        .any(|k| fmt[*k].as_bool() == Some(true))
 }
 
 fn group_item(item: &Value, root: &Value, level: u8, doc: &mut DoclingDocument, g: &mut WalkGuard) {
@@ -480,12 +655,11 @@ fn group_item(item: &Value, root: &Value, level: u8, doc: &mut DoclingDocument, 
     match label {
         "list" | "ordered_list" => list_group(children, root, level, doc, g),
         "inline" => {
-            // An inline group is one line: serialize each child and join with " ".
-            let joined = children
-                .iter()
-                .map(|c| text_of(c, root))
-                .collect::<Vec<_>>()
-                .join(" ");
+            // An inline group is one line: its runs carry their own
+            // whitespace (schema 1.11.0, #997) and are concatenated as they
+            // are; an older document's were migrated on load.
+            let joined: String = children.iter().map(|c| text_of(c, root)).collect();
+            let joined = joined.trim().to_string();
             if !joined.is_empty() {
                 doc.push(Node::Paragraph { text: joined });
             }
@@ -572,11 +746,74 @@ fn list_group(
         let Some(item) = resolve(c, root) else {
             continue;
         };
+        let checkbox = match item["label"].as_str() {
+            Some("checkbox_selected") => Some("[x]"),
+            Some("checkbox_unselected") => Some("[ ]"),
+            _ => None,
+        };
+        if let Some(mark) = checkbox {
+            // A checkbox in a list group (a Box Note check list, #1033) is a
+            // line of the list: `- [x] text`, the next item right below it.
+            if !g.seen.insert(kind.to_string()) {
+                continue;
+            }
+            let body = formatted_text(item);
+            doc.push(Node::ListItem {
+                ordered: false,
+                number: pos as u64 + 1,
+                first_in_list: first,
+                text: format!("{mark} {body}"),
+                level,
+                marker: None,
+                location: None,
+                spans: None,
+                split: None,
+                dclx: None,
+                href: None,
+                layer: None,
+            });
+            first = false;
+            if let Some(sub) = item["children"].as_array() {
+                for s in sub {
+                    walk(s, root, level + 1, doc, g);
+                }
+            }
+            continue;
+        }
         if item["label"].as_str() != Some("list_item") {
+            // Not a list line: an ordinary body item that sits in the group.
+            // docling's DOCX backend does not close a list for a heading
+            // (`_handle_text_elements` excludes Title/Heading from the close
+            // branch), so a Word-numbered heading right after a list lands
+            // in the list group — its subheadings and body under it — and
+            // docling-core's serializer still prints it. Dropping it lost
+            // the section in the JSON round trip (#1090). A list item after
+            // it opens a new list.
+            walk(c, root, level, doc, g);
+            first = true;
             continue;
         }
         let position = pos as u64 + 1;
-        let body = formatted_text(item);
+        let sub = item["children"].as_array().map_or(&[][..], Vec::as_slice);
+        // The item's leading inline content — the inline groups opening its
+        // children (a Box Note list item's second paragraph,
+        // #1033) — continues the item's own line, as docling-core's list
+        // serializer prints it (`- Intro more **x** y`).
+        let lead = sub.iter().take_while(|s| leading_inline(s, root)).count();
+        let mut body = formatted_text(item);
+        for s in &sub[..lead] {
+            if !g.seen.insert(ref_kind(s).to_string()) {
+                continue;
+            }
+            let more = text_of(s, root);
+            let more = more.trim();
+            if !more.is_empty() {
+                if !body.is_empty() {
+                    body.push(' ');
+                }
+                body.push_str(more);
+            }
+        }
         let (ordered, number, text) = match marker_of(item) {
             Marker::Verbatim(Some(n)) => (true, n, body),
             Marker::Verbatim(None) => (false, position, body),
@@ -601,18 +838,40 @@ fn list_group(
             level,
             marker: None,
             location,
+            split: None,
             dclx: None,
             href: None,
             layer: None,
             spans: None,
         });
         first = false;
-        if let Some(sub) = item["children"].as_array() {
-            for s in sub {
-                walk(s, root, level + 1, doc, g);
-            }
+        for s in &sub[lead..] {
+            walk(s, root, level + 1, doc, g);
         }
     }
+}
+
+/// Whether a list item's child is inline content its line takes in: an
+/// `inline` group (upstream's `test_list_item_text_keeps_boundary_before_rich_paragraph`).
+fn leading_inline(reference: &Value, root: &Value) -> bool {
+    ref_kind(reference).starts_with("#/groups/")
+        && resolve(reference, root).is_some_and(|c| c["label"].as_str() == Some("inline"))
+}
+
+/// A `RichTableCell`'s Markdown: docling-core serializes the group its `ref`
+/// points at — the cell's blocks, blank-line separated — and a table cell
+/// holds one line, so each newline becomes a space (`1\n\n*primary*` →
+/// `1  *primary*`, a Box Note cell, #1033). `None` for a plain cell, or a
+/// rich one whose group renders nothing.
+fn rich_cell_markdown(cell: &Value, root: &Value) -> Option<String> {
+    let group = cell
+        .get("ref")
+        .filter(|r| ref_kind(r).starts_with("#/groups/"))?;
+    let mut sub = DoclingDocument::new("cell");
+    walk(group, root, 0, &mut sub, &mut WalkGuard::default());
+    let md = sub.export_to_markdown();
+    let md = md.trim();
+    (!md.is_empty()).then(|| md.replace('\n', " "))
 }
 
 fn table_item(item: &Value, root: &Value, doc: &mut DoclingDocument) {
@@ -621,6 +880,27 @@ fn table_item(item: &Value, root: &Value, doc: &mut DoclingDocument) {
     // triplet serialization see docling's header/span structure, not just the
     // flattened text grid.
     let mut structure = docling_core::TableStructure::default();
+    // Whether the file states the header flags at all — docling's export
+    // writes `column_header` on every cell, so all-`false` means "no header"
+    // (#1042), not "unknown".
+    let mut declares_headers = false;
+    // A `RichTableCell`'s `ref` sits on `table_cells` only (the derived
+    // `grid` shows plain cells): keyed by the cell's anchor.
+    let rich: std::collections::HashMap<(u64, u64), &Value> = item["data"]["table_cells"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice)
+        .iter()
+        .filter(|c| c.get("ref").is_some())
+        .filter_map(|c| {
+            Some((
+                (
+                    c["start_row_offset_idx"].as_u64()?,
+                    c["start_col_offset_idx"].as_u64()?,
+                ),
+                c,
+            ))
+        })
+        .collect();
     if let Some(grid) = item["data"]["grid"].as_array() {
         for (r, row) in grid.iter().enumerate() {
             let Some(cells) = row.as_array() else {
@@ -629,7 +909,15 @@ fn table_item(item: &Value, root: &Value, doc: &mut DoclingDocument) {
             rows.push(
                 cells
                     .iter()
-                    .map(|cell| cell["text"].as_str().unwrap_or("").to_string())
+                    .map(|cell| {
+                        let anchor = (
+                            cell["start_row_offset_idx"].as_u64().unwrap_or(u64::MAX),
+                            cell["start_col_offset_idx"].as_u64().unwrap_or(u64::MAX),
+                        );
+                        rich.get(&anchor)
+                            .and_then(|rc| rich_cell_markdown(rc, root))
+                            .unwrap_or_else(|| cell["text"].as_str().unwrap_or("").to_string())
+                    })
                     .collect::<Vec<_>>(),
             );
             // A spanning cell is repeated at each grid position it covers; its
@@ -637,6 +925,7 @@ fn table_item(item: &Value, root: &Value, doc: &mut DoclingDocument) {
             let past = |cell: &Value, key: &str, idx: usize| {
                 cell[key].as_u64().is_some_and(|v| (v as usize) < idx)
             };
+            declares_headers |= cells.iter().any(|c| c["column_header"].is_boolean());
             structure
                 .col_header
                 .push(flags(cells, |c| c["column_header"].as_bool() == Some(true)));
@@ -664,12 +953,20 @@ fn table_item(item: &Value, root: &Value, doc: &mut DoclingDocument) {
         doc.push(Node::Table(Table {
             rows,
             location: None,
-            structure: has_structure.then_some(structure),
+            // Stated flags are kept even when every one is `false`: `None`
+            // makes `Table::derive_cells` promote row 0 to the header the
+            // file says it is not, and the reloaded document chunks
+            // differently from the one exported (#1042). A JSON without the
+            // keys keeps `None` and the row-0 default.
+            structure: (has_structure || declares_headers).then_some(structure),
             cell_blocks: None,
             cells: None,
             caption: caption_of(item, root),
             caption_parent: caption_parent_of(item, root),
             caption_location: None,
+            footnotes: footnotes_of(item, root),
+            // A table of contents keeps its label through the round trip.
+            document_index: item["label"].as_str() == Some("document_index"),
         }));
     }
 }
@@ -689,6 +986,7 @@ fn picture_item(item: &Value, root: &Value, doc: &mut DoclingDocument) {
         classification: picture_classification(item),
         description: picture_description(item),
     });
+    push_footnotes(item, root, doc);
 }
 
 /// The picture's description (#975): docling's `meta.description`
@@ -756,11 +1054,11 @@ fn picture_classification(item: &Value) -> Option<Vec<docling_core::PictureClass
 /// order — or, anywhere else, docling's `add_text` default, the body.
 fn caption_parent_of(item: &Value, root: &Value) -> CaptionParent {
     let cap = &item["captions"][0];
-    let Some(cap_ref) = cap["$ref"].as_str() else {
+    let Some(cap_ref) = ref_str(cap) else {
         return CaptionParent::Body;
     };
     let cap_parent = resolve(cap, root)
-        .and_then(|c| c["parent"]["$ref"].as_str())
+        .and_then(|c| ref_str(&c["parent"]))
         .unwrap_or("#/body");
     let self_ref = item["self_ref"].as_str().unwrap_or("");
     let item_parent = &item["parent"];
@@ -772,7 +1070,7 @@ fn caption_parent_of(item: &Value, root: &Value) -> CaptionParent {
                 .get("children")?
                 .as_array()?
                 .iter()
-                .position(|c| c["$ref"] == r)
+                .position(|c| ref_str(c) == Some(r))
         };
         match (pos(cap_ref), pos(self_ref)) {
             (Some(c), Some(i)) if c > i => CaptionParent::ContainerAfter,
@@ -902,7 +1200,7 @@ fn caption_is_claimed(item: &Value, root: &Value) -> bool {
             items.iter().any(|it| {
                 it["captions"]
                     .as_array()
-                    .is_some_and(|caps| caps.iter().any(|c| c["$ref"].as_str() == Some(me)))
+                    .is_some_and(|caps| caps.iter().any(|c| ref_str(c) == Some(me)))
             })
         })
     })
@@ -936,6 +1234,143 @@ mod tests {
             ))
             .unwrap()
             .export_to_markdown()
+    }
+
+    /// #1120: an undecoded formula item (`text` empty, `orig` the raw glyph
+    /// text) read from docling JSON stays a formula — the Markdown prints the
+    /// placeholder, and a JSON written back has the item with its label,
+    /// `orig` and `prov`, not a `text` item holding the placeholder.
+    #[test]
+    fn an_undecoded_formula_item_survives_a_json_round_trip() {
+        let json = r##"{"schema_name":"DoclingDocument","version":"1.10.0","name":"t",
+          "body":{"self_ref":"#/body","children":[{"$ref":"#/texts/0"},{"$ref":"#/texts/1"}],
+                  "content_layer":"body","name":"_root_","label":"unspecified"},
+          "groups":[],"pictures":[],"tables":[],"key_value_items":[],"form_items":[],
+          "texts":[
+            {"self_ref":"#/texts/0","parent":{"$ref":"#/body"},"children":[],"content_layer":"body",
+             "label":"text","prov":[],"orig":"Before.","text":"Before."},
+            {"self_ref":"#/texts/1","parent":{"$ref":"#/body"},"children":[],"content_layer":"body",
+             "label":"formula","orig":"mf (y) = ∫ U p(y | u)f(u) dµ(u)","text":"",
+             "prov":[{"page_no":1,"bbox":{"l":193.0,"t":416.0,"r":523.0,"b":388.0,
+                      "coord_origin":"BOTTOMLEFT"},"charspan":[0,31]}]}],
+          "pages":{"1":{"size":{"width":612.0,"height":792.0},"page_no":1}}}"##;
+        assert_eq!(md(json).trim(), "Before.\n\n<!-- formula-not-decoded -->");
+        let doc = DoclingJsonBackend
+            .convert(&SourceDocument::from_bytes(
+                "t.json",
+                InputFormat::JsonDocling,
+                json.as_bytes().to_vec(),
+            ))
+            .unwrap();
+        let out = doc.export_to_json_value();
+        let item = out["texts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["label"] == "formula")
+            .expect("the formula item");
+        assert_eq!(item["text"], "");
+        assert_eq!(item["orig"], "mf (y) = ∫ U p(y | u)f(u) dµ(u)");
+        assert_eq!(item["prov"][0]["page_no"], 1);
+        assert!(out["texts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| !t["text"].as_str().unwrap().contains("formula-not-decoded")));
+    }
+
+    /// #1009 / #1014: upstream's `table_footnotes_496.json` shape — `cref`
+    /// references, a table whose two `footnote` texts it lists in
+    /// `footnotes`. Expected output is docling-core 2.106's
+    /// `export_to_markdown()` / `export_to_html()` / `HierarchicalChunker`.
+    #[test]
+    fn table_footnotes_read_from_cref_references() {
+        let json = r##"{"schema_name":"DoclingDocument","version":"1.10.0","name":"t",
+          "body":{"self_ref":"#/body","children":[{"cref":"#/texts/0"},{"cref":"#/tables/0"},{"cref":"#/texts/3"}],
+                  "content_layer":"body","name":"_root_","label":"unspecified"},
+          "groups":[],"pictures":[],
+          "texts":[
+            {"self_ref":"#/texts/0","parent":{"cref":"#/body"},"children":[],"content_layer":"body","label":"text","prov":[],"orig":"Before.","text":"Before."},
+            {"self_ref":"#/texts/1","parent":{"cref":"#/tables/0"},"children":[],"content_layer":"body","label":"footnote","prov":[],"orig":"*Note: 'Pending' awaits review.","text":"*Note: 'Pending' awaits review."},
+            {"self_ref":"#/texts/2","parent":{"cref":"#/tables/0"},"children":[],"content_layer":"body","label":"footnote","prov":[],"orig":"**Note: a_b.","text":"**Note: a_b."},
+            {"self_ref":"#/texts/3","parent":{"cref":"#/body"},"children":[],"content_layer":"body","label":"text","prov":[],"orig":"After.","text":"After."}],
+          "tables":[{"self_ref":"#/tables/0","parent":{"cref":"#/body"},"children":[{"cref":"#/texts/1"},{"cref":"#/texts/2"}],
+            "content_layer":"body","label":"table","prov":[],"captions":[],"references":[],
+            "footnotes":[{"cref":"#/texts/1"},{"cref":"#/texts/2"}],
+            "data":{"num_rows":2,"num_cols":2,"table_cells":[
+              {"text":"ID","row_span":1,"col_span":1,"start_row_offset_idx":0,"end_row_offset_idx":1,"start_col_offset_idx":0,"end_col_offset_idx":1,"column_header":true,"row_header":false},
+              {"text":"Status","row_span":1,"col_span":1,"start_row_offset_idx":0,"end_row_offset_idx":1,"start_col_offset_idx":1,"end_col_offset_idx":2,"column_header":true,"row_header":false},
+              {"text":"1","row_span":1,"col_span":1,"start_row_offset_idx":1,"end_row_offset_idx":2,"start_col_offset_idx":0,"end_col_offset_idx":1,"column_header":false,"row_header":false},
+              {"text":"Pending*","row_span":1,"col_span":1,"start_row_offset_idx":1,"end_row_offset_idx":2,"start_col_offset_idx":1,"end_col_offset_idx":2,"column_header":false,"row_header":false}],"grid":[
+              [{"text":"ID","start_row_offset_idx":0,"end_row_offset_idx":1,"start_col_offset_idx":0,"end_col_offset_idx":1,"column_header":true,"row_header":false},
+               {"text":"Status","start_row_offset_idx":0,"end_row_offset_idx":1,"start_col_offset_idx":1,"end_col_offset_idx":2,"column_header":true,"row_header":false}],
+              [{"text":"1","start_row_offset_idx":1,"end_row_offset_idx":2,"start_col_offset_idx":0,"end_col_offset_idx":1,"column_header":false,"row_header":false},
+               {"text":"Pending*","start_row_offset_idx":1,"end_row_offset_idx":2,"start_col_offset_idx":1,"end_col_offset_idx":2,"column_header":false,"row_header":false}]]}}],
+          "key_value_items":[],"form_items":[],"pages":{}}"##;
+        let doc = DoclingJsonBackend
+            .convert(&SourceDocument::from_bytes(
+                "t.json",
+                InputFormat::JsonDocling,
+                json.as_bytes().to_vec(),
+            ))
+            .unwrap();
+        assert_eq!(
+            doc.export_to_markdown(),
+            "Before.\n\n|   ID | Status   |\n|------|----------|\n|    1 | Pending* |\n\n\
+             *Note: 'Pending' awaits review.\n\n**Note: a\\_b.\n\nAfter.\n"
+        );
+        let html = doc.export_to_html();
+        assert!(
+            html.contains(
+                "</table><div class=\"footnote\">*Note: &#x27;Pending&#x27; awaits review.</div>\
+                 <div class=\"footnote\">**Note: a_b.</div>\n<p>After.</p>"
+            ),
+            "{html}"
+        );
+        // The JSON re-export keeps the footnotes on the table.
+        let v: Value = serde_json::from_str(&doc.export_to_json()).unwrap();
+        assert_eq!(v["tables"][0]["footnotes"][1]["$ref"], "#/texts/2");
+        assert_eq!(v["texts"][2]["label"], "footnote");
+        assert_eq!(v["texts"][2]["parent"]["$ref"], "#/tables/0");
+        // The table's chunk ends with its notes and lists them.
+        let chunks = docling_core::chunker::HierarchicalChunker.chunk(&doc);
+        assert_eq!(chunks.len(), 3, "{chunks:?}");
+        assert_eq!(
+            chunks[1].text,
+            "1, Status = Pending*\n\n*Note: 'Pending' awaits review.\n\n**Note: a_b."
+        );
+        let refs: Vec<&str> = chunks[1]
+            .doc_items
+            .iter()
+            .map(|i| i.self_ref.as_str())
+            .collect();
+        assert_eq!(refs, ["#/tables/0", "#/texts/1", "#/texts/2"]);
+        assert_eq!(chunks[2].doc_items[0].self_ref, "#/texts/3");
+    }
+
+    /// #1009: a picture's and a code item's footnotes print after the
+    /// element (and before the code's trailing caption) — docling-core
+    /// 2.106's Markdown; a footnote some item lists is not printed again
+    /// where the body walk meets it.
+    #[test]
+    fn picture_and_code_footnotes_follow_the_element() {
+        let json = r##"{"schema_name":"DoclingDocument","name":"t",
+          "body":{"self_ref":"#/body","children":[{"$ref":"#/pictures/0"},{"$ref":"#/texts/1"},{"$ref":"#/texts/2"},{"$ref":"#/texts/0"}],"label":"unspecified"},
+          "groups":[],"tables":[],
+          "texts":[
+            {"self_ref":"#/texts/0","parent":{"$ref":"#/body"},"children":[],"content_layer":"body","label":"footnote","text":"Source: a & b"},
+            {"self_ref":"#/texts/1","parent":{"$ref":"#/body"},"children":[],"content_layer":"body","label":"caption","text":"Figure 1"},
+            {"self_ref":"#/texts/2","parent":{"$ref":"#/body"},"children":[{"$ref":"#/texts/3"},{"$ref":"#/texts/4"}],"content_layer":"body","label":"code","text":"x = 1",
+             "captions":[{"$ref":"#/texts/3"}],"footnotes":[{"$ref":"#/texts/4"}],"code_language":"unknown"},
+            {"self_ref":"#/texts/3","parent":{"$ref":"#/texts/2"},"children":[],"content_layer":"body","label":"caption","text":"Listing 1"},
+            {"self_ref":"#/texts/4","parent":{"$ref":"#/texts/2"},"children":[],"content_layer":"body","label":"footnote","text":"Runs in O(1)."}],
+          "pictures":[{"self_ref":"#/pictures/0","parent":{"$ref":"#/body"},"children":[],"content_layer":"body","label":"picture",
+             "captions":[{"$ref":"#/texts/1"}],"footnotes":[{"$ref":"#/texts/0"}],"annotations":[]}]}"##;
+        assert_eq!(
+            md(json),
+            "Figure 1\n\n<!-- image -->\n\nSource: a &amp; b\n\n```\nx = 1\n```\n\n\
+             Runs in O(1).\n\nListing 1\n"
+        );
     }
 
     /// A `children` reference back to an ancestor, a chain of thousands of
@@ -1519,6 +1954,119 @@ mod tests {
         );
     }
 
+    /// #1090: docling's DOCX export of a Word-numbered heading right after a
+    /// bullet list — the heading (and its subheading) inside the list group,
+    /// exactly as docling 2.150 writes it. Read back, the section survives
+    /// and a list item after it opens a new list.
+    #[test]
+    fn a_heading_inside_a_list_group_is_kept() {
+        let json = r##"{
+          "name": "n",
+          "body": {"children": [{"$ref":"#/groups/0"},{"$ref":"#/texts/1"},
+                                {"$ref":"#/groups/1"},{"$ref":"#/texts/5"}]},
+          "groups": [
+            {"self_ref":"#/groups/0","parent":{"$ref":"#/body"},"label":"section","name":"header-0",
+             "children":[{"$ref":"#/texts/0"}]},
+            {"self_ref":"#/groups/1","parent":{"$ref":"#/body"},"label":"list","name":"list",
+             "children":[{"$ref":"#/texts/2"},{"$ref":"#/texts/3"},{"$ref":"#/texts/6"}]}
+          ],
+          "texts": [
+            {"self_ref":"#/texts/0","label":"section_header","level":1,"text":"1 First","children":[]},
+            {"self_ref":"#/texts/1","label":"text","text":"Body.","children":[]},
+            {"self_ref":"#/texts/2","label":"list_item","text":"A bullet item.","marker":"","enumerated":false,"children":[]},
+            {"self_ref":"#/texts/3","label":"section_header","level":1,"text":"2 Second",
+             "children":[{"$ref":"#/texts/4"}]},
+            {"self_ref":"#/texts/4","label":"section_header","level":2,"text":"2.1 Sub","children":[]},
+            {"self_ref":"#/texts/5","label":"text","text":"Body of sub.","children":[]},
+            {"self_ref":"#/texts/6","label":"list_item","text":"Later item.","marker":"","enumerated":false,"children":[]}
+          ],
+          "tables": [], "pictures": []
+        }"##;
+        assert_eq!(
+            md(json),
+            "## 1 First\n\nBody.\n\n- A bullet item.\n\n## 2 Second\n\n### 2.1 Sub\n\n\
+             - Later item.\n\nBody of sub.\n"
+        );
+    }
+
+    /// #1090, end to end: a DOCX whose numbered heading follows a bullet
+    /// list reads back from its own docling JSON with the same Markdown —
+    /// and so the same heading path for the chunker — as converted directly.
+    #[test]
+    fn docx_numbered_heading_after_list_survives_the_json_round_trip() {
+        use std::io::Write;
+        const W: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main""#;
+        let p = |text: &str, style: Option<&str>, num: Option<(u8, u8)>| {
+            let mut ppr = String::new();
+            if let Some(s) = style {
+                ppr.push_str(&format!(r#"<w:pStyle w:val="{s}"/>"#));
+            }
+            if let Some((id, lvl)) = num {
+                ppr.push_str(&format!(
+                    r#"<w:numPr><w:ilvl w:val="{lvl}"/><w:numId w:val="{id}"/></w:numPr>"#
+                ));
+            }
+            format!(r#"<w:p><w:pPr>{ppr}</w:pPr><w:r><w:t>{text}</w:t></w:r></w:p>"#)
+        };
+        let body = [
+            p("First", Some("Heading1"), Some((1, 0))),
+            p("Body.", None, None),
+            p("A bullet item.", None, Some((2, 0))),
+            p("Second", Some("Heading1"), Some((1, 0))),
+            p("Sub", Some("Heading2"), Some((1, 1))),
+            p("Body of sub.", None, None),
+        ]
+        .concat();
+        let parts = [
+            (
+                "[Content_Types].xml",
+                r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#.to_string(),
+            ),
+            (
+                "_rels/.rels",
+                r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#.to_string(),
+            ),
+            (
+                "word/_rels/document.xml.rels",
+                r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/></Relationships>"#.to_string(),
+            ),
+            (
+                "word/document.xml",
+                format!(r#"<?xml version="1.0" encoding="UTF-8"?><w:document {W}><w:body>{body}</w:body></w:document>"#),
+            ),
+            (
+                "word/styles.xml",
+                format!(
+                    r#"<?xml version="1.0" encoding="UTF-8"?><w:styles {W}><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/></w:style></w:styles>"#
+                ),
+            ),
+            (
+                "word/numbering.xml",
+                format!(
+                    r#"<?xml version="1.0" encoding="UTF-8"?><w:numbering {W}><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1"/></w:lvl><w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1.%2"/></w:lvl></w:abstractNum><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>"#
+                ),
+            ),
+        ];
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, xml) in parts {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(xml.as_bytes()).unwrap();
+        }
+        let docx = zip.finish().unwrap().into_inner();
+        let direct = crate::DocumentConverter::new()
+            .convert(SourceDocument::from_bytes(
+                "list-then-heading.docx",
+                InputFormat::Docx,
+                docx,
+            ))
+            .unwrap()
+            .document;
+        let expected = "## 1 First\n\nBody.\n\n- A bullet item.\n\n## 2 Second\n\n### 2.1 Sub\n\nBody of sub.\n";
+        assert_eq!(direct.export_to_markdown(), expected);
+        assert_eq!(md(&direct.export_to_json()), expected);
+    }
+
     #[test]
     fn walks_body_tree_with_formatting_and_lists() {
         let json = r##"{
@@ -1544,6 +2092,147 @@ mod tests {
         assert!(
             md.starts_with("# Doc\n\n## [Sec](http://x)\n\n- one\n- **two**"),
             "got:\n{md}"
+        );
+    }
+
+    fn convert(json: &str) -> DoclingDocument {
+        DoclingJsonBackend
+            .convert(&SourceDocument::from_bytes(
+                "t.json",
+                InputFormat::JsonDocling,
+                json.as_bytes().to_vec(),
+            ))
+            .unwrap()
+    }
+
+    /// #1014: docling-core's `RefItem` is `cref` with the `$ref` alias, so a
+    /// file written by field name reads like a `$ref` one — it converted to
+    /// an empty document.
+    #[test]
+    fn cref_references_read_like_dollar_ref() {
+        let doc = |key: &str| {
+            format!(
+                r##"{{"schema_name":"DoclingDocument","name":"n",
+                "body":{{"children":[{{"{key}":"#/texts/0"}},{{"{key}":"#/tables/0"}},{{"{key}":"#/groups/0"}}]}},
+                "texts":[
+                  {{"self_ref":"#/texts/0","label":"section_header","level":1,"text":"Head","children":[{{"{key}":"#/texts/1"}}]}},
+                  {{"self_ref":"#/texts/1","label":"text","text":"Under the head","parent":{{"{key}":"#/texts/0"}}}},
+                  {{"self_ref":"#/texts/2","label":"caption","text":"Table 1","parent":{{"{key}":"#/tables/0"}}}},
+                  {{"self_ref":"#/texts/3","label":"list_item","text":"item","marker":"-"}}],
+                "groups":[{{"self_ref":"#/groups/0","label":"list","name":"list","children":[{{"{key}":"#/texts/3"}}]}}],
+                "tables":[{{"self_ref":"#/tables/0","label":"table","captions":[{{"{key}":"#/texts/2"}}],
+                  "data":{{"num_rows":1,"num_cols":1,"grid":[[{{"text":"c","column_header":false}}]]}}}}]}}"##
+            )
+        };
+        let with_dollar = md(&doc("$ref"));
+        assert!(with_dollar.contains("Under the head") && with_dollar.contains("Table 1"));
+        assert!(with_dollar.contains("- item"), "{with_dollar}");
+        assert_eq!(md(&doc("cref")), with_dollar);
+        assert_eq!(
+            convert(&doc("cref")).export_to_json(),
+            convert(&doc("$ref")).export_to_json()
+        );
+    }
+
+    /// #1014: a linked text item's HTML export is an `<a href>`, not the
+    /// Markdown link spelled out; the JSON keeps the `hyperlink` and the
+    /// Markdown is unchanged.
+    #[test]
+    fn hyperlinked_text_exports_an_anchor() {
+        let d = convert(
+            r##"{"schema_name":"DoclingDocument","name":"n",
+            "body":{"children":[{"$ref":"#/texts/0"},{"$ref":"#/texts/1"}]},
+            "texts":[{"self_ref":"#/texts/0","label":"text","text":"x","hyperlink":"https://x.org/plain"},
+                     {"self_ref":"#/texts/1","label":"text","text":"b","hyperlink":"https://x.org/b",
+                      "formatting":{"bold":true}}]}"##,
+        );
+        let html = d.export_to_html();
+        assert!(
+            html.contains("<p><a href=\"https://x.org/plain\">x</a></p>"),
+            "{html}"
+        );
+        assert!(!html.contains("[x](https://x.org/plain)"), "{html}");
+        let json: Value = serde_json::from_str(&d.export_to_json()).unwrap();
+        assert_eq!(json["texts"][0]["text"], "x");
+        assert_eq!(json["texts"][0]["hyperlink"], "https://x.org/plain");
+        assert_eq!(
+            d.export_to_markdown(),
+            "[x](https://x.org/plain)\n\n[**b**](https://x.org/b)\n"
+        );
+    }
+
+    /// #1042: a table whose cells all say `column_header: false` reloads
+    /// without a header — row 0 used to be promoted to one, changing the
+    /// triplet chunks and the re-export. Without the keys the row-0
+    /// default stays.
+    #[test]
+    fn all_false_header_flags_survive_a_round_trip() {
+        use crate::chunker::HierarchicalChunker;
+        let html = "<table><tr><td>Year</td><td>Revenue</td></tr><tr><td>2024</td><td>10</td></tr></table>";
+        let original = crate::DocumentConverter::new()
+            .convert(SourceDocument::from_bytes(
+                "t.html",
+                InputFormat::Html,
+                html.as_bytes().to_vec(),
+            ))
+            .unwrap()
+            .document;
+        let json = original.export_to_json();
+        let reloaded = convert(&json);
+        let row0 = |d: &DoclingDocument| -> Vec<bool> {
+            let v: Value = serde_json::from_str(&d.export_to_json()).unwrap();
+            v["tables"][0]["data"]["grid"][0]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c["column_header"].as_bool().unwrap())
+                .collect()
+        };
+        assert_eq!(row0(&original), [false, false]);
+        assert_eq!(row0(&reloaded), [false, false]);
+        let chunk = |d: &DoclingDocument| HierarchicalChunker.chunk(d)[0].text.clone();
+        assert_eq!(chunk(&original), "Year, 1 = Revenue. 2024, 1 = 10");
+        assert_eq!(chunk(&reloaded), chunk(&original));
+
+        // The same JSON without any `column_header` key: row 0 is the header.
+        let mut v: Value = serde_json::from_str(&json).unwrap();
+        for row in v["tables"][0]["data"]["grid"].as_array_mut().unwrap() {
+            for cell in row.as_array_mut().unwrap() {
+                cell.as_object_mut().unwrap().remove("column_header");
+            }
+        }
+        let keyless = convert(&v.to_string());
+        assert_eq!(chunk(&keyless), "2024, Revenue = 10");
+    }
+
+    /// #1091: a `document_index` table (docling's TOC label) reads back as
+    /// one and is written out with the same label; a plain table stays
+    /// `table`.
+    #[test]
+    fn a_document_index_table_keeps_its_label_through_the_round_trip() {
+        let html = "<table><tr><td>Intro</td><td>1</td></tr></table>";
+        let original = crate::DocumentConverter::new()
+            .convert(SourceDocument::from_bytes(
+                "t.html",
+                InputFormat::Html,
+                html.as_bytes().to_vec(),
+            ))
+            .unwrap()
+            .document;
+        let mut v: Value = serde_json::from_str(&original.export_to_json()).unwrap();
+        assert_eq!(v["tables"][0]["label"], "table");
+        v["tables"][0]["label"] = "document_index".into();
+        let reloaded = convert(&v.to_string());
+        assert!(matches!(
+            reloaded.nodes.iter().find(|n| matches!(n, Node::Table(_))),
+            Some(Node::Table(t)) if t.document_index
+        ));
+        let out: Value = serde_json::from_str(&reloaded.export_to_json()).unwrap();
+        assert_eq!(out["tables"][0]["label"], "document_index");
+        assert_eq!(
+            reloaded.export_to_markdown(),
+            original.export_to_markdown(),
+            "a table of contents renders as a table"
         );
     }
 }

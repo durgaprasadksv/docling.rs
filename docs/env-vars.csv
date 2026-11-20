@@ -11,6 +11,7 @@ DOCLING_RS_MAX_RENDER_PIXELS,limit,crates/docling-pdf/src/pdfium_backend.rs
 DOCLING_RS_MAX_XML_DEPTH,limit,crates/docling/src/backend/xml_depth.rs
 DOCLING_RS_MEMORY_WATERMARK_PCT,limit,crates/docling-serve/src/lib.rs
 DOCLING_RS_SHEET_MAX_CELLS,limit,crates/docling/src/backend/xlsx.rs
+DOCLING_RS_ODS_MAX_REPEATED_CELLS,limit,crates/docling/src/backend/odf.rs
 DOCLING_RS_MAX_TABLE_CELLS,limit,crates/docling-core/src/limits.rs
 DOCLING_RS_MAX_TOTAL_TABLE_CELLS,limit,crates/docling-core/src/limits.rs
 DOCLING_RS_VLM_TIMEOUT,limit,crates/docling/src/vlm.rs
@@ -63,8 +64,10 @@ DOCLING_RS_OCR_LANG,operational,crates/docling-pdf/src/ocr.rs
 DOCLING_RS_OCR_LINES,operational,crates/docling-pdf/src/ocr.rs
 DOCLING_RS_OCR_MODE,operational,crates/docling-pdf/src/ocr.rs
 DOCLING_RS_PDF_WORD_GAP,operational,crates/docling-pdf/src/dp_lines.rs
+DOCLING_RS_PDF_ZERO_ADVANCE_RUN,operational,crates/docling-pdf/src/dp_lines.rs
 DOCLING_RS_PDF_KEEP_TYPOGRAPHY,operational,crates/docling-pdf/src/assemble.rs
 DOCLING_RS_PDF_REPORT_REPAIRS,operational,crates/docling/src/converter.rs
+DOCLING_RS_PDF_ORDER_SEPARATORS,operational,crates/docling-pdf/src/assemble.rs
 DOCLING_RS_OCR_ORIENTATION,operational,crates/docling-pdf/src/orient.rs
 DOCLING_RS_OCR_TEXT_SCORE,operational,crates/docling-pdf/src/ocr_prep.rs
 DOCLING_RS_RENDERER,operational,crates/docling-pdf/src/render/mod.rs

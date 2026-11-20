@@ -71,14 +71,16 @@ impl ErrorItem {
     /// [`docling_core::Notice`]) — a limit it hit, named with its effective
     /// value — as the `document_backend` component's error.
     pub fn notice(notice: &docling_core::Notice) -> Self {
-        let module = match notice.kind {
-            docling_core::NoticeKind::DepthLimit { variable, .. } => variable,
+        let (module, page_no) = match notice.kind {
+            docling_core::NoticeKind::DepthLimit { variable, .. } => (variable, None),
+            // docling's backend error for a page it could not parse.
+            docling_core::NoticeKind::PageSkipped { page_no } => ("page", Some(page_no)),
         };
         ErrorItem {
             component_type: "document_backend".into(),
             module_name: module.into(),
             error_message: notice.message.clone(),
-            page_no: None,
+            page_no,
         }
     }
 
@@ -114,4 +116,13 @@ pub struct ConversionResult {
     /// asked: empty for a well-formed file. `None` when not asked, for
     /// non-PDF input and on the VLM pipeline.
     pub pdf_repairs: Option<Vec<docling_core::PdfRepair>>,
+    /// Whether the conversion could OCR what it needed to (#1210): `None`
+    /// when nothing asked for OCR (a born-digital PDF, an Office file
+    /// without picture OCR, OCR switched off), `Available` when the engine
+    /// read it, `Unavailable` — with the load error — when the OCR model
+    /// could not be loaded and the conversion went on without it (#244):
+    /// the status stays `Success`, but scanned pages and text inside images
+    /// are missing from the document. The stderr warning says the same
+    /// once per process; this says it on every conversion it applies to.
+    pub ocr_status: Option<docling_core::OcrStatus>,
 }

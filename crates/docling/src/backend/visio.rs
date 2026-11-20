@@ -331,6 +331,7 @@ fn render_page(
             });
         }
         doc.push(Node::Table(Table {
+            footnotes: Vec::new(),
             rows,
             location: None,
             structure: None,
@@ -339,6 +340,7 @@ fn render_page(
             caption: None,
             caption_parent: Default::default(),
             caption_location: None,
+            document_index: false,
         }));
     }
     true
@@ -665,6 +667,7 @@ mod tests {
                 Node::Paragraph { text: "App".into() },
                 Node::Paragraph { text: "DB".into() },
                 Node::Table(Table {
+                    footnotes: Vec::new(),
                     rows: vec![
                         vec!["From".into(), "To".into(), "Label".into()],
                         vec!["App".into(), "DB".into(), "reads".into()],
@@ -676,6 +679,7 @@ mod tests {
                     caption: None,
                     caption_parent: Default::default(),
                     caption_location: None,
+                    document_index: false,
                 }),
             ]
         );

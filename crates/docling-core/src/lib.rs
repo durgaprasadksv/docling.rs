@@ -16,12 +16,15 @@ pub mod chunker;
 pub mod confidence;
 mod doclang;
 mod doclang_tree;
+mod doclang_xml;
 pub mod doctags;
 mod document;
 mod encryption;
 pub mod env;
 mod html;
 pub mod hyperlink;
+pub mod image_dpi;
+pub mod inline;
 pub mod jpeg;
 mod json;
 mod labels;
@@ -31,6 +34,7 @@ mod markdown;
 mod mathml;
 pub mod memory;
 pub mod metadata;
+pub mod ocr_status;
 pub mod pandoc;
 pub mod pdf_repair;
 mod pixel_digest;
@@ -44,22 +48,25 @@ mod vtt;
 
 pub use confidence::{ConfidenceReport, OcrCellConfidence, PageConfidence, QualityGrade};
 pub use doclang::inline_runs_from_markdown;
+pub use doclang_xml::doclang_apply_reading_rules;
 pub use document::{
-    for_each_picture_in, for_each_picture_in_mut, inline_paragraph_node, CaptionParent, CellSpan,
-    ContentLayer, ContentLayers, DoclingDocument, FieldItem, GraphCell, GraphLink,
-    HtmlExportOptions, InlineRun, ListItemDclx, MarkdownExportOptions, Node, Notice, NoticeKind,
-    PictureClass, PictureDescription, PictureImage, Script, Table, TableCell, TableStructure,
+    for_each_picture_in, for_each_picture_in_mut, inline_paragraph_node, rich_cell_group,
+    CaptionParent, CellSpan, ContentLayer, ContentLayers, DoclingDocument, FieldItem, GraphCell,
+    GraphLink, HtmlExportOptions, InlineRun, ListItemDclx, ListItemSplit, MarkdownExportOptions,
+    Node, Notice, NoticeKind, PictureClass, PictureDescription, PictureImage, Script, ScriptRun,
+    ScriptRunProv, Table, TableCell, TableStructure,
 };
 pub use encryption::EncryptionError;
 #[doc(hidden)]
 pub use html::to_html_with_picture_refs;
-pub use json::code_language_label;
+pub use json::{code_language_label, text_char_len};
 pub use labels::DocItemLabel;
 pub use latex::escape_latex;
 pub use limits::LimitExceeded;
 pub use markdown::{code_fence, code_span, longest_backtick_run, ImageMode, MarkdownStreamer};
 pub use mathml::latex_command;
 pub use metadata::{DocumentMetadata, GpsPosition, MetadataOutput};
+pub use ocr_status::OcrStatus;
 pub use pdf_repair::PdfRepair;
 pub use redact::{
     CustomPattern, ImageRedaction, PiiDetector, PiiKind, RedactionOptions, RedactionReport,

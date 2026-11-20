@@ -31,7 +31,16 @@
 //! Underline and sub/superscript have no Markdown form and stay plain text.
 //! Rich table cells (`Table::cell_blocks`) render their block content inline
 //! the way upstream's `RichTableCell` does (a nested `itemize`, a nested
-//! `table`), newlines flattened to spaces.
+//! tabular), newlines flattened to spaces.
+//!
+//! Deliberate deviation, so the document compiles: upstream renders a rich
+//! cell's picture as its `figure` and a nested table as its `table` and
+//! flattens the lines, so the `% image` placeholder comments out the rest of
+//! the row (`\end{figure}`, the `&`s, the row's `\\ \hline`) and a float
+//! inside a `tabular` is LaTeX's "Not in outer par mode" anyway. In a cell a
+//! picture is its placeholder and its caption as text, a table its bare
+//! `tabular` (the caption ahead of it), and a line ending in a comment keeps
+//! its line break ([`flatten_cell`]).
 //!
 //! Deliberate deviation: upstream *raises* on a section header deeper than
 //! `\subsubsection`; a conversion should not fail on an `<h5>`, so those
@@ -58,6 +67,56 @@ const PACKAGES: [&str; 11] = [
     r"\usepackage[normalem]{ulem} % strikethrough",
 ];
 const IMAGE_PLACEHOLDER: &str = "% image";
+
+thread_local! {
+    /// Whether the nodes being rendered are a rich table cell's blocks, where
+    /// floats are not allowed (see the module docs). A thread-local rather
+    /// than a parameter: every node kind can sit in a cell, through lists
+    /// and groups, and only the picture and table renderers ask.
+    static IN_CELL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Render `blocks` as a rich cell's content: in cell mode, one line except
+/// where a comment ends one.
+fn render_cell_blocks(blocks: &[Node]) -> String {
+    let outer = IN_CELL.with(|c| c.replace(true));
+    let text = render_nodes(blocks, 1, false).join("\n\n");
+    IN_CELL.with(|c| c.set(outer));
+    flatten_cell(&text)
+}
+
+/// A cell's rendered lines joined by spaces, as upstream flattens them, but
+/// a line holding a comment (an unescaped `%`: the `% image` placeholder,
+/// `% formula-not-decoded`, an annotation) keeps its line break — joined,
+/// the comment would swallow the rest of the row.
+fn flatten_cell(text: &str) -> String {
+    let mut out = String::new();
+    for line in text.split('\n') {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push(' ');
+        }
+        out.push_str(line);
+        // Kept on the last line too: the row's `&` / `\\` follow the cell.
+        if has_comment(line) {
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// Whether `line` holds a TeX comment: a `%` not escaped by a backslash.
+fn has_comment(line: &str) -> bool {
+    let mut escaped = false;
+    for ch in line.chars() {
+        match ch {
+            '%' if !escaped => return true,
+            '\\' => escaped = !escaped,
+            _ => escaped = false,
+        }
+    }
+    false
+}
+
 const MISSING_TEXT: &str = "% missing-text";
 /// Spaces per nesting level on a nested list's `\begin`/`\end` lines.
 const INDENT: usize = 2;
@@ -68,20 +127,24 @@ pub fn to_latex(doc: &DoclingDocument) -> String {
     let parts = render_nodes(&doc.nodes, 1, false);
     let mut body = parts.join("\n\n");
 
-    // Hoist the first `\title{…}` (no nested braces — upstream's regex) into
-    // the preamble, drop every such occurrence from the body, collapse the
-    // blank runs that leaves behind.
+    // Hoist the first `\title{…}` into the preamble, drop every such
+    // occurrence from the body, collapse the blank runs that leaves behind.
+    // The group is closed by brace depth, escaped braces skipped
+    // (docling-core#983), so a formatted title (`\title{\textbf{Bold}}`) or
+    // one with `\{` is hoisted too; an unclosed one stays in the body.
     let mut title_cmd: Option<String> = None;
-    if let Some(first) = find_title(&body, 0) {
-        title_cmd = Some(format!("\\title{{{}}}", &body[first.1..first.2]));
-        let mut out = String::with_capacity(body.len());
-        let mut pos = 0;
-        let mut cur = Some(first);
-        while let Some((start, _, end)) = cur {
-            out.push_str(&body[pos..start]);
-            pos = end + 1;
-            cur = find_title(&body, pos);
+    let mut out = String::with_capacity(body.len());
+    let mut pos = 0;
+    let mut search = 0;
+    while let Some((start, content_start, close)) = find_title(&body, search) {
+        if title_cmd.is_none() {
+            title_cmd = Some(format!("\\title{{{}}}", &body[content_start..close]));
         }
+        out.push_str(&body[pos..start]);
+        pos = close + 1;
+        search = pos;
+    }
+    if title_cmd.is_some() {
         out.push_str(&body[pos..]);
         body = collapse_blank_runs(&out).trim().to_string();
     }
@@ -109,24 +172,40 @@ pub fn to_latex(doc: &DoclingDocument) -> String {
     }
 }
 
-/// Upstream's `\\title\s*\{([^{}]*)\}`: returns (match start, content start,
-/// closing-brace index) of the first match at or after `from`.
+/// Upstream's `_post_process_title` scan (docling-core#983): a
+/// `\\title\s*\{` match, closed where the brace depth returns to zero over
+/// `\\.|[{}]` tokens (so `\{` / `\}` do not count). Returns (match start,
+/// content start, closing-brace index) of the first closed one at or after
+/// `from`; an unclosed match is skipped, as upstream leaves it in the body.
 fn find_title(text: &str, from: usize) -> Option<(usize, usize, usize)> {
+    let bytes = text.as_bytes();
     let mut search = from;
     while let Some(rel) = text[search..].find("\\title") {
         let start = search + rel;
         let mut i = start + "\\title".len();
-        let bytes = text.as_bytes();
         while i < bytes.len() && bytes[i].is_ascii_whitespace() {
             i += 1;
         }
         if bytes.get(i) == Some(&b'{') {
             let content_start = i + 1;
-            if let Some(rel_end) = text[content_start..].find(['{', '}']) {
-                let end = content_start + rel_end;
-                if bytes[end] == b'}' {
-                    return Some((start, content_start, end));
+            let mut depth = 1usize;
+            let mut j = content_start;
+            while j < bytes.len() {
+                match bytes[j] {
+                    // `\\.` with DOTALL: the escaped character, whatever it
+                    // is (a multi-byte one is never a brace, so skipping
+                    // one byte and resuming on a continuation byte is safe).
+                    b'\\' => j += 1,
+                    b'{' => depth += 1,
+                    b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Some((start, content_start, j));
+                        }
+                    }
+                    _ => {}
                 }
+                j += 1;
             }
         }
         search = start + 1;
@@ -510,7 +589,15 @@ fn render_one(node: &Node, list_level: usize, inline: bool, parts: &mut Vec<Stri
                 push(parts, "% formula-not-decoded".to_string());
             }
         }
-        Node::Table(t) => push(parts, render_table(t)),
+        Node::Table(t) => {
+            push(parts, render_table(t));
+            // docling-core's LaTeX serializer has no footnote pass; its walk
+            // reaches a table's footnote items after the table and writes
+            // them as paragraphs (JATS's table notes, docling#4818).
+            for note in t.footnotes.iter().filter(|n| !n.is_empty()) {
+                push(parts, inline_md(note));
+            }
+        }
         // The picture's meta as comments in the figure, docling-core's
         // `LaTeXMetaSerializer` order (docling-core#871): the main
         // classification, then the description — an alt-text description
@@ -576,7 +663,9 @@ fn render_one(node: &Node, list_level: usize, inline: bool, parts: &mut Vec<Stri
         Node::TextDump(text) => push(parts, text_item(text)),
         // Notes-layer comments are omitted; an annotated item renders itself.
         Node::CommentSection { .. } => {}
-        Node::Commented { inner, .. } => render_one(inner, list_level, inline, parts),
+        Node::Commented { inner, .. } | Node::ScriptText { inner, .. } => {
+            render_one(inner, list_level, inline, parts)
+        }
         Node::Located { inner, .. }
         | Node::Spanned { inner, .. }
         | Node::Prov { inner, .. }
@@ -595,6 +684,7 @@ fn render_one(node: &Node, list_level: usize, inline: bool, parts: &mut Vec<Stri
         | Node::PictureChildren(_)
         | Node::PageBreak
         | Node::PageInfo { .. }
+        | Node::ProvContinuation { .. }
         | Node::Anchor { .. } => {}
     }
 }
@@ -627,6 +717,16 @@ fn render_field_region(items: &[FieldItem], parts: &mut Vec<String>) {
 /// A picture's `figure`: the image placeholder, the caption, then its meta
 /// comments.
 fn render_figure(caption: Option<&str>, comments: &[String]) -> String {
+    if IN_CELL.with(std::cell::Cell::get) {
+        // No float in a cell: the placeholder, the caption as text, the
+        // meta comments.
+        let mut lines = vec![IMAGE_PLACEHOLDER.to_string()];
+        if let Some(cap) = caption.filter(|c| !c.is_empty()) {
+            lines.push(text_item(cap));
+        }
+        lines.extend(comments.iter().cloned());
+        return lines.join("\n");
+    }
     let mut lines = vec![
         "\\begin{figure}[h]".to_string(),
         IMAGE_PLACEHOLDER.to_string(),
@@ -684,11 +784,7 @@ pub(crate) fn render_table(t: &Table) -> String {
         {
             Some(blocks) => rich
                 .entry(anchor)
-                .or_insert_with(|| {
-                    render_nodes(blocks, 1, false)
-                        .join("\n\n")
-                        .replace('\n', " ")
-                })
+                .or_insert_with(|| render_cell_blocks(blocks))
                 .clone(),
             None => cell_text(flat),
         }
@@ -745,6 +841,14 @@ pub(crate) fn render_table(t: &Table) -> String {
         .unwrap_or_default();
     if tabular.is_empty() && caption.is_empty() {
         return String::new();
+    }
+    if IN_CELL.with(std::cell::Cell::get) {
+        // A table nested in a cell: its bare tabular, no float.
+        return [caption, tabular]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
     }
     let mut content = vec!["\\begin{table}[h]".to_string()];
     if !caption.is_empty() {
@@ -884,6 +988,63 @@ fn render_list(items: &[Node], depth: usize) -> String {
 mod tests {
     use super::*;
 
+    /// A rich cell's picture and nested table render without a float, and a
+    /// comment line keeps its break, so the row after it survives — upstream
+    /// flattens `\\begin{figure}[h] % image \\end{figure}` onto the row and
+    /// comments out its `&`s and `\\\\ \\hline`.
+    #[test]
+    fn rich_cells_render_without_floats() {
+        let picture = Node::Picture {
+            caption: Some("Logo".into()),
+            caption_href: None,
+            image: None,
+            classification: None,
+            description: None,
+            caption_parent: Default::default(),
+            caption_location: None,
+        };
+        let inner = Table {
+            rows: vec![vec!["a".into(), "b".into()]],
+            ..Table::default()
+        };
+        let table = Table {
+            rows: vec![
+                vec!["Pic".into(), "Nested".into()],
+                vec!["".into(), "".into()],
+            ],
+            cell_blocks: Some(vec![
+                vec![Vec::new(), Vec::new()],
+                vec![
+                    vec![
+                        Node::Paragraph {
+                            text: "Before".into(),
+                        },
+                        picture.clone(),
+                    ],
+                    vec![Node::Table(inner)],
+                ],
+            ]),
+            ..Table::default()
+        };
+        let tex = render_table(&table);
+        assert!(!tex.contains("figure"), "{tex}");
+        assert_eq!(tex.matches("\\begin{table}").count(), 1, "{tex}");
+        assert!(
+            tex.contains("Before  % image\nLogo & \\begin{tabular}{|l|l|} \\hline a & b \\\\ \\hline \\end{tabular} \\\\ \\hline"),
+            "{tex}"
+        );
+        // Out of a cell the picture is still docling's figure.
+        let body = render_nodes(&[picture], 1, false).join("\n");
+        assert_eq!(
+            body,
+            "\\begin{figure}[h]\n% image\n\\caption{Logo}\n\\end{figure}"
+        );
+        // A comment on a cell's last line keeps its break; `\\%` is no comment.
+        assert_eq!(flatten_cell("a\n% image"), "a % image\n");
+        assert_eq!(flatten_cell("50\\% off\nnext"), "50\\% off next");
+        assert!(has_comment("\\\\% after a line break"));
+    }
+
     #[test]
     fn inline_markers_become_latex_commands() {
         assert_eq!(
@@ -996,18 +1157,55 @@ mod tests {
         assert!(!tex.ends_with('\n'));
     }
 
+    /// docling-core#983's `test_latex_title_with_braces`: a title with
+    /// formatting or escaped braces is hoisted into the preamble, once.
     #[test]
-    fn title_with_braces_stays_in_the_body() {
-        // Upstream's hoisting regex refuses nested braces: an escaped `{`
-        // in the title keeps the `\title` inline and adds no `\maketitle`.
+    fn title_with_braces_is_hoisted() {
+        for (text, expected) in [
+            ("Plain", r"\title{Plain}"),
+            ("**Bold**", r"\title{\textbf{Bold}}"),
+            ("**Bold** title", r"\title{\textbf{Bold} title}"),
+            ("Set {a}", r"\title{Set \{a\}}"),
+            ("Unmatched {", r"\title{Unmatched \{}"),
+        ] {
+            let mut doc = DoclingDocument::new("t");
+            doc.push(Node::Heading {
+                level: 1,
+                text: text.into(),
+            });
+            doc.push(Node::Paragraph {
+                text: "Body remains.".into(),
+            });
+            let tex = to_latex(&doc);
+            let at = tex
+                .find(expected)
+                .unwrap_or_else(|| panic!("{text}: {tex}"));
+            assert!(at < tex.find(r"\begin{document}").unwrap(), "{tex}");
+            assert_eq!(tex.matches(r"\maketitle").count(), 1, "{tex}");
+            assert!(tex.find(r"\maketitle").unwrap() < tex.find("Body remains.").unwrap());
+        }
+    }
+
+    /// `test_latex_keeps_first_title_when_later_title_is_formatted`.
+    #[test]
+    fn first_title_wins_when_a_later_one_is_formatted() {
         let mut doc = DoclingDocument::new("t");
-        doc.push(Node::Heading {
-            level: 1,
-            text: "a {b}".into(),
-        });
+        for (title, body) in [
+            ("**First**", "Between titles."),
+            ("*Second*", "After titles."),
+        ] {
+            doc.push(Node::Heading {
+                level: 1,
+                text: title.into(),
+            });
+            doc.push(Node::Paragraph { text: body.into() });
+        }
         let tex = to_latex(&doc);
-        assert!(tex.contains("\\begin{document}\n\n\\title{a \\{b\\}}\n\n\\end{document}"));
-        assert!(!tex.contains("\\maketitle"));
+        assert_eq!(tex.matches(r"\title{").count(), 1, "{tex}");
+        assert!(tex.contains(r"\title{\textbf{First}}"), "{tex}");
+        assert!(!tex.contains("Second"), "{tex}");
+        assert_eq!(tex.matches(r"\maketitle").count(), 1);
+        assert!(tex.contains("Between titles.") && tex.contains("After titles."));
     }
 
     #[test]
@@ -1021,6 +1219,7 @@ mod tests {
             marker: None,
             location: None,
             spans: None,
+            split: None,
             dclx: None,
             href: None,
             layer: None,

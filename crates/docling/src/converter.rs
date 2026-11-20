@@ -4,11 +4,12 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use crate::backend::{
-    is_deepseek_markdown, AbwBackend, AsciiDocBackend, CsvBackend, DeclarativeBackend,
-    DeepSeekBackend, DocBackend, DoclingJsonBackend, DocxBackend, EbcdicBackend, EmailBackend,
-    EpubBackend, InterchangeBackend, JatsBackend, LatexBackend, LotusBackend, MarkdownBackend,
-    MhtmlBackend, PptBackend, PptxBackend, QuattroBackend, RtfBackend, StarOffice5Backend,
-    UsptoBackend, VisioBackend, WebVttBackend, WpdBackend, WpsBackend, XlsBackend, XlsxBackend,
+    is_deepseek_markdown, AbwBackend, AsciiDocBackend, CalendarBackend, CsvBackend,
+    DeclarativeBackend, DeepSeekBackend, DocBackend, DoclingJsonBackend, DocxBackend,
+    EbcdicBackend, EmailBackend, EpubBackend, InterchangeBackend, JatsBackend, LatexBackend,
+    LotusBackend, MarkdownBackend, MhtmlBackend, PptBackend, PptxBackend, QuattroBackend,
+    RtfBackend, StarOffice5Backend, UsptoBackend, VisioBackend, WebVttBackend, WpdBackend,
+    WpsBackend, XlsBackend, XlsxBackend,
 };
 
 /// Drop the embedded image bytes from every picture — the flat nodes and the
@@ -51,6 +52,11 @@ struct PictureReader {
 
 #[cfg(feature = "pdf")]
 impl PictureReader {
+    /// What the reads so far asked of the OCR engine (#1210), cleared.
+    fn take_ocr_status(&mut self) -> Option<docling_core::OcrStatus> {
+        self.pipeline.take_ocr_status()
+    }
+
     /// The text read off `img`, as the picture's description annotation;
     /// `None` when the picture is skipped (too small, filtered out by its
     /// class) or carries no text.
@@ -120,6 +126,10 @@ struct PictureReader;
 
 #[cfg(not(feature = "pdf"))]
 impl PictureReader {
+    fn take_ocr_status(&mut self) -> Option<docling_core::OcrStatus> {
+        None
+    }
+
     fn read(
         &mut self,
         _img: &docling_core::PictureImage,
@@ -300,6 +310,12 @@ pub struct DocumentConverter {
     /// The password of an encrypted PDF (#611) or Office document (#625).
     password: Option<String>,
     force_full_page_ocr: bool,
+    /// OCR only the pages whose text layer is broken (#1006). See
+    /// [`Self::replace_broken_text_layer`].
+    replace_broken_text_layer: bool,
+    /// Mark PDF superscripts and subscripts (#1005). See
+    /// [`Self::script_positions`].
+    script_positions: bool,
     /// OCR mode id (docling's `OcrMode`, #254); parsed at the ML call sites.
     ocr_mode: Option<String>,
     /// OCR engine id (`ppocr` | `tesseract`, #460); parsed at the ML call
@@ -325,10 +341,19 @@ pub struct DocumentConverter {
     /// Keep page renders as the document's page images (docling's
     /// `generate_page_images`, #520).
     generate_page_images: bool,
+    /// Pictures take their one safe embedded image instead of a render crop
+    /// (docling's `use_embedded_picture_images`, #1007).
+    use_embedded_picture_images: bool,
     /// Infer PDF/image section-header levels after assembly (#302, docling's
     /// `HeadingHierarchyModel`): bookmarks > numbering > font style. Off by
     /// default — heading levels then stay exactly as detected.
     heading_hierarchy: bool,
+    /// The stage's sub-options (#1145: `numbering_schemes`,
+    /// `numbering_keywords`, `numbering_number_words`, …) — see
+    /// [`Self::heading_hierarchy_options`]; `None` = docling's defaults.
+    /// Only the ML pipeline reads it, so only a `pdf` build carries it.
+    #[cfg(feature = "pdf")]
+    heading_hierarchy_options: Option<docling_pdf::HeadingHierarchyOptions>,
     use_web_browser: bool,
     /// Named Whisper model preset for audio sources (docling's ASR model
     /// specs, PR #3741): English-only / Distil-Whisper variants under
@@ -598,6 +623,40 @@ impl std::ops::DerefMut for PipelineLease<'_> {
     }
 }
 
+/// A [`PipelineLease`] that reports what its OCR requests met to the
+/// conversion's reporter when it is given back (#1210) — every ML-pipeline
+/// stage of [`DocumentConverter::convert`] leases one, so none can forget
+/// to. The status is cleared on the lease too: a warm pipeline may still
+/// hold what a conversion that failed half-way left behind.
+#[cfg(feature = "pdf")]
+struct ReportingLease<'a, 'r> {
+    lease: PipelineLease<'a>,
+    reporter: &'r ProgressReporter,
+}
+
+#[cfg(feature = "pdf")]
+impl std::ops::Deref for ReportingLease<'_, '_> {
+    type Target = docling_pdf::Pipeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.lease
+    }
+}
+
+#[cfg(feature = "pdf")]
+impl std::ops::DerefMut for ReportingLease<'_, '_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.lease
+    }
+}
+
+#[cfg(feature = "pdf")]
+impl Drop for ReportingLease<'_, '_> {
+    fn drop(&mut self) {
+        self.reporter.note_ocr_status(self.lease.take_ocr_status());
+    }
+}
+
 impl Default for DocumentConverter {
     fn default() -> Self {
         Self {
@@ -619,6 +678,8 @@ impl Default for DocumentConverter {
             no_ocr: false,
             password: None,
             force_full_page_ocr: false,
+            replace_broken_text_layer: false,
+            script_positions: false,
             ocr_mode: None,
             ocr_engine: None,
             ocr_scale: None,
@@ -628,7 +689,10 @@ impl Default for DocumentConverter {
             ocr_textline_orientation: None,
             images_scale: None,
             generate_page_images: false,
+            use_embedded_picture_images: false,
             heading_hierarchy: false,
+            #[cfg(feature = "pdf")]
+            heading_hierarchy_options: None,
             use_web_browser: false,
             asr_model: None,
             asr_lang: None,
@@ -684,8 +748,9 @@ impl DocumentConverter {
     /// numbers a viewer shows — issue #80's `--pages A-B`). Out-of-window pages
     /// are skipped before rasterization, so converting 3 pages of a 500-page
     /// PDF costs 3 pages. `last` clamps to the document; a window that selects
-    /// no pages at all errors at convert time. Non-PDF formats ignore the
-    /// window (they convert whole).
+    /// no pages at all errors at convert time. DjVu and AFP pages, and
+    /// Numbers sheets (each sheet a page, as in docling), take the window
+    /// too; other non-PDF formats ignore it (they convert whole).
     pub fn page_range(mut self, first: usize, last: usize) -> Self {
         self.page_range = Some((first, last));
         self
@@ -787,17 +852,24 @@ impl DocumentConverter {
     /// converter was lent. Both are configured by the same setters, so the
     /// warm path cannot drift from the cold one.
     #[cfg(feature = "pdf")]
-    fn ml_pipeline(
+    fn ml_pipeline<'r>(
         &self,
-        progress: Option<docling_pdf::PageProgressHook>,
-    ) -> Result<PipelineLease<'_>, docling_pdf::PdfError> {
+        reporter: &'r std::sync::Arc<ProgressReporter>,
+    ) -> Result<ReportingLease<'_, 'r>, docling_pdf::PdfError> {
+        if let Some(options) = &self.heading_hierarchy_options {
+            options
+                .validate()
+                .map_err(|e| docling_pdf::PdfError::Document(format!("heading hierarchy: {e}")))?;
+        }
         let switches = PipelineSwitches::of(self);
         let mut lease = match &self.warm {
             None => PipelineLease::Fresh(Box::new(switches.build()?)),
             Some(warm) => PipelineLease::Warm(warm.lease(switches)?),
         };
-        self.configure_pipeline(&mut lease, progress);
-        Ok(lease)
+        self.configure_pipeline(&mut lease, reporter.page_hook());
+        // Stale state from an earlier holder of a warm pipeline (#1210).
+        let _ = lease.take_ocr_status();
+        Ok(ReportingLease { lease, reporter })
     }
 
     /// Every per-conversion setting, set unconditionally — on a warm
@@ -820,13 +892,17 @@ impl DocumentConverter {
         p.set_ocr_scale(self.ocr_scale_choice());
         p.set_word_gap(self.pdf_word_gap_choice());
         p.set_keep_typography(self.pdf_keep_typography);
+        p.set_replace_broken_text_layer(self.replace_broken_text_layer);
+        p.set_script_positions(self.script_positions);
         p.set_images(docling_pdf::ImageOutput {
             scale: self.images_scale,
             page_images: self.generate_page_images,
+            embedded_pictures: self.use_embedded_picture_images,
         });
-        p.set_heading_hierarchy(docling_pdf::HeadingHierarchyOptions::enabled(
-            self.heading_hierarchy,
-        ));
+        p.set_heading_hierarchy(docling_pdf::HeadingHierarchyOptions {
+            enabled: self.heading_hierarchy,
+            ..self.heading_hierarchy_options.clone().unwrap_or_default()
+        });
         p.set_document_timeout(self.document_timeout);
         // The PDF route sets these two for itself; every other route reads
         // the whole input with OCR left to the layout.
@@ -856,7 +932,7 @@ impl DocumentConverter {
         if self.text_layer_only != TextLayerOnly::On && !self.no_ocr {
             let pngs = djvu::rasterize_pages(&source.bytes, self.page_range)?;
             let mut pipeline = self
-                .ml_pipeline(reporter.page_hook())
+                .ml_pipeline(reporter)
                 .map_err(|e| ConversionError::with_source("djvu", e))?;
             let mut doc = docling_core::DoclingDocument::new(&source.name);
             for (i, (page_no, png)) in pngs.iter().enumerate() {
@@ -1753,6 +1829,8 @@ impl DocumentConverter {
                 }
             }
         }
+        // What the picture reads asked of the OCR engine (#1210).
+        reporter.note_ocr_status(reader.take_ocr_status());
     }
 
     /// The picture-description pass (#670). Two walks over the document:
@@ -2102,6 +2180,7 @@ impl DocumentConverter {
     fn convert_video(
         &self,
         source: &SourceDocument,
+        reporter: &ProgressReporter,
     ) -> Result<docling_core::DoclingDocument, String> {
         use docling_core::Node;
         let opts = self.frame_options();
@@ -2129,14 +2208,19 @@ impl DocumentConverter {
                 }
             }
         };
-        crate::video::convert_video(
+        let converted = crate::video::convert_video(
             &source.bytes,
             &source.name,
             self.asr_model.as_deref(),
             self.asr_lang.as_deref(),
             &opts,
             &mut on_frame,
-        )
+        );
+        // The frames' picture OCR (#1210): what its requests met.
+        if let Some(Some(reader)) = reader.as_mut() {
+            reporter.note_ocr_status(reader.take_ocr_status());
+        }
+        converted
     }
 
     /// The copybook layout for EBCDIC sources (#252): docling's
@@ -2190,6 +2274,26 @@ impl DocumentConverter {
     /// ignore it (their backends carry real heading levels already).
     pub fn heading_hierarchy(mut self, enable: bool) -> Self {
         self.heading_hierarchy = enable;
+        self
+    }
+
+    /// The heading-hierarchy stage with all of docling's
+    /// `HeadingHierarchyOptions` — the switch (`enabled`, as
+    /// [`Self::heading_hierarchy`] sets it) and the sub-options, among them
+    /// keyword markers of other languages (#1145, docling#5474):
+    /// `numbering_keywords` (family → words; a new family must be listed in
+    /// `numbering_schemes`) and `numbering_number_words`. Options that fail
+    /// [`docling_pdf::HeadingHierarchyOptions::validate`] fail the PDF /
+    /// image conversion with the reason. The CLI, serve and the bindings
+    /// set only the switch. A `pdf` build only: without the ML pipeline
+    /// there is no stage to configure.
+    #[cfg(feature = "pdf")]
+    pub fn heading_hierarchy_options(
+        mut self,
+        options: docling_pdf::HeadingHierarchyOptions,
+    ) -> Self {
+        self.heading_hierarchy = options.enabled;
+        self.heading_hierarchy_options = Some(options);
         self
     }
 
@@ -2275,6 +2379,37 @@ impl DocumentConverter {
     /// PDFs only — standalone images are always OCR'd.
     pub fn force_full_page_ocr(mut self, force: bool) -> Self {
         self.force_full_page_ocr = force;
+        self
+    }
+
+    /// Replace a broken PDF text layer with OCR, page by page — docling's
+    /// `replace_broken_text_layer` (docling#4654, #1006). A page whose text
+    /// layer a broken font mapping produced (control, U+FFFD or private-use
+    /// characters; Latin letters standing for another script; too few
+    /// vowels — [`docling_pdf::quality::is_broken_text_layer`]) is read with
+    /// full-page OCR and its `parse_score` drops to 0; every other page
+    /// keeps its text layer. The targeted alternative to
+    /// [`force_full_page_ocr`](Self::force_full_page_ocr). Off by default;
+    /// ignored with [`no_ocr`](Self::no_ocr) or a missing OCR model (the
+    /// page keeps its layer).
+    pub fn replace_broken_text_layer(mut self, replace: bool) -> Self {
+        self.replace_broken_text_layer = replace;
+        self
+    }
+
+    /// Mark superscript and subscript text in PDFs — docling's
+    /// `script_position_options.enabled` (docling#4815, #1005). Characters
+    /// drawn smaller than their line and raised or lowered against it
+    /// (footnote markers, `1st`, `mc²`, `H₂O`) are marked with
+    /// `formatting.script`: a paragraph or footnote holding them keeps its
+    /// place, and its text moves into an inline group of runs in the JSON
+    /// (HTML `<sup>`/`<sub>`); Markdown joins the runs (`E = mc2 in 1905.`).
+    /// Headings, captions, tables, code, formulas, list items, OCR'd and
+    /// invisible text are left alone. Off by default (the output is
+    /// unchanged); the PDF pipeline only — the text-layer-only route skips
+    /// it.
+    pub fn script_positions(mut self, enable: bool) -> Self {
+        self.script_positions = enable;
         self
     }
 
@@ -2381,6 +2516,7 @@ impl DocumentConverter {
         docling_pdf::TextOptions {
             word_gap: self.pdf_word_gap_choice(),
             keep_typography: self.pdf_keep_typography.unwrap_or(env.keep_typography),
+            ..env
         }
     }
 
@@ -2419,6 +2555,20 @@ impl DocumentConverter {
     /// only; text-layer-only (`text_layer_only`) and streaming conversions get none.
     pub fn generate_page_images(mut self, enabled: bool) -> Self {
         self.generate_page_images = enabled;
+        self
+    }
+
+    /// Give a PDF picture its embedded image instead of the render crop
+    /// when the picture's region holds exactly one image XObject (mutual
+    /// intersection-over-self ≥ 0.8) with nothing painted over it — docling's
+    /// `use_embedded_picture_images` (#1007, docling#5143). The bitmap keeps
+    /// its native pixel size (`dpi` 72, not [`Self::images_scale`]); a
+    /// masked, transparent, clipped, rotated or overlapped image, a second
+    /// image or text in the box, or a `/Rotate`d page keep the crop. Off by
+    /// default; layout, OCR and page images are unaffected. PDF ML pipeline
+    /// only.
+    pub fn use_embedded_picture_images(mut self, enabled: bool) -> Self {
+        self.use_embedded_picture_images = enabled;
         self
     }
 
@@ -2746,6 +2896,10 @@ impl DocumentConverter {
     /// assembled document, and streamed output must stay byte-identical to
     /// buffered output).
     #[cfg(feature = "pdf")]
+    pub(crate) fn script_positions_enabled(&self) -> bool {
+        self.script_positions
+    }
+
     pub(crate) fn heading_hierarchy_enabled(&self) -> bool {
         self.heading_hierarchy
     }
@@ -2762,6 +2916,7 @@ impl DocumentConverter {
             no_ocr: self.no_ocr,
             password: self.password.clone(),
             force_full_page_ocr: self.force_full_page_ocr,
+            replace_broken_text_layer: self.replace_broken_text_layer,
             enrich: self.enrich,
             page_range: self.page_range,
             ocr_lang: self.ocr_lang_choice(),
@@ -2773,6 +2928,7 @@ impl DocumentConverter {
             keep_typography: self.pdf_keep_typography,
             ocr_textline_orientation: self.ocr_textline_orientation,
             images_scale: self.images_scale,
+            embedded_pictures: self.use_embedded_picture_images,
             keep_picture_images: self.keep_picture_images,
             page_break_placeholder: self.page_break_placeholder.clone(),
             compact_tables: self.compact_tables,
@@ -2927,6 +3083,9 @@ impl DocumentConverter {
         // today the PDF pipeline's spent document budget (#497).
         #[cfg_attr(not(feature = "pdf"), allow(unused_mut))]
         let mut errors: Vec<crate::ErrorItem> = Vec::new();
+        // A retried attempt (a sniffed format) starts its OCR status afresh
+        // (#1210): only the attempt that produced the document reports.
+        let _ = reporter.take_ocr_status();
         // An encrypted Office document (#624/#625) is decrypted with the
         // converter's password (or the format's default password) into the
         // file the backend reads; without a key that opens it, the error
@@ -3089,6 +3248,11 @@ impl DocumentConverter {
                 }
                 .convert(source)?,
                 InputFormat::Vtt => WebVttBackend.convert(source)?,
+                InputFormat::Afp => crate::backend::AfpBackend {
+                    page_range: self.page_range,
+                }
+                .convert(source)?,
+                InputFormat::Calendar => CalendarBackend.convert(source)?,
                 InputFormat::Ebcdic => EbcdicBackend {
                     layout: self.ebcdic_layout.clone(),
                 }
@@ -3112,8 +3276,13 @@ impl DocumentConverter {
                 // `"cells"` — reads as one, like MarkItDown's `application/json`
                 // sniff; any other JSON is the docling-JSON backend's.
                 InputFormat::JsonDocling => {
-                    if crate::backend::ipynb::looks_like_notebook(&source.text()?) {
+                    let text = source.text()?;
+                    if crate::backend::ipynb::looks_like_notebook(&text) {
                         self.ipynb_backend().convert(source)?
+                    } else if crate::backend::boxnote::looks_like_boxnote(&text) {
+                        // A Box Note saved as `.json` (#1033): a top-level
+                        // `doc` node, which no docling document has.
+                        crate::backend::BoxNoteBackend.convert(source)?
                     } else {
                         DoclingJsonBackend.convert(source)?
                     }
@@ -3121,6 +3290,8 @@ impl DocumentConverter {
                 InputFormat::Jsonl => crate::backend::text::convert_json_text(source)?,
                 InputFormat::Text => crate::backend::TextBackend.convert(source)?,
                 InputFormat::Ipynb => self.ipynb_backend().convert(source)?,
+                // Box Notes (#1033): docling's ProseMirror JSON reader.
+                InputFormat::Boxnote => crate::backend::BoxNoteBackend.convert(source)?,
                 // RSS / Atom / RDF feeds (#678): the title, each item's heading,
                 // date and body (its HTML through the HTML backend).
                 InputFormat::Feed => crate::backend::FeedBackend {
@@ -3185,7 +3356,7 @@ impl DocumentConverter {
                 #[cfg(feature = "pdf")]
                 InputFormat::Pdf => {
                     let converted = self
-                        .ml_pipeline(reporter.page_hook())
+                        .ml_pipeline(reporter)
                         .and_then(|mut p| {
                             p.set_force_full_page_ocr(self.force_full_page_ocr);
                             p.set_pages(self.page_range);
@@ -3215,7 +3386,7 @@ impl DocumentConverter {
                 #[cfg(feature = "pdf")]
                 InputFormat::Svg if self.text_layer_only == TextLayerOnly::Off && !self.no_ocr => {
                     let png = crate::backend::svg::rasterize_png(&source.bytes)?;
-                    self.ml_pipeline(reporter.page_hook())
+                    self.ml_pipeline(reporter)
                         .and_then(|mut p| p.convert_image(&png, &source.name))
                         .map_err(|e| ConversionError::with_source("svg", e))?
                 }
@@ -3229,7 +3400,7 @@ impl DocumentConverter {
                         Ok(doc) => doc,
                         Err(_) => {
                             let png = crate::backend::svg::rasterize_png(&source.bytes)?;
-                            self.ml_pipeline(reporter.page_hook())
+                            self.ml_pipeline(reporter)
                                 .and_then(|mut p| p.convert_image(&png, &source.name))
                                 .map_err(|e| ConversionError::with_source("svg", e))?
                         }
@@ -3243,16 +3414,19 @@ impl DocumentConverter {
                 InputFormat::Svg => crate::backend::SvgBackend.convert(source)?,
                 // Apple iWork (#213): pure-Rust IWA text extraction, all builds.
                 InputFormat::Pages | InputFormat::Numbers | InputFormat::Keynote => {
-                    crate::backend::IworkBackend.convert(source)?
+                    crate::backend::IworkBackend {
+                        page_range: self.page_range,
+                    }
+                    .convert(source)?
                 }
                 #[cfg(feature = "pdf")]
                 InputFormat::Image => self
-                    .ml_pipeline(reporter.page_hook())
+                    .ml_pipeline(reporter)
                     .and_then(|mut p| p.convert_image(&source.bytes, &source.name))
                     .map_err(|e| ConversionError::with_source("image", e))?,
                 #[cfg(feature = "pdf")]
                 InputFormat::MetsGbs => self
-                    .ml_pipeline(reporter.page_hook())
+                    .ml_pipeline(reporter)
                     .and_then(|mut p| {
                         docling_pdf::convert_mets_gbs_with_pipeline(
                             &source.bytes,
@@ -3277,7 +3451,7 @@ impl DocumentConverter {
                 // pictures (Phase 2). Without ffmpeg: transcript only.
                 #[cfg(feature = "asr")]
                 InputFormat::Video => self
-                    .convert_video(source)
+                    .convert_video(source, reporter)
                     .map_err(|e| ConversionError::with_source(source.format.as_str(), e))?,
                 // Without the full ML pipeline, `pdf-text` still converts a PDF's
                 // embedded text layer (pure Rust — the wasm32 path), equivalent to
@@ -3376,6 +3550,7 @@ impl DocumentConverter {
             format: source.format,
             redaction,
             pdf_repairs,
+            ocr_status: reporter.take_ocr_status(),
             errors,
         })
     }
@@ -3415,7 +3590,15 @@ mod tests {
         assert_eq!(built(&warm), Some(text));
         // Converters share the handle.
         let converter = DocumentConverter::new().warm_pipeline(&warm);
-        drop(converter.ml_pipeline(None).unwrap());
+        drop(
+            converter
+                .ml_pipeline(&std::sync::Arc::new(ProgressReporter::new(
+                    Vec::new(),
+                    0,
+                    "t",
+                )))
+                .unwrap(),
+        );
         assert_eq!(built(&warm), Some(full));
     }
 

@@ -32,7 +32,7 @@ secret or network variable is missing from this page.
 
 | Surface | Guard (default) | On exceed | Override |
 |---------|-----------------|-----------|----------|
-| Standalone image decode (`convert_image`, METS) | ONNX-free decode with `image::Limits`: 30000 px per side, 256 MiB allocation — a few-KB image declaring 60000×60000 no longer allocates ~10 GB | the image fails with an error | `DOCLING_RS_MAX_IMAGE_PIXELS` |
+| Standalone image decode (`convert_image`, METS) | ONNX-free decode with `image::Limits`: 30000 px per side, 256 MiB allocation — a few-KB image declaring 60000×60000 no longer allocates ~10 GB; a METS hOCR page size is held to the same cap (#1147) | an image input fails with an error; a METS page is left out (`PartialSuccess`, one page error) and the other pages convert | `DOCLING_RS_MAX_IMAGE_PIXELS` |
 | Rendered PDF page bitmap | 15000 px per side — a few-hundred-byte PDF declaring a huge `MediaBox` would otherwise ask for a multi-GB bitmap | the page fails with an error before anything is allocated | `DOCLING_RS_MAX_RENDER_PIXELS` |
 | Resolved images (HTML/EPUB/MHTML/JATS/AsciiDoc/ODF/Markdown/email, #646) | 32 MiB per image (also the remote fetch's read cap); per document: images resolved, their total bytes, a size floor — unlimited / unlimited / 0 by default | the picture stays a placeholder, one warning per document; the conversion never fails | `DOCLING_RS_MAX_IMAGE_BYTES`, `DOCLING_RS_MAX_IMAGES`, `DOCLING_RS_MAX_IMAGE_TOTAL_MB`, `DOCLING_RS_MIN_IMAGE_BYTES` (and the `max_image_bytes` / `max_images` / `max_image_total_mb` / `min_image_bytes` options) |
 | Table cells a document declares (docling-JSON `num_rows × num_cols` / `grid`, DocTags and DocLang OTSL streams — the dense grid every export materializes, #861; docling-core 2.103.1's `max_table_cells` / `max_total_table_cells`) | 1 000 000 cells per table (rows and columns bounded alone too) and 5 000 000 over all of a document's tables — a 10^6 × 10^6 `TableData` around one cell, or one OTSL row of a million tokens plus a million one-token rows, asked for 10^12 slots from a few MB | the document is **rejected** with the typed `LimitExceeded` on the error's source chain (`ConversionError::limit()`; serve answers 422) — docling-core's own load-time error; the tolerant `doctags::parse` leaves the table out instead | `DOCLING_RS_MAX_TABLE_CELLS`, `DOCLING_RS_MAX_TOTAL_TABLE_CELLS` |
@@ -42,6 +42,8 @@ secret or network variable is missing from this page.
 | XML element nesting (`roxmltree` recurses per level) | 512 levels, counted by an iterative scan before parsing | an OOXML / EPUB part is skipped (`docling: …; part skipped` on stderr); a standalone XML input (JATS, USPTO, XBRL, DocLang, AbiWord, SVG) fails with an error | `DOCLING_RS_MAX_XML_DEPTH` |
 | HTML / EPUB DOM walk | 2000 levels, checked iteratively | the document is emitted as flattened text instead of overflowing the recursion stack — without the item tree and the source blocks, which the conversion says (#912): a `Notice` on the document naming the variable and the effective cap, and a `partial_success` carrying the same message (the CLI's warning, serve's `X-Docling-Status` / `X-Docling-Errors`) | `DOCLING_RS_MAX_HTML_DEPTH` |
 | Spreadsheet sheet size (calamine allocates the dense used area) | 10 000 000 cells in a sheet's used area — a 4 KB file with values in `A1` and `XFD1048576` asked for 17 billion | the sheet is skipped with a warning; the other sheets convert | `DOCLING_RS_SHEET_MAX_CELLS` |
+| Spreadsheet merges and sparse tables (#1167, docling#5483) | merges cover at most 100 000 cells per workbook and 1 000 cells outside a sheet's values; a table's empty positions beyond 4 × its content draw from a 100 000-cell workbook budget — a staircase of 4 000 values made a 4 000 000-cell table, a merge to `XFD1048576` aborted | a merge is clipped to the sheet's values (then to its top-left cell); a region past the budget is split into denser tables, every value kept, with a warning | — |
+| ODS / ODF repeated rows and cells (#1172, docling#5485) | `number-rows-repeated` / `number-columns-repeated` add at most 100 000 cells to a workbook beyond those written (trailing empty repeats free; an ODT/ODP table has its own budget, and its dense grid stays within `DOCLING_RS_MAX_TABLE_CELLS`) — an 833-byte ODS asked for 1.4 GB, an 800-byte ODT for 24 GB | a repetition keeps the copies that fit, then one, with a warning; the cells written in the file are kept | `DOCLING_RS_ODS_MAX_REPEATED_CELLS` |
 | Remote VLM page request (`--pipeline vlm`) | 600 s per page request (connect: 10 s) | the page fails with an error naming the cap; a timeout is not retried | `DOCLING_RS_VLM_TIMEOUT` |
 | Audio sample rate (ASR) | header-declared rate clamped to 8 kHz–768 kHz, so the resampler can't be steered into an OOM-sized upsample | clamped | — |
 | Encrypted Office documents (#625) | the Agile spin count is capped at the spec's 10 000 000, key/salt/block/hash sizes are checked against the spec before any hashing or allocation, and the declared plaintext size of an `EncryptedPackage` may not exceed its ciphertext (the stream itself is under the part budget above) | the document fails with "encryption header is damaged" naming the field | — |
@@ -101,6 +103,14 @@ rejected before the renderer or the `image` crate tries to allocate the
 multi-gigabyte bitmap, which a few-hundred-byte crafted `MediaBox` otherwise
 forces (the `image` crate *panics* rather than erroring when that allocation
 fails).
+
+An XBRL instance's taxonomy references (`xbrl_taxonomy`, `--xbrl-taxonomy`)
+read only files inside the taxonomy directory (#1192): `\` counts as a
+separator, a root, drive or UNC prefix and any `..` are refused, and the
+canonical path — symlinks resolved — must lie under the canonical directory,
+on every platform (a lexical, `/`-only check let `C:/…` and `..\..\…`
+escape it on Windows). Remote references read only from the taxonomy
+packages (`.zip`) in that directory; nothing is fetched.
 
 ### Downloaded assets
 
@@ -309,8 +319,32 @@ fields.
 
 ## Known residual
 
-No open vulnerability advisory in either lockfile at this writing: the
-`quick-xml` (RUSTSEC-2026-0194 / -0195) and `zip` 8.x
+One vulnerability advisory is open in the root lockfile and accepted until
+its fix can be taken; the bindings' lockfile (`crates/docling-py`) has none.
+
+- **`libsqlite3-sys` 0.30.1 (RUSTSEC-2026-0459, CVE-2026-119375, medium).**
+  The crate bundles SQLite 3.46.0. SQLite before 3.54.0 can return
+  uninitialized page-cache memory when it opens a database together with a
+  `-wal` file whose page size differs from the database's: a crafted pair of
+  files makes ordinary queries return stale bytes of the process's memory.
+  The vector is local — the process has to open files someone else wrote.
+  - *Where it is linked:* only `docling-rag`'s SQLite store (its `sqlite`
+    feature, through `sqlx`). The converter, the CLI, `docling-serve` and the
+    Python / Node / wasm / C bindings do not link SQLite at all.
+  - *Exposure:* the store opens one file, the operator's `RAG_DATABASE_URL`
+    (`sqlite://data/rag.db` by default), which the process creates itself; no
+    request, upload or ingested document names a database. It takes write
+    access to that directory to plant a crafted pair — keep the store's
+    directory writable by the service account only, or use the Postgres
+    store (a build with the `postgres` feature and
+    `RAG_DATABASE_URL=postgres://…`), which opens no SQLite file.
+  - *Why it is not bumped:* cargo links one `libsqlite3-sys` per build and
+    `sqlx` owns the range — 0.8.6 pins `^0.30.1`, and 0.9.0 (which also needs
+    Rust 1.94, above this workspace's 1.92) stops at `< 0.38.0`. The patched
+    releases are `>= 0.39.0`. The bump follows the first `sqlx` release that
+    admits them; the ignore in `deps-update.yml` is dropped with it.
+
+The `quick-xml` (RUSTSEC-2026-0194 / -0195) and `zip` 8.x
 (RUSTSEC-2026-0367 / -0368 / -0369) residuals of earlier releases are gone —
 `calamine` 0.37 moved to `quick-xml` 0.41 and `zip` 9, and the last
 `quick-xml` 0.38 came through `object_store` 0.12, bumped to 0.14 (#952).
@@ -347,7 +381,7 @@ cargo audit         # known-CVE scan of the dependency tree
 CI runs the same scan weekly over both committed lockfiles (the `audit` job in
 `.github/workflows/deps-update.yml`; an accepted residual advisory goes into
 its `AUDIT_IGNORES` *and* the "Known residual" section above — keep the two
-in sync; the list is empty at this writing). A new finding fails
+in sync; RUSTSEC-2026-0459 is the one entry at this writing). A new finding fails
 that job — the red run is the alarm — and triggers `audit-fix`, which runs
 `cargo audit fix` on both lockfiles and opens a `fix(deps):` PR with the
 semver-compatible bump when one exists; an advisory that needs a new major

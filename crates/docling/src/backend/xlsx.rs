@@ -19,6 +19,7 @@ use std::sync::Arc;
 use calamine::{Data, Range, Reader, Xlsx};
 
 use super::numfmt::{self, SheetFormats};
+use super::xlsx_richdata;
 
 /// The most cells a sheet's used area (the bounding box of its non-empty
 /// cells) may span before the sheet is skipped: `DOCLING_RS_SHEET_MAX_CELLS`,
@@ -148,8 +149,8 @@ impl DeclarativeBackend for XlsxBackend {
             .collect();
         // Sheet name -> its part path (via workbook.xml r:id -> workbook rels).
         let wb_xml = pkg.read("xl/workbook.xml").unwrap_or_default();
-        let wb_rels: HashMap<String, String> = pkg
-            .rels_for("xl/workbook.xml")
+        let wb_rels_raw = pkg.rels_for("xl/workbook.xml");
+        let wb_rels: HashMap<String, String> = wb_rels_raw
             .iter()
             .map(|r| (r.id.clone(), resolve("xl", &r.target)))
             .collect();
@@ -163,6 +164,39 @@ impl DeclarativeBackend for XlsxBackend {
             &pkg.read("xl/styles.xml").unwrap_or_default(),
         ));
         let is_1904 = workbook.has_1904_epoch();
+        // Images placed in cells (docling#5015), by `vm` index — read once
+        // per workbook; each sheet then maps its `vm` cells onto them.
+        let rich_images = xlsx_richdata::rich_value_images(&mut pkg, &wb_rels_raw);
+        // A sheet's number formats and placed images, from its part's XML
+        // (read once for both).
+        let sheet_formats = |pkg: &mut Package, name: &str, range: &Range<Data>| {
+            let xml = sheet_parts.get(name).and_then(|part| pkg.read(part));
+            let cells = xml
+                .as_deref()
+                .map(numfmt::xlsx_cell_styles)
+                .unwrap_or_default();
+            // Only an error cell can hold a placed image (its `#VALUE!`
+            // fallback), so a sheet without one skips the scan.
+            let images = match xml.as_deref() {
+                Some(xml)
+                    if !rich_images.is_empty()
+                        && range
+                            .used_cells()
+                            .any(|(_, _, d)| matches!(d, Data::Error(_))) =>
+                {
+                    xlsx_richdata::cells_with_rich_values(xml)
+                        .into_iter()
+                        .filter_map(|(at, vm)| Some((at, rich_images.get(&vm)?.clone())))
+                        .collect()
+                }
+                _ => HashMap::new(),
+            };
+            SheetFormats {
+                xfs: xfs.clone(),
+                cells,
+                images,
+            }
+        };
 
         // Threaded-comment persons (Excel 365).
         let persons = pkg
@@ -185,14 +219,7 @@ impl DeclarativeBackend for XlsxBackend {
                 |(wb, pkg), (name, _, _)| {
                     let wb = wb.as_mut()?;
                     let range = bounded_worksheet_range(wb, name)?;
-                    let formats = SheetFormats {
-                        xfs: xfs.clone(),
-                        cells: sheet_parts
-                            .get(name)
-                            .and_then(|part| pkg.read(part))
-                            .map(|xml| numfmt::xlsx_cell_styles(&xml))
-                            .unwrap_or_default(),
-                    };
+                    let formats = sheet_formats(pkg, name, &range);
                     Some((name.clone(), (range, sheet_merges(wb, name), formats)))
                 },
             )
@@ -204,16 +231,17 @@ impl DeclarativeBackend for XlsxBackend {
             if matches!(typ, calamine::SheetType::WorkSheet) && !ranges.contains_key(name) {
                 if let Some(range) = bounded_worksheet_range(&mut workbook, name) {
                     let merges = sheet_merges(&mut workbook, name);
-                    let formats = SheetFormats {
-                        xfs: xfs.clone(),
-                        cells: sheet_parts
-                            .get(name)
-                            .and_then(|part| pkg.read(part))
-                            .map(|xml| numfmt::xlsx_cell_styles(&xml))
-                            .unwrap_or_default(),
-                    };
+                    let formats = sheet_formats(&mut pkg, name, &range);
                     ranges.insert(name.clone(), (range, merges, formats));
                 }
+            }
+        }
+        // The merges of the workbook fit docling's load-time budget, in
+        // workbook order (#1167).
+        let mut merge_budget = MergeBudget::default();
+        for (name, _, _) in &metas {
+            if let Some((range, merges, _)) = ranges.get_mut(name) {
+                merge_budget.fit_sheet(merges, range);
             }
         }
         let resolve_ref = |reference: &str, own_sheet: &str| -> Vec<String> {
@@ -255,6 +283,45 @@ impl DeclarativeBackend for XlsxBackend {
             out
         };
 
+        // Each sheet's tables, found in parallel with one table fill budget
+        // for the workbook (#1167). The speculative runs draw from a shared
+        // pool, so together they stay within it; a sheet whose run was ever
+        // refused, or that took more than what the sheets before it left,
+        // is redone in workbook order with the exact remaining budget. A
+        // workbook that never reaches the budget redoes nothing, and the
+        // result is the sequential walk's either way.
+        let pool = std::sync::atomic::AtomicUsize::new(MAX_TABLE_FILL_CELLS);
+        let find = |name: &str, budget: &mut FillBudget| {
+            let (range, merges, formats) = ranges.get(name)?;
+            let frame = sheet_frame(range, merges);
+            let tables = find_tables(range, &frame, self.skip_empty, formats, is_1904, budget);
+            Some((frame.origin, tables))
+        };
+        let mut found: Vec<Option<SheetTables>> = metas
+            .par_iter()
+            .map(|(name, typ, _)| {
+                if !matches!(typ, calamine::SheetType::WorkSheet) {
+                    return None;
+                }
+                let mut budget = FillBudget::shared(&pool);
+                let (origin, tables) = find(name, &mut budget)?;
+                Some((origin, tables, budget.used, budget.refused))
+            })
+            .collect();
+        let mut remaining = MAX_TABLE_FILL_CELLS;
+        for ((name, _, _), slot) in metas.iter().zip(found.iter_mut()) {
+            let Some((_, _, used, refused)) = slot else {
+                continue;
+            };
+            if !*refused && *used <= remaining {
+                remaining -= *used;
+                continue;
+            }
+            let mut budget = FillBudget::new(remaining);
+            *slot = find(name, &mut budget).map(|(o, t)| (o, t, budget.used, false));
+            remaining -= budget.used;
+        }
+
         let mut doc = DoclingDocument::new(&source.name);
         // Every sheet's comments, in workbook order — the order they become
         // `comment_section` groups below, which is the order `Node::Commented`
@@ -266,20 +333,19 @@ impl DeclarativeBackend for XlsxBackend {
         // comments tail identical to the sequential walk.
         let per_sheet: Vec<SheetItems> = metas
             .par_iter()
+            .zip(found.into_par_iter())
             .enumerate()
-            .map(|(page_ix, (name, typ, _))| {
+            .map(|(page_ix, ((name, typ, _), tables))| {
                 sheet_items(SheetCtx {
+                    tables: tables.map(|(origin, tables, _, _)| (origin, tables)),
                     pkg: pkg.clone(),
                     name,
                     typ: *typ,
                     page_ix,
                     metas: &metas,
                     sheet_parts: &sheet_parts,
-                    ranges: &ranges,
                     persons: &persons,
                     resolve_ref: &resolve_ref,
-                    skip_empty: self.skip_empty,
-                    is_1904,
                 })
             })
             .collect();
@@ -482,6 +548,8 @@ fn convert_xlsb(
 
     let mut doc = DoclingDocument::new(&source.name);
     let mut prev_sheet_had_items = false;
+    // One table fill budget for the workbook, in sheet order (#1167).
+    let mut budget = FillBudget::default();
     for (name, typ, visible) in &metas {
         if !matches!(typ, calamine::SheetType::WorkSheet) {
             continue;
@@ -494,7 +562,14 @@ fn convert_xlsb(
         let (or, oc) = frame.origin;
         let mut items: Vec<((usize, usize, usize, usize), Node)> = Vec::new();
         // The binary styles part is not read: every cell prints raw (#634).
-        for t in find_tables(&range, &frame, skip_empty, &SheetFormats::default(), false) {
+        for t in find_tables(
+            &range,
+            &frame,
+            skip_empty,
+            &SheetFormats::default(),
+            false,
+            &mut budget,
+        ) {
             if let Some(label) = t.label {
                 items.push((
                     (
@@ -554,12 +629,16 @@ struct SheetCtx<'a, F: Fn(&str, &str) -> Vec<String> + Sync> {
     page_ix: usize,
     metas: &'a [(String, calamine::SheetType, calamine::SheetVisible)],
     sheet_parts: &'a HashMap<String, String>,
-    ranges: &'a HashMap<String, (Range<Data>, Merges, SheetFormats)>,
     persons: &'a HashMap<String, String>,
     resolve_ref: &'a F,
-    skip_empty: bool,
-    is_1904: bool,
+    /// The sheet's tables with its frame origin, found before the sheets
+    /// assemble so the workbook's fill budget is spent in sheet order.
+    tables: Option<((usize, usize), Vec<FoundTable>)>,
 }
+
+/// One sheet's frame origin, tables, and what its table search took from
+/// the fill budget (`used`, `refused`).
+type SheetTables = ((usize, usize), Vec<FoundTable>, usize, bool);
 
 /// Assemble one sheet's `(bbox, node)` items and its comment lines — the
 /// per-sheet half of `convert`, run under rayon; the caller merges results
@@ -572,24 +651,21 @@ fn sheet_items<F: Fn(&str, &str) -> Vec<String> + Sync>(ctx: SheetCtx<'_, F>) ->
         page_ix,
         metas,
         sheet_parts,
-        ranges,
         persons,
         resolve_ref,
-        skip_empty,
-        is_1904,
+        tables,
     } = ctx;
     let mut comments: Vec<SheetComment> = Vec::new();
     // (bbox in cell units, node) items for this sheet/page.
     let mut items: Vec<((usize, usize, usize, usize), Node)> = Vec::new();
 
     if matches!(typ, calamine::SheetType::WorkSheet) {
-        if let Some((range, abs_merges, formats)) = ranges.get(name) {
-            let frame = sheet_frame(range, abs_merges);
+        if let Some(((or, oc), tables)) = tables {
             // docling's bboxes are in *absolute* cell indices; calamine's
             // range is clipped to its first non-empty row/column, and the
             // frame reaches back over any merge that starts before it.
-            let (or, oc) = frame.origin;
-            for t in find_tables(range, &frame, skip_empty, formats, is_1904) {
+            for mut t in tables {
+                set_cell_picture_page(&mut t.table, page_ix + 1);
                 if let Some(label) = t.label {
                     // The label row sits directly above the table's region.
                     items.push((
@@ -863,6 +939,30 @@ pub(crate) struct SheetFrame {
 }
 
 pub(crate) fn sheet_frame(range: &Range<Data>, merges: &Merges) -> SheetFrame {
+    // docling's `_MergedCellIndex` (docling#5483, #1167): the cells a merge
+    // covers outside the values' bounds are kept up to
+    // [`MAX_MERGED_CELLS_OUTSIDE_DATA`] per sheet; a merge that does not fit
+    // is clipped to the values' bounds. A label merged across all 16,384
+    // columns of a row widened its table to 16,384 columns, and `C3:XFD1048576`
+    // next to two values aborted on a 4 GB allocation.
+    let bounds = value_bounds(range);
+    let mut outside_left = MAX_MERGED_CELLS_OUTSIDE_DATA;
+    let merges: Merges = merges
+        .iter()
+        .map(|&m| match bounds {
+            Some(b) => {
+                let outside = cells_outside(m, b);
+                if outside <= outside_left {
+                    outside_left -= outside;
+                    m
+                } else {
+                    clip_to_bounds(m, b)
+                }
+            }
+            None => m,
+        })
+        .collect();
+    let merges = &merges;
     let (rs_r, rs_c) = range.start().unwrap_or((0, 0));
     // Reach back to the earliest merge start, never past cell (0, 0).
     let (mut or, mut oc) = (rs_r, rs_c);
@@ -890,6 +990,230 @@ pub(crate) fn sheet_frame(range: &Range<Data>, merges: &Merges) -> SheetFrame {
         width,
         merge_of,
     }
+}
+
+/// The smallest region holding every cell with a value, absolute and
+/// inclusive: `(min_row, min_col, max_row, max_col)` — docling's
+/// `_value_bounds`. `None` for a sheet without values.
+pub(crate) fn value_bounds(range: &Range<Data>) -> Option<(u32, u32, u32, u32)> {
+    let (r0, c0) = range.start()?;
+    let mut b: Option<(u32, u32, u32, u32)> = None;
+    for (r, c, _) in range.used_cells() {
+        let (r, c) = (r0 + r as u32, c0 + c as u32);
+        b = Some(match b {
+            None => (r, c, r, c),
+            Some((a, bb, cc, d)) => (a.min(r), bb.min(c), cc.max(r), d.max(c)),
+        });
+    }
+    b
+}
+
+/// The cells of a merge outside `bounds` (docling's `_cells_outside`).
+fn cells_outside(m: ((u32, u32), (u32, u32)), b: (u32, u32, u32, u32)) -> u64 {
+    let ((sr, sc), (er, ec)) = m;
+    let area = u64::from(er - sr + 1) * u64::from(ec - sc + 1);
+    let (r0, r1) = (sr.max(b.0), er.min(b.2));
+    let (c0, c1) = (sc.max(b.1), ec.min(b.3));
+    let inside = if r0 <= r1 && c0 <= c1 {
+        u64::from(r1 - r0 + 1) * u64::from(c1 - c0 + 1)
+    } else {
+        0
+    };
+    area - inside
+}
+
+/// A merge clipped to end within `bounds`, never before its own start.
+fn clip_to_bounds(
+    m: ((u32, u32), (u32, u32)),
+    b: (u32, u32, u32, u32),
+) -> ((u32, u32), (u32, u32)) {
+    let ((sr, sc), (er, ec)) = m;
+    ((sr, sc), (sr.max(er.min(b.2)), sc.max(ec.min(b.3))))
+}
+
+/// docling's `_MAX_MERGED_CELLS_OUTSIDE_DATA`: the cells merges may cover
+/// outside a sheet's values before a merge is clipped to them.
+const MAX_MERGED_CELLS_OUTSIDE_DATA: u64 = 1_000;
+
+/// docling's `_MAX_MERGED_CELLS`: the cells the merges of one workbook may
+/// cover (beyond their top-left cells) — openpyxl creates one object for
+/// each, and here each is a frame position.
+const MAX_MERGED_CELLS: u64 = 100_000;
+
+/// docling's `_RangeBudget` for merged ranges (docling#5483, #1167): the
+/// merges of a workbook, in workbook order, keep their extent while they fit
+/// [`MAX_MERGED_CELLS`]; one that does not is clipped to its sheet's values,
+/// and to its top-left cell if it still does not fit.
+pub(crate) struct MergeBudget {
+    remaining: u64,
+}
+
+impl Default for MergeBudget {
+    fn default() -> Self {
+        MergeBudget {
+            remaining: MAX_MERGED_CELLS,
+        }
+    }
+}
+
+impl MergeBudget {
+    /// Clip one sheet's merges in place, `range` giving its values.
+    pub(crate) fn fit_sheet(&mut self, merges: &mut Merges, range: &Range<Data>) {
+        let bounds = value_bounds(range);
+        for m in merges.iter_mut() {
+            let covered = |m: ((u32, u32), (u32, u32))| {
+                let ((sr, sc), (er, ec)) = m;
+                u64::from(er - sr + 1) * u64::from(ec - sc + 1) - 1
+            };
+            let mut c = covered(*m);
+            if c <= self.remaining {
+                self.remaining -= c;
+                continue;
+            }
+            if let Some(b) = bounds {
+                *m = clip_to_bounds(*m, b);
+                c = covered(*m);
+            }
+            if c > self.remaining {
+                *m = (m.0, m.0);
+                c = 0;
+            }
+            self.remaining -= c;
+        }
+    }
+}
+
+/// docling's `_TABLE_FILL_RATIO`: a region whose empty positions are at most
+/// this many times its content cells is one table, whatever the budget.
+const TABLE_FILL_RATIO: usize = 4;
+
+/// docling's `_MAX_TABLE_FILL_CELLS`: the empty positions beyond that ratio
+/// the tables of one workbook may hold.
+pub(crate) const MAX_TABLE_FILL_CELLS: usize = 100_000;
+
+/// docling's `_TableFillBudget` (docling#5483, #1167): a table holds every
+/// position of its region's bounding box, so a sparse region — a staircase
+/// of values, a long row beside a narrow table — held one cell per position
+/// of a huge box (a 2000-step staircase: 4,002,000 cells for 4,000 values).
+/// A region whose empty positions exceed [`TABLE_FILL_RATIO`] × its content
+/// takes the excess from this workbook-wide budget; one that does not fit is
+/// split into denser rectangles ([`split_region`]).
+///
+/// `shared` is a pool the sheets assembled in parallel draw from, so their
+/// speculative runs stay within the budget together; a run that was ever
+/// refused is redone in workbook order with the exact remaining budget
+/// (`XlsxBackend::convert`), which keeps the output deterministic.
+pub(crate) struct FillBudget<'a> {
+    remaining: usize,
+    pub(crate) used: usize,
+    pub(crate) refused: bool,
+    shared: Option<&'a std::sync::atomic::AtomicUsize>,
+}
+
+impl Default for FillBudget<'_> {
+    fn default() -> Self {
+        FillBudget::new(MAX_TABLE_FILL_CELLS)
+    }
+}
+
+impl<'a> FillBudget<'a> {
+    pub(crate) fn new(remaining: usize) -> Self {
+        FillBudget {
+            remaining,
+            used: 0,
+            refused: false,
+            shared: None,
+        }
+    }
+
+    /// A speculative run drawing from `pool` as well.
+    pub(crate) fn shared(pool: &'a std::sync::atomic::AtomicUsize) -> Self {
+        FillBudget {
+            shared: Some(pool),
+            ..FillBudget::new(MAX_TABLE_FILL_CELLS)
+        }
+    }
+
+    /// Whether a region of `content` cells and `empty` positions is kept
+    /// whole, its excess taken from the budget if so.
+    fn fit(&mut self, empty: usize, content: usize) -> bool {
+        let extra = empty.saturating_sub(TABLE_FILL_RATIO * content);
+        if extra == 0 {
+            return true;
+        }
+        if extra > self.remaining {
+            self.refused = true;
+            return false;
+        }
+        if let Some(pool) = self.shared {
+            use std::sync::atomic::Ordering;
+            if pool
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |r| r.checked_sub(extra))
+                .is_err()
+            {
+                self.refused = true;
+                return false;
+            }
+        }
+        self.remaining -= extra;
+        self.used += extra;
+        true
+    }
+}
+
+/// docling's `_split_table_region` (gap tolerance 0): a region's cells as
+/// rectangles with few empty positions. Consecutive rows join one rectangle
+/// while its empty positions stay within [`TABLE_FILL_RATIO`] × its cells; a
+/// single row that breaks the ratio is cut at its gaps. Inclusive
+/// `(min_r, max_r, min_c, max_c)`, in row order.
+fn split_region(cells: &HashSet<(usize, usize)>) -> Vec<(usize, usize, usize, usize)> {
+    let mut by_row: std::collections::BTreeMap<usize, Vec<usize>> = Default::default();
+    for &(r, c) in cells {
+        by_row.entry(r).or_default().push(c);
+    }
+    let mut rects = Vec::new();
+    let mut band: Option<(usize, usize, usize, usize)> = None;
+    let mut first_cols: Vec<usize> = Vec::new();
+    let mut count = 0usize;
+    let area = |b: (usize, usize, usize, usize)| (b.1 + 1 - b.0) * (b.3 + 1 - b.2);
+    let close = |band: Option<(usize, usize, usize, usize)>,
+                 count: usize,
+                 first_cols: &[usize],
+                 rects: &mut Vec<(usize, usize, usize, usize)>| {
+        let Some(b) = band else { return };
+        if area(b) - count <= TABLE_FILL_RATIO * count {
+            rects.push(b);
+            return;
+        }
+        // Only a single row breaks the ratio: its runs of columns.
+        let (mut start, mut prev) = (first_cols[0], first_cols[0]);
+        for &c in &first_cols[1..] {
+            if c - prev > 1 {
+                rects.push((b.0, b.1, start, prev));
+                start = c;
+            }
+            prev = c;
+        }
+        rects.push((b.0, b.1, start, prev));
+    };
+    for (row, mut cols) in by_row {
+        cols.sort_unstable();
+        if let Some(b) = band {
+            let grown = (b.0, row, b.2.min(cols[0]), b.3.max(*cols.last().unwrap()));
+            let grown_count = count + cols.len();
+            if area(grown) - grown_count <= TABLE_FILL_RATIO * grown_count {
+                band = Some(grown);
+                count = grown_count;
+                continue;
+            }
+            close(band, count, &first_cols, &mut rects);
+        }
+        band = Some((row, row, cols[0], *cols.last().unwrap()));
+        count = cols.len();
+        first_cols = cols;
+    }
+    close(band, count, &first_cols, &mut rects);
+    rects
 }
 
 /// A discovered table with its cell-index bounding box (inclusive), used to
@@ -924,6 +1248,7 @@ pub(crate) fn find_tables(
     skip_empty: bool,
     formats: &SheetFormats,
     is_1904: bool,
+    budget: &mut FillBudget,
 ) -> Vec<FoundTable> {
     let SheetFrame {
         shift,
@@ -945,7 +1270,24 @@ pub(crate) fn find_tables(
     // A grid position renders the value of its merge's top-left cell, if
     // merged — through that cell's number format (#634; absolute coordinates
     // are the frame's origin plus the position).
+    // The image placed in a grid position's cell (docling#5015) — only an
+    // error cell holds one: its `#VALUE!` is the fallback for readers without
+    // rich data, and docling keys the lookup on the error type the same way.
+    let image_at = |r: usize, c: usize| -> Option<&Arc<xlsx_richdata::CellImage>> {
+        let (sr, sc) = merge_of.get(&(r, c)).copied().unwrap_or((r, c));
+        if !matches!(value_at(sr, sc), Some(Data::Error(_))) {
+            return None;
+        }
+        formats
+            .images
+            .get(&((origin.0 + sr) as u32, (origin.1 + sc) as u32))
+    };
     let cell_text = |r: usize, c: usize| -> String {
+        if image_at(r, c).is_some() {
+            // An image cell's text is empty, as docling's `ExcelCell`; the
+            // picture is the cell's content (see `cell_blocks` below).
+            return String::new();
+        }
         let (sr, sc) = merge_of.get(&(r, c)).copied().unwrap_or((r, c));
         value_at(sr, sc)
             .map(|d| numfmt::displayed_text(d, formats.at(origin.0 + sr, origin.1 + sc), is_1904))
@@ -954,9 +1296,24 @@ pub(crate) fn find_tables(
 
     let mut visited: HashSet<(usize, usize)> = HashSet::new();
     let mut tables = Vec::new();
+    // The frame columns of the cells with a value, by frame row, ascending:
+    // the seeds in row-major order, and what a found table marks visited
+    // without a walk over every position of its box (docling's
+    // `value_cols`, docling#5483).
+    let mut value_cols: std::collections::BTreeMap<usize, Vec<usize>> = Default::default();
+    for (r, c, _) in range.used_cells() {
+        value_cols.entry(r + shift.0).or_default().push(c + shift.1);
+    }
+    for cols in value_cols.values_mut() {
+        cols.sort_unstable();
+    }
+    let seeds: Vec<(usize, usize)> = value_cols
+        .iter()
+        .flat_map(|(&r, cols)| cols.iter().map(move |&c| (r, c)))
+        .collect();
 
-    for r in 0..height {
-        for c in 0..width {
+    for (r, c) in seeds {
+        {
             // docling seeds a table only from a cell that carries a value
             // (`if cell.value is None: continue`); a merge is absorbed by the
             // flood fill below, but an empty one never starts a table of its
@@ -987,171 +1344,281 @@ pub(crate) fn find_tables(
                     }
                 }
             }
-            visited.extend(&cells);
-            // The table is the region's full bounding rectangle, gaps and
-            // disconnected non-empty cells included, so the whole rectangle is
-            // visited too — otherwise a stray cell inside it seeds a second,
-            // duplicate fragment table (docling#4302).
-            for vr in min_r..=max_r {
-                for vc in min_c..=max_c {
-                    visited.insert((vr, vc));
+            // The region is one table over its bounding box while its empty
+            // positions fit the workbook's fill budget; otherwise it is split
+            // into denser rectangles (docling#5483, #1167).
+            let content = cells.len();
+            let empty = (max_r + 1 - min_r) * (max_c + 1 - min_c) - content;
+            let rects = if budget.fit(empty, content) {
+                vec![(min_r, max_r, min_c, max_c)]
+            } else {
+                let rects = split_region(&cells);
+                eprintln!(
+                    "docling: split a table region of {} x {} cells into {} tables: the \
+                     tables of the workbook hold more than {MAX_TABLE_FILL_CELLS} empty cells",
+                    max_r + 1 - min_r,
+                    max_c + 1 - min_c,
+                    rects.len()
+                );
+                rects
+            };
+            for (rect_min_r, max_r, min_c, max_c) in rects {
+                let mut min_r = rect_min_r;
+                // A table holds every cell of its rectangle, disconnected values
+                // included: they are visited, or a stray value inside it seeds a
+                // second, duplicate fragment table (docling#4302). Only the value
+                // cells are marked — the seeds are values — not every position.
+                for (&vr, cols) in value_cols.range(min_r..=max_r) {
+                    let lo = cols.partition_point(|&c| c < min_c);
+                    let hi = cols.partition_point(|&c| c <= max_c);
+                    visited.extend(cols[lo..hi].iter().map(|&vc| (vr, vc)));
                 }
-            }
 
-            // Split a leading "section label" off the region (docling's
-            // `_split_leading_section_label`, PR #3727): the region is at
-            // least 2×2, its first row holds exactly one non-empty cell that
-            // starts at the region's first column and spans >1 columns (but
-            // only 1 row), and the second row reads as a real header (≥2
-            // non-empty unmerged cells). The label becomes a separate
-            // paragraph; the table starts at the next row.
-            let mut label: Option<String> = None;
-            if max_r > min_r && max_c > min_c {
-                let first_row_cells: Vec<(usize, usize)> = (min_c..=max_c)
-                    .map(|c| merge_of.get(&(min_r, c)).copied().unwrap_or((min_r, c)))
-                    .filter(|&(r, c)| !cell_text(r, c).trim().is_empty())
-                    .collect::<std::collections::HashSet<_>>()
-                    .into_iter()
+                // Split a leading "section label" off the region (docling's
+                // `_split_leading_section_label`, PR #3727): the region is at
+                // least 2×2, its first row holds exactly one non-empty cell that
+                // starts at the region's first column and spans >1 columns (but
+                // only 1 row), and the second row reads as a real header (≥2
+                // non-empty unmerged cells). The label becomes a separate
+                // paragraph; the table starts at the next row.
+                let mut label: Option<String> = None;
+                if max_r > min_r && max_c > min_c {
+                    let first_row_cells: Vec<(usize, usize)> = (min_c..=max_c)
+                        .map(|c| merge_of.get(&(min_r, c)).copied().unwrap_or((min_r, c)))
+                        // An image cell is content (docling: `cell.text.strip()
+                        // or cell.image is not None`); the header test below
+                        // counts text cells only, as docling's does.
+                        .filter(|&(r, c)| {
+                            !cell_text(r, c).trim().is_empty() || image_at(r, c).is_some()
+                        })
+                        .collect::<std::collections::HashSet<_>>()
+                        .into_iter()
+                        .collect();
+                    if let [(lr, lc)] = first_row_cells[..] {
+                        let span_cols = (min_c..=max_c)
+                            .filter(|&c| merge_of.get(&(min_r, c)) == Some(&(lr, lc)))
+                            .count();
+                        let spans_rows = merge_of.get(&(min_r + 1, lc)) == Some(&(lr, lc));
+                        let header_cells = (min_c..=max_c)
+                            .filter(|&c| {
+                                !merge_of.contains_key(&(min_r + 1, c))
+                                    && !cell_text(min_r + 1, c).trim().is_empty()
+                            })
+                            .count();
+                        if (lr, lc) == (min_r, min_c)
+                            && span_cols > 1
+                            && !spans_rows
+                            && header_cells >= 2
+                        {
+                            label = Some(cell_text(lr, lc));
+                            min_r += 1;
+                        }
+                    }
+                }
+
+                // Materialise the region's bounding box; gaps become empty cells —
+                // or, with `skip_empty`, only the occupied positions per row.
+                let mut omitted = false;
+                // An image cell is a `RichTableCell` holding the picture
+                // (docling#5015): its blocks are the picture with the cell's own
+                // box as exact provenance (the page is the sheet's, set by the
+                // caller), and its flat text is what docling's Markdown prints
+                // for it — the placeholder, then the alt-text description (the
+                // picture's `meta`, which docling-core serializes after the item),
+                // the blocks' blank line flattened to two spaces.
+                let mut cell_blocks: Vec<Vec<Vec<Node>>> = Vec::new();
+                let mut any_image = false;
+                let rows: Vec<Vec<String>> = (min_r..=max_r)
+                    .map(|gr| {
+                        let mut blocks_row = Vec::new();
+                        let row = (min_c..=max_c)
+                            .filter(|&gc| {
+                                if skip_empty && !has_content(gr, gc) {
+                                    omitted = true;
+                                    return false;
+                                }
+                                true
+                            })
+                            .map(|gc| {
+                                let Some(img) = image_at(gr, gc) else {
+                                    blocks_row.push(Vec::new());
+                                    return cell_text(gr, gc);
+                                };
+                                any_image = true;
+                                let (tr, tc) = merge_of.get(&(gr, gc)).copied().unwrap_or((gr, gc));
+                                let anchor = (gr, gc) == (tr.max(min_r), tc.max(min_c));
+                                blocks_row.push(if anchor {
+                                    vec![cell_picture(img, frame, (gr, gc), (max_r, max_c))]
+                                } else {
+                                    Vec::new()
+                                });
+                                match img.alt_text.as_deref() {
+                                    Some(alt) => format!("<!-- image -->  {alt}"),
+                                    None => "<!-- image -->".to_string(),
+                                }
+                            })
+                            .collect();
+                        cell_blocks.push(blocks_row);
+                        row
+                    })
                     .collect();
-                if let [(lr, lc)] = first_row_cells[..] {
-                    let span_cols = (min_c..=max_c)
-                        .filter(|&c| merge_of.get(&(min_r, c)) == Some(&(lr, lc)))
-                        .count();
-                    let spans_rows = merge_of.get(&(min_r + 1, lc)) == Some(&(lr, lc));
-                    let header_cells = (min_c..=max_c)
-                        .filter(|&c| {
-                            !merge_of.contains_key(&(min_r + 1, c))
-                                && !cell_text(min_r + 1, c).trim().is_empty()
-                        })
-                        .count();
-                    if (lr, lc) == (min_r, min_c)
-                        && span_cols > 1
-                        && !spans_rows
-                        && header_cells >= 2
-                    {
-                        label = Some(cell_text(lr, lc));
-                        min_r += 1;
-                    }
-                }
-            }
-
-            // Materialise the region's bounding box; gaps become empty cells —
-            // or, with `skip_empty`, only the occupied positions per row.
-            let mut omitted = false;
-            let rows: Vec<Vec<String>> = (min_r..=max_r)
-                .map(|gr| {
-                    (min_c..=max_c)
-                        .filter(|&gc| {
-                            if skip_empty && !has_content(gr, gc) {
-                                omitted = true;
-                                return false;
-                            }
-                            true
-                        })
-                        .map(|gc| cell_text(gr, gc))
-                        .collect()
-                })
-                .collect();
-            // Merge spans as OTSL continuations (docling's table cells carry
-            // row/col spans from the merged regions): a covered cell continues
-            // the span horizontally (`<lcel/>`), vertically (`<ucel/>`), or
-            // both (`<xcel/>`) relative to the merge's top-left.
-            let nrows = max_r - min_r + 1;
-            let ncols = max_c - min_c + 1;
-            let mut col_cont = vec![vec![false; ncols]; nrows];
-            let mut row_cont = vec![vec![false; ncols]; nrows];
-            let mut any_span = false;
-            for gr in min_r..=max_r {
-                for gc in min_c..=max_c {
-                    if let Some(&(tr, tc)) = merge_of.get(&(gr, gc)) {
-                        if (gr, gc) == (tr, tc) {
-                            continue;
-                        }
-                        any_span = true;
-                        if gc > tc {
-                            col_cont[gr - min_r][gc - min_c] = true;
-                        }
-                        if gr > tr && gc == tc {
-                            row_cont[gr - min_r][gc - min_c] = true;
-                        }
-                        if gr > tr && gc > tc {
-                            // A 2-D covered cell is both (`<xcel/>`).
-                            row_cont[gr - min_r][gc - min_c] = true;
-                        }
-                    }
-                }
-            }
-            let structure = (any_span && !omitted).then(|| {
-                let mut header_row = vec![false; nrows];
-                if let Some(h) = header_row.first_mut() {
-                    *h = true;
-                }
-                docling_core::TableStructure {
-                    header_row,
-                    col_continuation: col_cont,
-                    row_continuation: row_cont,
-                    row_header: Vec::new(),
-                    col_header: Vec::new(),
-                }
-            });
-            // A compacted table keeps its geometry for the JSON through
-            // first-class cells: the surviving positions at their true grid
-            // offsets, one cell per merged range with its span — what the
-            // default path's overlay yields (#410), minus the empty
-            // positions, which is what `skip_empty` promises. The ragged
-            // `rows` (Markdown, DocLang) cannot carry offsets, and padding
-            // them back at export made the "sparse" JSON *larger* than the
-            // dense one (16 cells for an 8-column row that holds three).
-            let cells = (skip_empty && omitted).then(|| {
-                let mut out = Vec::new();
+                // Merge spans as OTSL continuations (docling's table cells carry
+                // row/col spans from the merged regions): a covered cell continues
+                // the span horizontally (`<lcel/>`), vertically (`<ucel/>`), or
+                // both (`<xcel/>`) relative to the merge's top-left.
+                let nrows = max_r - min_r + 1;
+                let ncols = max_c - min_c + 1;
+                let mut col_cont = vec![vec![false; ncols]; nrows];
+                let mut row_cont = vec![vec![false; ncols]; nrows];
+                let mut any_span = false;
                 for gr in min_r..=max_r {
                     for gc in min_c..=max_c {
-                        if !has_content(gr, gc) {
-                            continue;
+                        if let Some(&(tr, tc)) = merge_of.get(&(gr, gc)) {
+                            if (gr, gc) == (tr, tc) {
+                                continue;
+                            }
+                            any_span = true;
+                            if gc > tc {
+                                col_cont[gr - min_r][gc - min_c] = true;
+                            }
+                            if gr > tr && gc == tc {
+                                row_cont[gr - min_r][gc - min_c] = true;
+                            }
+                            if gr > tr && gc > tc {
+                                // A 2-D covered cell is both (`<xcel/>`).
+                                row_cont[gr - min_r][gc - min_c] = true;
+                            }
                         }
-                        let (tr, tc) = merge_of.get(&(gr, gc)).copied().unwrap_or((gr, gc));
-                        // A merge is one cell, anchored where it enters the
-                        // box (its top-left may sit above a split-off label
-                        // row or left of the clipped range).
-                        if (gr, gc) != (tr.max(min_r), tc.max(min_c)) {
-                            continue;
-                        }
-                        let covered = |r: usize, c: usize| merge_of.get(&(r, c)) == Some(&(tr, tc));
-                        out.push(TableCell {
-                            text: cell_text(gr, gc),
-                            bbox: None,
-                            start_row: gr - min_r,
-                            start_col: gc - min_c,
-                            row_span: (gr..=max_r).take_while(|&r| covered(r, gc)).count().max(1),
-                            col_span: (gc..=max_c).take_while(|&c| covered(gr, c)).count().max(1),
-                            column_header: gr == min_r,
-                            row_header: false,
-                            row_section: false,
-                        });
                     }
                 }
-                out
-            });
-            tables.push(FoundTable {
-                table: Table {
-                    rows,
-                    location: None,
-                    structure,
-                    cell_blocks: None,
-                    cells,
-                    caption: None,
-                    caption_parent: Default::default(),
-                    caption_location: None,
-                },
-                label,
-                min_r,
-                min_c,
-                max_r,
-                max_c,
-            });
+                let structure = (any_span && !omitted).then(|| {
+                    let mut header_row = vec![false; nrows];
+                    if let Some(h) = header_row.first_mut() {
+                        *h = true;
+                    }
+                    docling_core::TableStructure {
+                        header_row,
+                        col_continuation: col_cont,
+                        row_continuation: row_cont,
+                        row_header: Vec::new(),
+                        col_header: Vec::new(),
+                    }
+                });
+                // A compacted table keeps its geometry for the JSON through
+                // first-class cells: the surviving positions at their true grid
+                // offsets, one cell per merged range with its span — what the
+                // default path's overlay yields (#410), minus the empty
+                // positions, which is what `skip_empty` promises. The ragged
+                // `rows` (Markdown, DocLang) cannot carry offsets, and padding
+                // them back at export made the "sparse" JSON *larger* than the
+                // dense one (16 cells for an 8-column row that holds three).
+                let cells = (skip_empty && omitted).then(|| {
+                    let mut out = Vec::new();
+                    for gr in min_r..=max_r {
+                        for gc in min_c..=max_c {
+                            if !has_content(gr, gc) {
+                                continue;
+                            }
+                            let (tr, tc) = merge_of.get(&(gr, gc)).copied().unwrap_or((gr, gc));
+                            // A merge is one cell, anchored where it enters the
+                            // box (its top-left may sit above a split-off label
+                            // row or left of the clipped range).
+                            if (gr, gc) != (tr.max(min_r), tc.max(min_c)) {
+                                continue;
+                            }
+                            let covered =
+                                |r: usize, c: usize| merge_of.get(&(r, c)) == Some(&(tr, tc));
+                            out.push(TableCell {
+                                text: cell_text(gr, gc),
+                                bbox: None,
+                                start_row: gr - min_r,
+                                start_col: gc - min_c,
+                                row_span: (gr..=max_r)
+                                    .take_while(|&r| covered(r, gc))
+                                    .count()
+                                    .max(1),
+                                col_span: (gc..=max_c)
+                                    .take_while(|&c| covered(gr, c))
+                                    .count()
+                                    .max(1),
+                                column_header: gr == min_r,
+                                row_header: false,
+                                row_section: false,
+                            });
+                        }
+                    }
+                    out
+                });
+                tables.push(FoundTable {
+                    table: Table {
+                        footnotes: Vec::new(),
+                        rows,
+                        location: None,
+                        structure,
+                        cell_blocks: any_image.then_some(cell_blocks),
+                        cells,
+                        caption: None,
+                        caption_parent: Default::default(),
+                        caption_location: None,
+                        document_index: false,
+                    },
+                    label,
+                    min_r,
+                    min_c,
+                    max_r,
+                    max_c,
+                });
+            }
         }
     }
     tables
+}
+
+/// The block content of an image cell (docling's `_add_cell_image`): the
+/// picture, its alt text as docling's own `meta.description` (not the opt-in
+/// #676 alt text of a drawing — docling#5015 writes this one itself), wrapped in the exact provenance
+/// of the cell's box — absolute cell indices, top-left origin, spans
+/// included, like every sheet item's. `page_no` is left 0 for the sheet's
+/// caller to fill ([`set_cell_picture_page`]). The JSON export turns this
+/// shape — a cell whose blocks are one [`Node::Prov`]-wrapped picture — into
+/// a picture item under the table that the cell's `ref` points at.
+fn cell_picture(
+    img: &xlsx_richdata::CellImage,
+    frame: &SheetFrame,
+    (gr, gc): (usize, usize),
+    (max_r, max_c): (usize, usize),
+) -> Node {
+    let (tr, tc) = frame.merge_of.get(&(gr, gc)).copied().unwrap_or((gr, gc));
+    let covered = |r: usize, c: usize| frame.merge_of.get(&(r, c)) == Some(&(tr, tc));
+    let row_span = (gr..=max_r).take_while(|&r| covered(r, gc)).count().max(1);
+    let col_span = (gc..=max_c).take_while(|&c| covered(gr, c)).count().max(1);
+    let (or, oc) = frame.origin;
+    let (l, t) = ((oc + gc) as f32, (or + gr) as f32);
+    Node::Prov {
+        page_no: 0,
+        bbox: [l, t, l + col_span as f32, t + row_span as f32],
+        charspan: [0, 0],
+        bottom_left: false,
+        seq: None,
+        inner: Box::new(Node::Picture {
+            caption: None,
+            caption_href: None,
+            image: img.image.clone(),
+            classification: None,
+            description: img.alt_text.clone().map(PictureDescription::docling_meta),
+            caption_parent: Default::default(),
+            caption_location: None,
+        }),
+    }
+}
+
+/// Stamp the sheet's page on the in-cell pictures [`cell_picture`] built.
+fn set_cell_picture_page(table: &mut Table, page: usize) {
+    for cell in table.cell_blocks.iter_mut().flatten().flatten().flatten() {
+        if let Node::Prov { page_no, .. } = cell {
+            *page_no = page;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1177,6 +1644,104 @@ mod tests {
             .collect()
     }
 
+    /// docling#5483 (#1167): a label merged across all 16,384 columns of a
+    /// row is clipped to the sheet's values — the 50 × 30 table stays 50 ×
+    /// 30 (it was 50 × 16,384) and `Section` spans its 30 columns. docling's
+    /// `test_row_merged_across_the_sheet_keeps_the_data_width`.
+    #[test]
+    fn a_row_merged_across_the_sheet_keeps_the_data_width() {
+        let mut range: Range<Data> = Range::new((0, 0), (49, 29));
+        for r in 0..50u32 {
+            for c in 0..30u32 {
+                if r != 9 {
+                    range.set_value((r, c), Data::Int(i64::from(r * 30 + c)));
+                }
+            }
+        }
+        range.set_value((9, 0), Data::String("Section".into()));
+        let frame = sheet_frame(&range, &vec![((9, 0), (9, 16_383))]);
+        assert_eq!(frame.width, 30);
+        let found = find_tables(
+            &range,
+            &frame,
+            false,
+            &SheetFormats::default(),
+            false,
+            &mut FillBudget::default(),
+        );
+        assert_eq!(found.len(), 1);
+        let t = &found[0].table;
+        assert_eq!((t.rows.len(), t.rows[0].len()), (50, 30));
+        let cont = &t.structure.as_ref().expect("spans").col_continuation[9];
+        assert!(
+            !cont[0] && cont[1..].iter().all(|&c| c),
+            "Section spans 30 columns"
+        );
+    }
+
+    /// docling's `test_whole_sheet_merged_range_is_clipped_to_data`: a merge
+    /// from `C3` to the sheet's last cell beside two values is clipped to
+    /// them — two 1 × 1 tables, at once. It aborted on a 4 GB allocation
+    /// after 13 s (#1167).
+    #[test]
+    fn a_whole_sheet_merge_is_clipped_to_the_data() {
+        let mut range: Range<Data> = Range::new((0, 0), (1, 1));
+        range.set_value((0, 0), Data::String("a".into()));
+        range.set_value((1, 1), Data::String("b".into()));
+        let start = std::time::Instant::now();
+        let mut merges: Merges = vec![((2, 2), (1_048_575, 16_383))];
+        MergeBudget::default().fit_sheet(&mut merges, &range);
+        let frame = sheet_frame(&range, &merges);
+        let found = find_tables(
+            &range,
+            &frame,
+            false,
+            &SheetFormats::default(),
+            false,
+            &mut FillBudget::default(),
+        );
+        let rows: Vec<_> = found.iter().map(|t| t.table.rows.clone()).collect();
+        assert_eq!(rows, [vec![vec!["a"]], vec![vec!["b"]]]);
+        assert!(start.elapsed().as_secs_f64() < 2.0, "{:?}", start.elapsed());
+    }
+
+    /// A staircase of values (`(r, r)` and `(r, r + 1)`) is one region whose
+    /// bounding box is nearly all empty: one 2000 × 2001 table held 4,002,000
+    /// cells for 4,000 values. Past the fill budget the region is split into
+    /// denser tables (docling's `_split_table_region`, #1167): every value is
+    /// kept, and the tables stay under 100,000 cells together.
+    #[test]
+    fn a_staircase_is_split_within_the_fill_budget() {
+        let n = 2000u32;
+        let mut range: Range<Data> = Range::new((0, 0), (n - 1, n));
+        for r in 0..n {
+            range.set_value((r, r), Data::Int(i64::from(2 * r)));
+            range.set_value((r, r + 1), Data::Int(i64::from(2 * r + 1)));
+        }
+        let frame = sheet_frame(&range, &Merges::new());
+        let found = find_tables(
+            &range,
+            &frame,
+            false,
+            &SheetFormats::default(),
+            false,
+            &mut FillBudget::default(),
+        );
+        assert!(found.len() > 1);
+        let cells: usize = found
+            .iter()
+            .map(|t| t.table.rows.iter().map(Vec::len).sum::<usize>())
+            .sum();
+        assert!(cells < 100_000, "{cells} cells");
+        let mut values: Vec<i64> = found
+            .iter()
+            .flat_map(|t| t.table.rows.iter().flatten())
+            .filter_map(|v| v.parse().ok())
+            .collect();
+        values.sort_unstable();
+        assert_eq!(values, (0..i64::from(2 * n)).collect::<Vec<_>>());
+    }
+
     /// #395: calamine clips a sheet's range to its first non-empty row/column,
     /// so a merge that begins before any data used to underflow the subtraction
     /// that rebased it (`attempt to subtract with overflow`). The frame reaches
@@ -1199,7 +1764,14 @@ mod tests {
         // An *empty* merge is not a table of its own: docling seeds a table
         // only from a cell that carries a value, so only the data is found —
         // and it keeps its absolute position in the frame.
-        let found = find_tables(&range, &frame, false, &SheetFormats::default(), false);
+        let found = find_tables(
+            &range,
+            &frame,
+            false,
+            &SheetFormats::default(),
+            false,
+            &mut FillBudget::default(),
+        );
         assert_eq!(found.len(), 1, "the empty merge seeds nothing");
         assert_eq!(
             found[0].table.rows,
@@ -1236,7 +1808,14 @@ mod tests {
             "the merge's row above, and out to column N"
         );
         // Only the valued cell is a table; the empty merge beside it is not.
-        let found = find_tables(&range, &frame, false, &SheetFormats::default(), false);
+        let found = find_tables(
+            &range,
+            &frame,
+            false,
+            &SheetFormats::default(),
+            false,
+            &mut FillBudget::default(),
+        );
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].table.rows, vec![vec!["data"]]);
         assert_eq!((found[0].min_r, found[0].min_c), (1, 0));
@@ -1285,6 +1864,7 @@ mod tests {
             false,
             &SheetFormats::default(),
             false,
+            &mut FillBudget::default(),
         );
         assert_eq!(
             padded[0].table.rows,
@@ -1298,6 +1878,7 @@ mod tests {
             true,
             &SheetFormats::default(),
             false,
+            &mut FillBudget::default(),
         );
         assert_eq!(
             compact[0].table.rows,
@@ -1355,6 +1936,7 @@ mod tests {
             true,
             &SheetFormats::default(),
             false,
+            &mut FillBudget::default(),
         );
         assert_eq!(
             dense[0].table.rows,
@@ -1385,6 +1967,7 @@ mod tests {
             true,
             &SheetFormats::default(),
             false,
+            &mut FillBudget::default(),
         );
         assert_eq!(
             ragged[0].table.rows,
@@ -1523,6 +2106,136 @@ mod tests {
             .collect();
         // The third table is annotated by both F7 messages and G12's.
         assert_eq!(annotated, vec![vec![0], vec![1], vec![2, 3, 4]]);
+    }
+
+    /// docling#5015 (`test_images_placed_in_cells`): an image placed in a
+    /// cell is a picture under the table, which the cell — a
+    /// `RichTableCell` with empty text — refers to; Excel's alt text is the
+    /// picture's description. An error value without an image keeps its
+    /// text, and a lone image cell is a one-cell table of it.
+    #[test]
+    fn images_placed_in_cells_are_rich_cell_pictures() {
+        let path = format!(
+            "{}/../../tests/data/xlsx/sources/xlsx_10_place_in_cell.xlsx",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let bytes = std::fs::read(&path).expect("fixture exists");
+        let src = SourceDocument::from_bytes("x.xlsx", InputFormat::Xlsx, bytes);
+        let doc = XlsxBackend::default().convert(&src).expect("converts");
+        let json = doc.export_to_json_value();
+        let table = &json["tables"][0];
+        let cells = table["data"]["table_cells"].as_array().unwrap();
+        let cell = |r: u64, c: u64| {
+            cells
+                .iter()
+                .find(|x| x["start_row_offset_idx"] == r && x["start_col_offset_idx"] == c)
+                .unwrap()
+        };
+        for (row, pic, alt) in [(1, 0, "A red square"), (2, 1, "A green square")] {
+            let cell = cell(row, 1);
+            assert_eq!(cell["text"], "");
+            let pic_ref = format!("#/pictures/{pic}");
+            assert_eq!(cell["ref"]["$ref"], pic_ref.as_str());
+            let picture = &json["pictures"][pic];
+            assert_eq!(picture["parent"]["$ref"], "#/tables/0");
+            assert!(picture["image"]["uri"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/png"));
+            // docling's own description: text only, no legacy annotation.
+            assert_eq!(
+                picture["meta"]["description"],
+                serde_json::json!({ "text": alt })
+            );
+            assert_eq!(picture["annotations"], serde_json::json!([]));
+            // The picture's box is its cell's, on the sheet's page.
+            assert_eq!(picture["prov"][0]["page_no"], 1);
+            assert_eq!(picture["prov"][0]["bbox"]["t"], row as f64);
+            assert_eq!(picture["prov"][0]["bbox"]["l"], 1.0);
+        }
+        assert_eq!(
+            table["children"],
+            serde_json::json!([{ "$ref": "#/pictures/0" }, { "$ref": "#/pictures/1" }])
+        );
+        // An error value without an image is cell content.
+        assert!(cell(1, 3).get("ref").is_none());
+        assert!(!cell(1, 3)["text"].as_str().unwrap().is_empty());
+        // The "Logo" sheet: one image cell, a one-cell table holding it.
+        let logo = &json["tables"][1];
+        assert_eq!(
+            logo["data"]["table_cells"][0]["ref"]["$ref"],
+            "#/pictures/2"
+        );
+        assert_eq!(json["pictures"][2]["prov"][0]["page_no"], 2);
+        assert!(json["pictures"][2]["meta"].is_null());
+
+        let md = doc.export_to_markdown();
+        assert!(
+            md.contains("| apple  | <!-- image -->  A red square   |"),
+            "{md}"
+        );
+        assert!(md.contains("| <!-- image -->   |"), "{md}");
+    }
+
+    /// docling#5015 (`test_image_cell_next_to_a_section_label`): an image
+    /// cell in the first row is content, so a merged label beside it is not
+    /// split off as a section label; the header test counts text cells only.
+    #[test]
+    fn an_image_cell_keeps_a_merged_label_in_its_table() {
+        let mut range: Range<Data> = Range::new((0, 0), (3, 2));
+        range.set_value((0, 0), Data::String("Fruit list".into()));
+        range.set_value((0, 2), Data::Error(calamine::CellErrorType::Value));
+        for (r, row) in [
+            ["name", "qty", "note"],
+            ["apple", "1", "x"],
+            ["pear", "2", "y"],
+        ]
+        .iter()
+        .enumerate()
+        {
+            for (c, v) in row.iter().enumerate() {
+                range.set_value((r as u32 + 1, c as u32), Data::String((*v).into()));
+            }
+        }
+        let frame = sheet_frame(&range, &vec![((0, 0), (0, 1))]);
+        let image = Arc::new(xlsx_richdata::CellImage {
+            image: None,
+            alt_text: Some("Section icon".into()),
+        });
+        let formats = SheetFormats {
+            images: HashMap::from([((0, 2), image)]),
+            ..SheetFormats::default()
+        };
+        let found = find_tables(
+            &range,
+            &frame,
+            false,
+            &formats,
+            false,
+            &mut FillBudget::default(),
+        );
+        assert_eq!(found.len(), 1);
+        let t = &found[0];
+        assert!(t.label.is_none(), "the label stays in the table");
+        assert_eq!((t.table.rows.len(), t.table.rows[0].len()), (4, 3));
+        assert_eq!(t.table.rows[0][2], "<!-- image -->  Section icon");
+        let blocks = t.table.cell_blocks.as_ref().expect("a rich cell");
+        let [Node::Prov { bbox, inner, .. }] = blocks[0][2].as_slice() else {
+            panic!("{:?}", blocks[0][2]);
+        };
+        assert_eq!(*bbox, [2.0, 0.0, 3.0, 1.0]);
+        assert!(matches!(**inner, Node::Picture { .. }));
+        assert!(blocks[0][0].is_empty() && blocks[1][2].is_empty());
+        // Without the rich value the error cell is ordinary content.
+        let plain = find_tables(
+            &range,
+            &frame,
+            false,
+            &SheetFormats::default(),
+            false,
+            &mut FillBudget::default(),
+        );
+        assert!(plain[0].table.cell_blocks.is_none());
     }
 
     /// docling PR #3727: a merged full-width cell directly above a real

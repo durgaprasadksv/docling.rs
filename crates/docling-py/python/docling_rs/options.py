@@ -61,6 +61,12 @@ class InputFormat(str, enum.Enum):
     IPYNB = "ipynb"
     #: RSS / Atom / RDF feeds (#678).
     FEED = "feed"
+    #: AFP / MO:DCA print streams (``.afp``, docling#4177, #1034).
+    AFP = "afp"
+    #: Box Notes (#1033), docling's ``InputFormat.BOXNOTE``.
+    BOXNOTE = "boxnote"
+    #: iCalendar files (``.ics``, docling#4880, #1032).
+    CALENDAR = "calendar"
     #: A format only a registered backend reads (#680, ``register_backend``).
     PLUGIN = "plugin"
 
@@ -107,6 +113,16 @@ class TableStructureOptions:
 
 
 @dataclass
+class ScriptPositionOptions:
+    """docling's ``ScriptPositionOptions`` (#1005): mark PDF superscript and
+    subscript text — characters drawn smaller than their line and raised or
+    lowered against it become runs with ``formatting.script``, and the item
+    holding them moves its text into an inline group of the runs."""
+
+    enabled: bool = False
+
+
+@dataclass
 class HeadingHierarchyOptions:
     """docling's ``HeadingHierarchyOptions`` (#302): infer PDF/image
     section-header levels after assembly — PDF bookmarks are authoritative,
@@ -124,6 +140,11 @@ class HeadingHierarchyOptions:
     max_level: int = 6
     bookmark_match_threshold: float = 0.8
     numbering_schemes: Optional[list] = None
+    # docling#5474 (#1145): keyword markers of other languages
+    # (family -> words) and extra number words; accepted like the fields
+    # above, honoured by the Rust library's `heading_hierarchy_options`.
+    numbering_keywords: dict = field(default_factory=dict)
+    numbering_number_words: list = field(default_factory=list)
 
 
 @dataclass
@@ -133,6 +154,8 @@ class PdfPipelineOptions:
     Acted on by the Rust engine: ``do_ocr``, ``do_table_structure``,
     ``force_full_page_ocr`` (docling keeps it on ``ocr_options``; accepted here
     directly too — #187's escape hatch for undecodable text layers),
+    ``replace_broken_text_layer`` (#1006: OCR only the pages whose text layer
+    is broken; docling keeps it on ``ocr_options`` too),
     ``do_picture_classification`` / ``do_code_enrichment`` /
     ``do_formula_enrichment`` (the opt-in enrichment models),
     ``do_picture_ocr`` + ``picture_ocr_classes`` / ``picture_ocr_min_side`` /
@@ -157,9 +180,13 @@ class PdfPipelineOptions:
     do_ocr: bool = True
     do_table_structure: bool = True
     force_full_page_ocr: bool = False
+    replace_broken_text_layer: bool = False
     no_text_panels: bool = False
     heading_hierarchy_options: HeadingHierarchyOptions = field(
         default_factory=HeadingHierarchyOptions
+    )
+    script_position_options: ScriptPositionOptions = field(
+        default_factory=ScriptPositionOptions
     )
     do_picture_classification: bool = False
     do_code_enrichment: bool = False
@@ -189,6 +216,11 @@ class PdfPipelineOptions:
     images_scale: float = 1.0
     generate_page_images: bool = False
     generate_picture_images: bool = False
+    #: docling's ``use_embedded_picture_images`` (#1007, docling#5143): a
+    #: picture whose region holds exactly one embedded image with nothing
+    #: drawn over it gets that bitmap at native resolution instead of the
+    #: render crop; anything uncertain keeps the crop.
+    use_embedded_picture_images: bool = False
     #: docling's picture description enrichment. With
     #: :class:`PictureDescriptionApiOptions` (docling's, or this module's)
     #: the engine describes every picture through the OpenAI-compatible

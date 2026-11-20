@@ -12,57 +12,15 @@
 
 Wikipedia (en)
 
-DM Mathematics
-
 Github
+
+DM Mathematics
 
 Wikipedia (en)
 
-DM Mathematics
-
 Github
 
-Wikipedia (en)
-
-DM Mathematics
-
-Github
-
-Wikipedia (en)
-
-DM Mathematics
-
-Github
-
-Wikipedia (en)
-
-DM Mathematics
-
-Github
-
-Wikipedia (en)
-
-DM Mathematics
-
-Github
-
-Wikipedia (en)
-
-DM Mathematics
-
-Github
-
-Wikipedia (en)
-
-DM Mathematics
-
-Github
-
-Wikipedia (en)
-
-DM Mathematics
-
-Github Aux-Loss-Based Layer 7
+DM Mathematics Aux-Loss-Based Layer 7
 
 1 2 3 4 5 6 7 8 9 10 11 1213141516171819202122232425262728293031323334353637383940414243444546474849505152535455565758596061626364
 
@@ -109,3 +67,45 @@ Aux-Loss-Based Layer 12
 Aux-Loss-Free Layer 12
 
 1 2 3 4 5 6 7 8 9 10 11 1213141516171819202122232425262728293031323334353637383940414243444546474849505152535455565758596061626364
+
+Wikipedia (en)
+
+Github
+
+DM Mathematics
+
+Wikipedia (en)
+
+Github
+
+DM Mathematics
+
+Wikipedia (en)
+
+Github
+
+DM Mathematics
+
+Wikipedia (en)
+
+Github
+
+DM Mathematics
+
+Wikipedia (en)
+
+Github
+
+DM Mathematics
+
+Wikipedia (en)
+
+Github
+
+DM Mathematics
+
+Wikipedia (en)
+
+Github
+
+DM Mathematics

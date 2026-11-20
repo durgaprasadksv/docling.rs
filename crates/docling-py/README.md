@@ -3,7 +3,7 @@
 A **strangler-fig drop-in** for Python docling's common conversion path,
 backed by the Rust [docling.rs](https://github.com/docling-project/docling.rs) engine:
 same call shape, no torch, ~4× faster PDF conversion at a fraction of the
-memory (see [`docs/PDF_CONFORMANCE.md`](../../docs/PDF_CONFORMANCE.md)).
+memory (see [`docs/PERFORMANCE.md`](../../docs/PERFORMANCE.md)).
 
 ```python
 # was:  from docling.document_converter import DocumentConverter
@@ -11,7 +11,7 @@ from docling_rs import DocumentConverter
 
 result = DocumentConverter().convert("document.pdf")
 print(result.document.export_to_markdown())
-data = result.document.export_to_dict()     # docling-core JSON wire format (schema 1.10.0)
+data = result.document.export_to_dict()     # docling-core JSON wire format (schema 1.11.0)
 ```
 
 **Coming from [MarkItDown](https://github.com/microsoft/markitdown)?** The same
@@ -335,7 +335,7 @@ PY
 
 | docling.rs | docling counterpart | notes |
 |---|---|---|
-| `DocumentConverter(format_options=None, *, allowed_formats=None, do_ocr=True, do_table_structure=True, force_full_page_ocr=False, no_text_panels=False, heading_hierarchy=False, do_picture_classification=False, do_code_enrichment=False, do_formula_enrichment=False, do_picture_ocr=False, picture_ocr_classes=None, picture_ocr_min_side=None, picture_ocr_scale=None, keep_picture_images=True, redact_pii=False, redact_mode=None, redact_kinds=None, redact_pattern=None, redact_images=None, fetch_images=False, use_web_browser=False, artifacts_path=None, ocr_lang=None, ocr_textline_orientation=None, asr_model=None, asr_lang=None, pipeline=None, vlm_endpoint=None, vlm_model=None, vlm_api_key=None, vlm_prompt=None, vlm_max_tokens=None)` | `DocumentConverter(allowed_formats=…, format_options=…)` | Pass `{InputFormat.PDF: PdfFormatOption(pipeline_options=PdfPipelineOptions(…))}` or the shorthand kwargs; `allowed_formats` restricts conversion; `artifacts_path` overrides the model cache dir. |
+| `DocumentConverter(format_options=None, *, allowed_formats=None, do_ocr=True, do_table_structure=True, force_full_page_ocr=False, replace_broken_text_layer=False, no_text_panels=False, heading_hierarchy=False, script_positions=False, do_picture_classification=False, do_code_enrichment=False, do_formula_enrichment=False, do_picture_ocr=False, picture_ocr_classes=None, picture_ocr_min_side=None, picture_ocr_scale=None, keep_picture_images=True, redact_pii=False, redact_mode=None, redact_kinds=None, redact_pattern=None, redact_images=None, fetch_images=False, use_web_browser=False, artifacts_path=None, ocr_lang=None, ocr_textline_orientation=None, asr_model=None, asr_lang=None, pipeline=None, vlm_endpoint=None, vlm_model=None, vlm_api_key=None, vlm_prompt=None, vlm_max_tokens=None)` | `DocumentConverter(allowed_formats=…, format_options=…)` | Pass `{InputFormat.PDF: PdfFormatOption(pipeline_options=PdfPipelineOptions(…))}` or the shorthand kwargs; `allowed_formats` restricts conversion; `artifacts_path` overrides the model cache dir. |
 | `.convert(path \| url \| DocumentStream) -> ConversionResult` | `.convert(source)` | str / `pathlib.Path` / `http(s)://` URL (downloaded first; a YouTube watch URL becomes the video's title, description and caption transcript as timed items, #681; the format comes from the file name, else the response's `Content-Type`) / `DocumentStream`. Releases the GIL during conversion. |
 | `.convert_all(sources, raises_on_error=True) -> Iterator[ConversionResult]` | same | lazily converts many sources; `raises_on_error=False` yields a `failure` result instead of raising |
 | `.initialize_pipeline(format=None)` | same | pre-loads the PDF/image ML models so the first conversion isn't slow and later PDFs reuse the warm pipeline (no-op for non-ML formats; needs the models available) |
@@ -904,7 +904,7 @@ it is also why the CI job builds on plain `ubuntu-24.04` instead of the
 manylinux_2_28 container the CPU wheels use (linking there fails on
 `__isoc23_*`). Measured end-to-end on an RTX 3080 Laptop: 1.5–2.1× on
 multi-page digital PDFs, 8.7× on a 1913-page manual (see
-[`PDF_CONFORMANCE.md`](../../docs/PDF_CONFORMANCE.md#measured-on-real-hardware-issue-108)).
+[`PERFORMANCE.md`](../../docs/PERFORMANCE.md#measured-on-real-hardware-issue-108)).
 
 Local build mirroring the CI wheel (order matters — the provider libraries
 must exist *and* sit inside `python/docling_rs/` before the wheel is

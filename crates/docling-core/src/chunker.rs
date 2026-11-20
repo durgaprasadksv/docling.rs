@@ -26,7 +26,7 @@ use crate::document::{DoclingDocument, Node, Table};
 
 /// What kind of document item a [`ChunkItem`] points at — only what the
 /// hybrid splitting logic needs to know.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChunkItemKind {
     /// A text-ish item (paragraph, list item, code, formula, caption, …).
     Text,
@@ -101,7 +101,20 @@ impl HierarchicalChunker {
     /// without materializing the whole `Vec` first. A `false` return from
     /// `sink` cancels the walk. [`Self::chunk`] is this with a collecting
     /// sink — the chunks and their order are identical.
+    ///
+    /// Each chunk's [`ChunkItem::self_ref`] is the item's ref in the
+    /// document's [JSON export](DoclingDocument::export_to_json_value)
+    /// (#1041): the walk numbers the flat nodes, which is the JSON's
+    /// numbering only for a document without an item tree, so the refs are
+    /// mapped onto the export's items ([`RefMapper`]).
     pub fn chunk_with(&self, doc: &DoclingDocument, sink: &mut dyn FnMut(DocChunk) -> bool) {
+        let mut mapper = RefMapper::new(&doc.export_to_json_value());
+        Self::walk_nodes(doc, &mut |c| sink(mapper.remap(c)));
+    }
+
+    /// The walk itself, its refs in the flat nodes' numbering — what
+    /// [`HybridChunker`] splits and merges before the refs are mapped.
+    fn walk_nodes(doc: &DoclingDocument, sink: &mut dyn FnMut(DocChunk) -> bool) {
         let mut w = Walker {
             alloc: Alloc::default(),
             headings: BTreeMap::new(),
@@ -110,6 +123,377 @@ impl HierarchicalChunker {
         };
         w.walk(&doc.nodes);
     }
+}
+
+/// Maps the walk's chunk items onto the document's JSON export — a port of
+/// `docling_rs.chunking._RefMapper`, which the Python binding has applied to
+/// the caller's document since #1012.
+///
+/// The walk numbers the flat nodes the way the JSON export numbers a
+/// document *without* an item tree; a backend's tree (HTML, DOCX, ODF, JATS,
+/// LaTeX, …) is numbered by its own structure — a furniture title first, an
+/// inline paragraph as several runs, empty items kept — so the refs drift
+/// (#1041: on the corpus half of the text refs pointed at another item). The
+/// items still arrive in (nearly) reading order with their kind and Markdown
+/// text, so each is matched against the export's items walked in the same
+/// order (the `body` tree, pictures and tables not descended): a table or
+/// picture to the next untaken one of its kind, a text to an item it renders
+/// exactly (`Section 2` for `[Section 2](#s2)`, `x` for `- x`), else by
+/// containment close to the last match — an inline paragraph the walk
+/// reports as one item then maps to the run of items it contains. Candidates
+/// lie in a window around the last match, so an item emitted out of tree
+/// order (a caption next to its float) neither strands the rest nor goes
+/// unmatched; an item repeated across the chunks it is split into maps to
+/// the same items again. An item that matches nothing is left out rather
+/// than pointed at the wrong item.
+struct RefMapper {
+    /// The export's items in reading order: `(ref, kind, normalized text)`.
+    order: Vec<(String, ChunkItemKind, String)>,
+    /// Per item, a list item's marker and text as its Markdown prints them
+    /// (`甲. 甲项`), the marker being a field of its own in the JSON.
+    marked: Vec<Option<String>>,
+    taken: Vec<bool>,
+    /// The earliest untaken item.
+    low: usize,
+    /// One past the latest match.
+    last: usize,
+    seen: std::collections::HashMap<(String, ChunkItemKind, String), Vec<usize>>,
+}
+
+impl RefMapper {
+    const WINDOW: usize = 64;
+    const NEAR: usize = 16;
+    const MIN_CONTAINED: usize = 4;
+
+    fn new(doc: &serde_json::Value) -> Self {
+        use serde_json::Value;
+        let mut index: std::collections::HashMap<&str, &Value> = std::collections::HashMap::new();
+        for key in [
+            "texts",
+            "tables",
+            "pictures",
+            "groups",
+            "field_regions",
+            "field_items",
+            "key_value_items",
+            "form_items",
+        ] {
+            for it in doc.get(key).and_then(Value::as_array).into_iter().flatten() {
+                if let Some(r) = it.get("self_ref").and_then(Value::as_str) {
+                    index.insert(r, it);
+                }
+            }
+        }
+        let children = |v: &Value| -> Vec<String> {
+            v.get("children")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|c| c.get("$ref").or_else(|| c.get("cref")))
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        };
+        let mut order = Vec::new();
+        let mut marked: Vec<Option<String>> = Vec::new();
+        let mut stack: Vec<std::vec::IntoIter<String>> = doc
+            .get("body")
+            .map(|b| vec![children(b).into_iter()])
+            .unwrap_or_default();
+        // A crafted document can list an item twice or cyclically: each is
+        // walked once.
+        let mut visited = std::collections::HashSet::new();
+        while let Some(top) = stack.last_mut() {
+            let Some(r) = top.next() else {
+                stack.pop();
+                continue;
+            };
+            let Some(it) = index.get(r.as_str()).copied() else {
+                continue;
+            };
+            if !visited.insert(r.clone()) {
+                continue;
+            }
+            let text_of = |it: &Value| norm(it.get("text").and_then(Value::as_str).unwrap_or(""));
+            if r.starts_with("#/texts/") {
+                let marker = it.get("marker").and_then(Value::as_str).unwrap_or("");
+                while marked.len() < order.len() {
+                    marked.push(None);
+                }
+                marked
+                    .push((!marker.is_empty()).then(|| norm(&format!("{marker} {}", text_of(it)))));
+                order.push((r, ChunkItemKind::Text, text_of(it)));
+            } else if r.starts_with("#/tables/") || r.starts_with("#/pictures/") {
+                // A float is not descended, but its captions and footnotes are
+                // chunked with it — wherever they hang (a PDF caption is the
+                // float's child, a declarative one the body's).
+                let refs = |key: &str| -> Vec<String> {
+                    it.get(key)
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|c| c.get("$ref").and_then(Value::as_str))
+                        .map(str::to_string)
+                        .collect()
+                };
+                let mut sat = |order: &mut Vec<(String, ChunkItemKind, String)>, key: &str| {
+                    for c in refs(key) {
+                        if let Some(t) = index.get(c.as_str()) {
+                            if visited.insert(c.clone()) {
+                                order.push((c, ChunkItemKind::Text, text_of(t)));
+                            }
+                        }
+                    }
+                };
+                sat(&mut order, "captions");
+                let kind = if r.starts_with("#/tables/") {
+                    ChunkItemKind::Table
+                } else {
+                    ChunkItemKind::Picture
+                };
+                order.push((r, kind, String::new()));
+                sat(&mut order, "footnotes");
+                continue;
+            }
+            stack.push(children(it).into_iter());
+        }
+        let n = order.len();
+        marked.resize(n, None);
+        RefMapper {
+            order,
+            marked,
+            taken: vec![false; n],
+            low: 0,
+            last: 0,
+            seen: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Untaken items of `kind` in `[lo, hi)`, nearest-first: forward from
+    /// the last match, then backward.
+    fn near(&self, lo: usize, hi: usize, used: &[usize], kind: ChunkItemKind) -> Vec<usize> {
+        let last = self.last.max(lo).min(hi);
+        (last..hi)
+            .chain((lo..last).rev())
+            .filter(|&i| !self.taken[i] && !used.contains(&i) && self.order[i].1 == kind)
+            .collect()
+    }
+
+    fn find(
+        &self,
+        (lo, hi): (usize, usize),
+        used: &[usize],
+        kind: ChunkItemKind,
+        text: &str,
+    ) -> Option<usize> {
+        if kind != ChunkItemKind::Text {
+            return self.near(lo, hi, used, kind).first().copied();
+        }
+        let plain = plain(text);
+        if let Some(i) = self
+            .near(lo, hi, used, kind)
+            .into_iter()
+            .find(|&i| self.matches(i, text, &plain))
+        {
+            return Some(i);
+        }
+        // Containment only close to the last match and for texts long enough
+        // to mean something: a short one ("duck", ")") is contained in many
+        // renderings and would pull the mapping out of step.
+        let near_lo = lo.max(self.last.saturating_sub(Self::NEAR));
+        let near_hi = hi.min(self.last + Self::NEAR);
+        if near_lo >= near_hi {
+            return None;
+        }
+        self.near(near_lo, near_hi, used, kind)
+            .into_iter()
+            .find(|&i| {
+                let t = &self.order[i].2;
+                t.chars().count() >= Self::MIN_CONTAINED && text.contains(t.as_str())
+            })
+    }
+
+    /// Whether item `i` is what `text` (or its plain form) renders exactly.
+    fn matches(&self, i: usize, text: &str, plain: &str) -> bool {
+        let t = &self.order[i].2;
+        t == text || t == plain || self.marked[i].as_deref().is_some_and(|m| m == plain)
+    }
+
+    /// Past the window, forward from the last match: an item matched
+    /// exactly, or a long one the rendering contains — what is left when the
+    /// walk skipped more of the export than the window spans (a large
+    /// region it does not chunk). Short texts never match this far.
+    fn find_far(&self, used: &[usize], kind: ChunkItemKind, text: &str) -> Option<usize> {
+        const FAR_CONTAINED: usize = 16;
+        // Bounded, so a document whose walk emits many items the export
+        // lacks stays linear.
+        const FAR: usize = 4096;
+        if kind != ChunkItemKind::Text || text.chars().count() < FAR_CONTAINED {
+            return None;
+        }
+        let plain = plain(text);
+        let free = |i: &usize| !self.taken[*i] && !used.contains(i) && self.order[*i].1 == kind;
+        let end = self.order.len().min(self.last + FAR);
+        let far = || (self.last..end).filter(free);
+        far().find(|&i| self.matches(i, text, &plain)).or_else(|| {
+            far().find(|&i| {
+                let t = &self.order[i].2;
+                t.chars().count() >= FAR_CONTAINED && text.contains(t.as_str())
+            })
+        })
+    }
+
+    /// A text the walk split off one of the export's items (a paragraph cut
+    /// at what its inline parser took for markup): the item that contains
+    /// it — the latest match first, though already taken, then an untaken
+    /// one close to it. Only for texts long enough to place.
+    fn part_of(&self, lo: usize, hi: usize, text: &str) -> Option<usize> {
+        let piece = plain(text);
+        if piece.chars().count() < 2 * Self::MIN_CONTAINED {
+            return None;
+        }
+        let contains = |i: usize| {
+            self.order[i].1 == ChunkItemKind::Text && self.order[i].2.contains(piece.as_str())
+        };
+        if let Some(prev) = self.last.checked_sub(1).filter(|&p| contains(p)) {
+            return Some(prev);
+        }
+        let near_lo = lo.max(self.last.saturating_sub(Self::NEAR));
+        let near_hi = hi.min(self.last + Self::NEAR);
+        (near_lo..near_hi).find(|&i| !self.taken[i] && contains(i))
+    }
+
+    /// The text items after a containment match that the same rendering
+    /// also contains, in order — the runs of an inline paragraph.
+    fn runs_after(&self, hit: usize, hi: usize, used: &[usize], text: &str) -> Vec<usize> {
+        let first = &self.order[hit].2;
+        let mut pos = text.find(first.as_str()).map_or(0, |p| p + first.len());
+        let mut extra = Vec::new();
+        let mut j = hit + 1;
+        while j < hi
+            && !self.taken[j]
+            && !used.contains(&j)
+            && self.order[j].1 == ChunkItemKind::Text
+        {
+            let t = &self.order[j].2;
+            let Some(at) = (!t.is_empty())
+                .then(|| text.get(pos..).and_then(|rest| rest.find(t.as_str())))
+                .flatten()
+            else {
+                break;
+            };
+            extra.push(j);
+            pos += at + t.len();
+            j += 1;
+        }
+        extra
+    }
+
+    fn remap(&mut self, mut chunk: DocChunk) -> DocChunk {
+        let n = chunk.doc_items.len();
+        let lo = self.low.max(self.last.saturating_sub(Self::WINDOW));
+        let hi = self.order.len().min(self.last + Self::WINDOW + n);
+        let mut used: Vec<usize> = Vec::new();
+        let mut items = Vec::with_capacity(n);
+        for item in std::mem::take(&mut chunk.doc_items) {
+            let text = norm(&item.text);
+            let key = (item.self_ref.clone(), item.kind, text.clone());
+            let mut runs = self
+                .seen
+                .get(&key)
+                .filter(|r| !r.iter().any(|h| used.contains(h)))
+                .cloned();
+            if runs.is_none() && lo < hi {
+                let hit = self
+                    .find((lo, hi), &used, item.kind, &text)
+                    .or_else(|| self.find_far(&used, item.kind, &text));
+                if let Some(hit) = hit {
+                    let mut r = vec![hit];
+                    if item.kind == ChunkItemKind::Text && !self.matches(hit, &text, &plain(&text))
+                    {
+                        r.extend(self.runs_after(hit, hi, &used, &text));
+                    }
+                    self.seen.insert(key, r.clone());
+                    runs = Some(r);
+                } else if item.kind == ChunkItemKind::Text {
+                    runs = self.part_of(lo, hi, &text).map(|h| vec![h]);
+                }
+            }
+            let Some(runs) = runs else {
+                crate::debug_log!(
+                    "chunker: no JSON item for {} ({:?}) in [{lo}, {hi}), last {}",
+                    item.self_ref,
+                    text.chars().take(60).collect::<String>(),
+                    self.last
+                );
+                continue;
+            };
+            for (k, &h) in runs.iter().enumerate() {
+                if items
+                    .iter()
+                    .any(|i: &ChunkItem| i.self_ref == self.order[h].0)
+                {
+                    continue; // another piece of the same item
+                }
+                used.push(h);
+                self.taken[h] = true;
+                self.last = self.last.max(h + 1);
+                // The walk's item keeps its own text (what the hybrid splitter
+                // re-serializes); the runs after it are the export's items.
+                items.push(ChunkItem {
+                    self_ref: self.order[h].0.clone(),
+                    kind: item.kind,
+                    text: if k == 0 {
+                        item.text.clone()
+                    } else {
+                        self.order[h].2.clone()
+                    },
+                });
+            }
+        }
+        while self.low < self.taken.len() && self.taken[self.low] {
+            self.low += 1;
+        }
+        chunk.doc_items = items;
+        chunk
+    }
+}
+
+/// `_norm`: an item text comparable to its Markdown rendering — entities
+/// decoded, escapes dropped, whitespace collapsed.
+fn norm(text: &str) -> String {
+    crate::doclang_xml::decode_entities(text)
+        .replace('\\', "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `_plain`: a Markdown item rendering reduced toward the item's plain text —
+/// link targets, emphasis and code markers and a heading or list prefix
+/// dropped.
+fn plain(md: &str) -> String {
+    use std::sync::OnceLock;
+    static LINK: OnceLock<regex::Regex> = OnceLock::new();
+    static PREFIX: OnceLock<regex::Regex> = OnceLock::new();
+    let link = LINK.get_or_init(|| regex::Regex::new(r"!?\[([^\]]*)\]\([^)]*\)").expect("static"));
+    let prefix = PREFIX.get_or_init(|| {
+        regex::Regex::new(r"^(#{1,6}(\s+|$)|[-*+](\s+\[[ xX]\])?(\s+|$)|\d+[.)](\s+|$))")
+            .expect("static")
+    });
+    let mut text = link.replace_all(md, "$1").into_owned();
+    for marker in ["**", "~~", "`", "*"] {
+        text = text.replace(marker, "");
+    }
+    let text = prefix.replace(&text, "");
+    // A formula renders in `$$…$$` / `$…$`.
+    let text = text.trim();
+    let text = text
+        .strip_prefix("$$")
+        .and_then(|t| t.strip_suffix("$$"))
+        .or_else(|| text.strip_prefix('$').and_then(|t| t.strip_suffix('$')))
+        .unwrap_or(text);
+    text.trim().to_string()
 }
 
 /// Ref allocator mirroring the numbering `json.rs` gives every item, so
@@ -197,7 +581,7 @@ impl Walker<'_> {
         if body.is_empty() {
             return;
         }
-        let segments: Vec<String> = inline_segments_tagged(md_text)
+        let segments: Vec<String> = inline_segments_tagged(md_text, runs)
             .into_iter()
             .flat_map(|(text, is_plain)| {
                 if is_plain {
@@ -416,31 +800,22 @@ impl Walker<'_> {
                 } else {
                     level.saturating_sub(1)
                 };
-                let self_ref = self.alloc.text();
+                self.alloc.text();
                 // docling stores heading text unformatted: a heading that is one
                 // uniformly formatted span keeps its plain text; a *partially*
-                // formatted heading becomes an empty heading whose content is an
-                // inline group — which the chunker then yields as a chunk of its
-                // own (under the freshly-set empty heading).
+                // formatted heading becomes an empty heading whose only child is
+                // an inline group. docling-core 2.106 (docling-core#924, #1012)
+                // serializes that child as the heading's context and consumes
+                // it, so it is no longer a body chunk under an empty heading.
                 let runs = crate::inline_runs_from_markdown(text);
-                if runs.len() <= 1 {
-                    let plain = runs
-                        .first()
+                let heading = if runs.len() <= 1 {
+                    runs.first()
                         .map(|r| r.text.clone())
-                        .unwrap_or_else(|| text.clone());
-                    self.set_heading(doc_level, unescape_text(&plain));
+                        .unwrap_or_else(|| text.clone())
                 } else {
-                    self.set_heading(doc_level, String::new());
-                    let body = unescape_text(text);
-                    self.emit(
-                        body.clone(),
-                        vec![ChunkItem {
-                            self_ref,
-                            kind: ChunkItemKind::Text,
-                            text: body,
-                        }],
-                    );
-                }
+                    text.clone()
+                };
+                self.set_heading(doc_level, unescape_text(&heading));
             }
             Node::Paragraph { text } | Node::ListText { text, .. } => {
                 let t = text.trim();
@@ -487,11 +862,19 @@ impl Walker<'_> {
             }
             // An enriched display formula chunks like docling's formula item:
             // the LaTeX is the chunk text.
-            // An undecoded formula (empty LaTeX) has nothing to retrieve.
-            Node::Formula { latex, .. } if latex.is_empty() => {}
-            Node::Formula { latex, .. } => {
+            Node::Formula { latex, orig, .. } => {
+                // The item takes its `#/texts/N` slot whatever it prints.
                 let self_ref = self.alloc.text();
-                let body = format!("$${}$$", latex);
+                // An undecoded formula (#1120) chunks as the Markdown
+                // serializer prints it — the placeholder — and one with no
+                // text at all is no chunk.
+                let body = if !latex.is_empty() {
+                    format!("$${}$$", latex)
+                } else if !orig.is_empty() {
+                    crate::markdown::FORMULA_NOT_DECODED.to_string()
+                } else {
+                    return;
+                };
                 self.emit(
                     body.clone(),
                     vec![ChunkItem {
@@ -514,16 +897,48 @@ impl Walker<'_> {
                 );
             }
             Node::Table(t) => {
+                // `TripletTableSerializer`: the captions open the table's
+                // chunk and are among its doc items — the caption is the
+                // `#/texts/N` item the JSON writes ahead of the table (#1041:
+                // it took no ref here, so every later text ref pointed one
+                // item too early).
+                let mut items = Vec::new();
+                let mut parts = Vec::new();
+                if let Some(cap) = t.caption.as_deref().filter(|c| !c.is_empty()) {
+                    let text = unescape_text(cap);
+                    parts.push(text.clone());
+                    items.push(ChunkItem {
+                        self_ref: self.alloc.text(),
+                        kind: ChunkItemKind::Text,
+                        text,
+                    });
+                }
                 let self_ref = self.alloc.table();
                 let body = triplet_table_text(t);
-                self.emit(
-                    body.clone(),
-                    vec![ChunkItem {
-                        self_ref,
-                        kind: ChunkItemKind::Table,
-                        text: body,
-                    }],
-                );
+                items.push(ChunkItem {
+                    self_ref,
+                    kind: ChunkItemKind::Table,
+                    text: body.clone(),
+                });
+                // docling-core#675: the table's footnotes (the `footnote`
+                // texts the JSON writes after it) close its chunk, one
+                // paragraph each, and are among its doc items.
+                parts.push(body);
+                for note in t.footnotes.iter().filter(|n| !n.is_empty()) {
+                    let text = unescape_text(note);
+                    parts.push(text.clone());
+                    items.push(ChunkItem {
+                        self_ref: self.alloc.text(),
+                        kind: ChunkItemKind::Text,
+                        text,
+                    });
+                }
+                let body = parts
+                    .into_iter()
+                    .filter(|p| !p.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                self.emit(body, items);
             }
             Node::Picture {
                 caption,
@@ -669,6 +1084,7 @@ impl Walker<'_> {
             | Node::Spanned { inner, .. }
             | Node::Prov { inner, .. }
             | Node::Track { inner, .. }
+            | Node::ScriptText { inner, .. }
             | Node::Commented { inner, .. } => self.one(inner),
             // A PDF page header/footer is a furniture-layer JSON text item:
             // never chunked (docling's chunker reads the body layer), but it
@@ -703,6 +1119,7 @@ impl Walker<'_> {
             | Node::Furniture { .. }
             | Node::PageBreak
             | Node::PageInfo { .. }
+            | Node::ProvContinuation { .. }
             | Node::Anchor { .. }
             | Node::DoclangOnly(_) => {}
             // Runs are grouped by `walk`; a stray single item (hand-built
@@ -895,7 +1312,7 @@ fn triplet_table_text(t: &Table) -> String {
 /// uniform item. The single space docling's serializer inserts between inline
 /// items is stripped from the adjacent plain runs.
 fn inline_segments(md: &str) -> Vec<String> {
-    inline_segments_tagged(md)
+    inline_segments_tagged(md, &[])
         .into_iter()
         .map(|(t, _)| t)
         .collect()
@@ -904,7 +1321,20 @@ fn inline_segments(md: &str) -> Vec<String> {
 /// Like [`inline_segments`], with each segment tagged `true` when it came from
 /// plain (unmarked) text — those may still need splitting at run boundaries
 /// invisible in markdown (underline, soft breaks).
-fn inline_segments_tagged(md: &str) -> Vec<(String, bool)> {
+///
+/// `runs` are the node's structured inline runs (empty for a plain
+/// paragraph). The flat text cannot tell an inline formula's `$…$` from a
+/// literal dollar sign (`a bet of $5 … has won $6`, #1065), so a `$…$` span
+/// is a formula only when it is one: when the node carries `formula` runs,
+/// the span's LaTeX must be one of them; otherwise it must satisfy Pandoc's
+/// `tex_math_dollars` delimiter rule ([`dollar_math_closer`]), which no
+/// currency amount does.
+fn inline_segments_tagged(md: &str, runs: &[crate::InlineRun]) -> Vec<(String, bool)> {
+    let formula_runs: Vec<&str> = runs
+        .iter()
+        .filter(|r| r.formula)
+        .map(|r| r.text.trim())
+        .collect();
     let chars: Vec<char> = md.chars().collect();
     let n = chars.len();
     let find = |from: usize, pat: &str| -> Option<usize> {
@@ -1048,7 +1478,15 @@ fn inline_segments_tagged(md: &str) -> Vec<(String, bool)> {
         }
         // An inline formula: standalone it re-serializes in display form.
         if chars[i] == '$' {
-            if let Some(end) = find(i + 1, "$") {
+            let end = if formula_runs.is_empty() {
+                dollar_math_closer(&chars, i)
+            } else {
+                find(i + 1, "$").filter(|&end| {
+                    let latex: String = chars[i + 1..end].iter().collect();
+                    formula_runs.contains(&latex.trim())
+                })
+            };
+            if let Some(end) = end {
                 if end > i + 1 {
                     flush(&mut out, &mut plain, true, after_span);
                     let latex: String = chars[i + 1..end].iter().collect();
@@ -1067,6 +1505,23 @@ fn inline_segments_tagged(md: &str) -> Vec<(String, bool)> {
         out.push((unescape_text(md), true));
     }
     out
+}
+
+/// The closing `$` of an inline formula opened at `open`, by Pandoc's
+/// `tex_math_dollars` rule: the opener has a non-space character right after
+/// it, the closer is the next `$`, has a non-space character right before it
+/// and is not followed by a digit. `$5 riding … won $6` fails it twice (a
+/// space before the second `$`, a digit after it), so a price is never a
+/// formula, while `$x$`, `$a+b$` and `$E=mc^2$` still are.
+fn dollar_math_closer(chars: &[char], open: usize) -> Option<usize> {
+    let first = *chars.get(open + 1)?;
+    if first.is_whitespace() || first == '$' {
+        return None;
+    }
+    let end = open + 1 + chars[open + 1..].iter().position(|&c| c == '$')?;
+    let before_ok = !chars[end - 1].is_whitespace();
+    let after_ok = !chars.get(end + 1).is_some_and(|c| c.is_ascii_digit());
+    (before_ok && after_ok).then_some(end)
 }
 
 /// Split a plain markdown segment at run boundaries the markdown cannot show
@@ -1207,6 +1662,7 @@ fn block_chunk_text(node: &Node) -> String {
         | Node::Spanned { inner, .. }
         | Node::Prov { inner, .. }
         | Node::Track { inner, .. }
+        | Node::ScriptText { inner, .. }
         | Node::Commented { inner, .. } => block_chunk_text(inner),
         Node::Group { layer: Some(_), .. } => String::new(),
         Node::Group { children, .. } => children
@@ -1283,9 +1739,13 @@ impl<T: ChunkTokenizer> HybridChunker<T> {
     /// `sink` cancels the chunking. [`Self::chunk`] is this with a collecting
     /// sink — the chunks and their order are identical.
     pub fn chunk_with(&self, doc: &DoclingDocument, sink: &mut dyn FnMut(DocChunk) -> bool) {
+        // The refs are mapped onto the JSON export last, on the chunks as
+        // emitted: the splitting re-serializes the walk's items (#1041).
+        let mut mapper = RefMapper::new(&doc.export_to_json_value());
+        let sink = &mut |c: DocChunk| sink(mapper.remap(c));
         let mut merger = PeerMerger::default();
         let mut alive = true;
-        HierarchicalChunker.chunk_with(doc, &mut |c| {
+        HierarchicalChunker::walk_nodes(doc, &mut |c| {
             for split in self.split_by_doc_items(c) {
                 for chunk in self.split_using_plain_text(split) {
                     if !alive {
@@ -1382,32 +1842,47 @@ impl<T: ChunkTokenizer> HybridChunker<T> {
         }
         let available = max - other_len;
 
-        let segments =
-            if chunk.doc_items.len() == 1 && chunk.doc_items[0].kind == ChunkItemKind::Table {
-                // Table: split line-based, repeating headers. The triplet
-                // serializer has no header lines, so this is a line-preserving
-                // split of the table text. (docling constructs the line chunker
-                // with the *tokenizer's* max_tokens — the `max_tokens=available`
-                // argument is silently dropped by pydantic — so the line budget is
-                // the full window, not `available`.)
-                let lines: Vec<String> = chunk
-                    .text
-                    .split('\n')
-                    .filter(|l| !l.trim().is_empty())
-                    .map(|l| l.to_string())
-                    .collect();
-                line_chunk_text(&lines, &self.tokenizer, max)
-            } else {
-                semchunk(&chunk.text, available, &self.tokenizer)
-            };
-        segments
-            .into_iter()
-            .map(|s| DocChunk {
-                text: s,
-                headings: chunk.headings.clone(),
-                doc_items: chunk.doc_items.clone(),
-            })
-            .collect()
+        let make = |segments: Vec<String>| -> Vec<DocChunk> {
+            segments
+                .into_iter()
+                .map(|s| DocChunk {
+                    text: s,
+                    headings: chunk.headings.clone(),
+                    doc_items: chunk.doc_items.clone(),
+                })
+                .collect()
+        };
+        if chunk.doc_items.len() == 1 && chunk.doc_items[0].kind == ChunkItemKind::Table {
+            // Table: split line-based. The triplet serializer has no header
+            // lines, so this is a line-preserving split of the table text.
+            // docling-core ≥ 2.103 (docling-core#690, docling.rs#987) budgets
+            // the pieces at `available` (the window minus the heading path),
+            // like text, and re-splits with a smaller budget when a piece's
+            // `contextualize()` still overshoots — token counts are not
+            // additive, so the subtraction alone can leave a piece a token
+            // or two over. (≤ 2.102 packed the full window, so every piece
+            // overran by the heading length — a deliberate fix here.)
+            let lines: Vec<String> = chunk
+                .text
+                .split('\n')
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| l.to_string())
+                .collect();
+            let mut budget = available;
+            loop {
+                let pieces = make(line_chunk_text(&lines, &self.tokenizer, budget));
+                let overflow = pieces
+                    .iter()
+                    .map(|p| self.count_chunk_tokens(p).saturating_sub(max))
+                    .max()
+                    .unwrap_or(0);
+                if overflow == 0 || budget <= overflow {
+                    return pieces;
+                }
+                budget -= overflow;
+            }
+        }
+        make(semchunk(&chunk.text, available, &self.tokenizer))
     }
 
     /// One step of docling's `_merge_chunks_with_matching_metadata`, streamed:
@@ -2392,6 +2867,112 @@ mod tests {
         assert_eq!(chunks[1].doc_items[0].self_ref, "#/texts/2");
     }
 
+    /// #1041: a table's caption is the `#/texts/N` item the JSON writes
+    /// ahead of the table — it opens the table's chunk (docling's
+    /// `TripletTableSerializer`), and the text refs after it stay aligned.
+    #[test]
+    fn captioned_table_keeps_the_text_refs_aligned() {
+        let table = Table {
+            rows: vec![
+                vec!["Year".into(), "Revenue".into()],
+                vec!["2024".into(), "10".into()],
+            ],
+            caption: Some("Table 1: Revenue".into()),
+            ..Table::default()
+        };
+        let doc = doc_with(vec![
+            Node::Table(table.clone()),
+            Node::Paragraph {
+                text: "Revenue grew in 2024.".into(),
+            },
+            Node::Table(table),
+            Node::Paragraph {
+                text: "Costs were flat.".into(),
+            },
+        ]);
+        let chunks = HierarchicalChunker.chunk(&doc);
+        assert_eq!(chunks[0].text, "Table 1: Revenue\n\n2024, Revenue = 10");
+        let refs: Vec<Vec<&str>> = chunks
+            .iter()
+            .map(|c| c.doc_items.iter().map(|i| i.self_ref.as_str()).collect())
+            .collect();
+        assert_eq!(
+            refs,
+            [
+                vec!["#/texts/0", "#/tables/0"],
+                vec!["#/texts/1"],
+                vec!["#/texts/2", "#/tables/1"],
+                vec!["#/texts/3"],
+            ]
+        );
+        let json = doc.export_to_json_value();
+        assert_eq!(json["texts"][1]["text"], "Revenue grew in 2024.");
+        assert_eq!(json["texts"][3]["text"], "Costs were flat.");
+    }
+
+    /// #1041: an item tree numbers the export by its own structure (a
+    /// furniture title first, an inline paragraph as runs); the refs are
+    /// mapped onto it, so each names the item its chunk was built from.
+    #[test]
+    fn refs_follow_an_item_tree() {
+        use crate::tree::{ItemTree, TreeKind};
+        let text = |label: &str, t: &str| TreeKind::Text {
+            label: label.into(),
+            text: t.into(),
+            orig: None,
+            formatting: None,
+            hyperlink: None,
+            level: None,
+            list: None,
+        };
+        let mut doc = doc_with(vec![
+            Node::Paragraph {
+                text: "Lead **bold** tail".into(),
+            },
+            Node::Paragraph {
+                text: "Second.".into(),
+            },
+        ]);
+        let mut t = ItemTree {
+            inline_whitespace: true,
+            ..Default::default()
+        };
+        t.add(
+            None,
+            Some(crate::ContentLayer::Furniture),
+            text("title", "Page"),
+        );
+        let g = t.add(
+            None,
+            None,
+            TreeKind::Group {
+                label: "inline".into(),
+                name: "group".into(),
+            },
+        );
+        t.add(Some(g), None, text("text", "Lead "));
+        t.add(Some(g), None, text("text", "bold"));
+        t.add(Some(g), None, text("text", " tail"));
+        t.add(None, None, text("text", "Second."));
+        doc.tree = Some(t);
+        let refs: Vec<Vec<String>> = HierarchicalChunker
+            .chunk(&doc)
+            .iter()
+            .map(|c| c.doc_items.iter().map(|i| i.self_ref.clone()).collect())
+            .collect();
+        assert_eq!(
+            refs,
+            [
+                vec![
+                    "#/texts/1".to_string(),
+                    "#/texts/2".into(),
+                    "#/texts/3".into()
+                ],
+                vec!["#/texts/4".to_string()],
+            ]
+        );
+    }
+
     /// A picture's children are never chunked, but they take `#/texts/N`
     /// (and list-group) slots in the JSON — the refs after them must still
     /// point at the right items.
@@ -2420,6 +3001,7 @@ mod tests {
                     marker: None,
                     location: None,
                     spans: None,
+                    split: None,
                     dclx: None,
                     href: None,
                     layer: None,
@@ -2456,6 +3038,93 @@ mod tests {
         ]);
         let chunks = HierarchicalChunker.chunk(&doc);
         assert_eq!(chunks[0].headings.as_deref(), Some(&["B".into()][..]));
+    }
+
+    /// #1012 (docling-core#924, `test_rich_heading_chunk_metadata`): a
+    /// partially formatted heading — an empty heading over an inline group
+    /// in docling — is the heading context of the body, not a chunk of its
+    /// own under an empty heading.
+    #[test]
+    fn rich_heading_is_the_heading_context() {
+        for body in [Some("Body."), None] {
+            let mut nodes = vec![Node::Heading {
+                level: 1,
+                text: "Hello **bold** world".into(),
+            }];
+            if let Some(b) = body {
+                nodes.push(Node::Paragraph { text: b.into() });
+            }
+            let doc = doc_with(nodes);
+            for chunks in [
+                HierarchicalChunker.chunk(&doc),
+                HybridChunker::new(WordTok(64)).chunk(&doc),
+            ] {
+                let got: Vec<_> = chunks
+                    .iter()
+                    .map(|c| (c.text.as_str(), c.headings.clone()))
+                    .collect();
+                let want: Vec<_> = body
+                    .map(|b| (b, Some(vec!["Hello **bold** world".to_string()])))
+                    .into_iter()
+                    .collect();
+                assert_eq!(got, want);
+            }
+        }
+    }
+
+    /// #1012 (docling-core#924,
+    /// `test_rich_heading_is_emitted_before_a_sibling_heading`): a rich
+    /// heading shadowed by a sibling leaves no chunk, and the sibling's body
+    /// carries only the sibling.
+    #[test]
+    fn rich_heading_shadowed_by_a_sibling() {
+        let doc = doc_with(vec![
+            Node::Heading {
+                level: 1,
+                text: "Energy *E* here".into(),
+            },
+            Node::Heading {
+                level: 1,
+                text: "Next".into(),
+            },
+            Node::Paragraph {
+                text: "Body.".into(),
+            },
+        ]);
+        let chunks = HierarchicalChunker.chunk(&doc);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].text, "Body.");
+        assert_eq!(chunks[0].headings.as_deref(), Some(&["Next".into()][..]));
+        assert_eq!(chunks[0].doc_items[0].self_ref, "#/texts/2");
+    }
+
+    /// docling.rs#987 (docling-core#690): table pieces are budgeted at the
+    /// window minus the heading path, so `contextualize()` stays in budget.
+    #[test]
+    fn split_table_pieces_fit_with_headings() {
+        let rows: Vec<Vec<String>> = std::iter::once(vec!["".to_string(), "A".into(), "B".into()])
+            .chain((0..40).map(|i| vec![format!("R{i}"), format!("{i}"), format!("v{i}")]))
+            .collect();
+        let doc = doc_with(vec![
+            Node::Heading {
+                level: 1,
+                text: "one two three four five six".into(),
+            },
+            Node::Table(Table {
+                rows,
+                ..Default::default()
+            }),
+        ]);
+        let h = HybridChunker::new(WordTok(20));
+        let chunks = h.chunk(&doc);
+        assert!(chunks.len() > 1);
+        for c in &chunks {
+            assert!(
+                h.count_chunk_tokens(c) <= 20,
+                "over budget: {}",
+                h.count_chunk_tokens(c)
+            );
+        }
     }
 
     #[test]
@@ -2871,5 +3540,64 @@ mod tests {
         let tok = WordTok(4);
         let out = semchunk("one two three. four five six\nseven eight", 4, &tok);
         assert!(out.iter().all(|c| tok.count_tokens(c) <= 4), "{out:?}");
+    }
+
+    /// #1065: a literal `$` in running text (prices) is not an inline-formula
+    /// delimiter — the paragraph stays one item, its text verbatim.
+    #[test]
+    fn dollar_amounts_are_not_inline_formulas() {
+        for text in [
+            "costs $5 and $0.25",
+            "a bet of $5 riding on the game. The player has just won $6 on the game.",
+            "pay $10, get $ 3 back",
+        ] {
+            assert_eq!(
+                inline_segments(text),
+                vec![text.to_string()],
+                "{text:?} was split"
+            );
+            let doc = doc_with(vec![Node::Paragraph { text: text.into() }]);
+            let chunks = HierarchicalChunker.chunk(&doc);
+            assert_eq!(chunks.len(), 1);
+            assert_eq!(chunks[0].text, text);
+            assert_eq!(chunks[0].doc_items.len(), 1);
+            assert_eq!(chunks[0].doc_items[0].text, text);
+        }
+    }
+
+    /// Real inline formulas keep their own item, re-wrapped as `$$…$$`.
+    #[test]
+    fn dollar_math_inline_formulas_still_split() {
+        assert_eq!(
+            inline_segments("where $E=mc^2$ holds"),
+            vec!["where", "$$E=mc^2$$", "holds"]
+        );
+        assert_eq!(inline_segments("$x$"), vec!["$$x$$"]);
+    }
+
+    /// With structured runs, only a `formula` run's LaTeX is a formula — a
+    /// price next to a real equation stays plain text.
+    #[test]
+    fn formula_runs_decide_inline_formulas() {
+        let runs = vec![
+            crate::InlineRun {
+                text: "costs $5, and".into(),
+                ..Default::default()
+            },
+            crate::InlineRun {
+                text: "x + 1".into(),
+                formula: true,
+                ..Default::default()
+            },
+            crate::InlineRun {
+                text: "is $6".into(),
+                ..Default::default()
+            },
+        ];
+        let segs: Vec<String> = inline_segments_tagged("costs $5, and $x + 1$ is $6", &runs)
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        assert_eq!(segs, vec!["costs $5, and", "$$x + 1$$", "is $6"]);
     }
 }

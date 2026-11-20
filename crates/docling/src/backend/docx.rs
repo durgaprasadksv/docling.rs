@@ -41,8 +41,9 @@ pub struct DocxBackend {
     /// in that format after a drawing's picture when its connectors name
     /// their end shapes; Mermaid by default.
     pub extract_diagrams: crate::DiagramFormat,
-    /// A style's `w:outlineLvl` alone makes it a heading (docling#4480's
-    /// `use_outline_level_for_headings`; on by default).
+    /// A `w:outlineLvl` — the paragraph's own, else its style's — alone
+    /// makes it a heading (docling#4480's `use_outline_level_for_headings`;
+    /// on by default).
     pub use_outline_level_for_headings: bool,
 }
 
@@ -63,6 +64,12 @@ impl DeclarativeBackend for DocxBackend {
         let document = pkg
             .read("word/document.xml")
             .ok_or_else(|| ConversionError::Parse("docx: no document.xml".into()))?;
+        // XML comments and processing instructions are stripped from every
+        // part before it is parsed (docling#4584, #1157), the main part's
+        // comments kept as notes-layer text after the reviewer comments.
+        let mut xml_notes = Vec::new();
+        let document = super::ooxml::strip_comments_and_pis_owned(document, Some(&mut xml_notes));
+        pkg.strip_comments_and_pis();
         let styles = pkg.read("word/styles.xml").unwrap_or_default();
         let numbering = pkg.read("word/numbering.xml").unwrap_or_default();
         let even_and_odd_headers = even_and_odd_headers(&mut pkg);
@@ -169,16 +176,23 @@ impl DeclarativeBackend for DocxBackend {
         // a `w:footnoteReference` in the body carries no text of its own, so
         // without reading `word/footnotes.xml` / `word/endnotes.xml` the
         // notes were silently dropped.
-        for note in footnote_texts(&mut pkg, ctx.hidden) {
+        // A note with a link reads with its formatting and links
+        // (docling#5322's inline group); any other stays its plain text.
+        visit_notes(&mut pkg, &ctx, |note, note_ctx| {
+            let text = if note.has_link(note_ctx) {
+                note.paragraphs
+                    .iter()
+                    .map(|p| paragraph_markdown(*p, note_ctx).trim().to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else {
+                super::markdown::escape_html(&super::markdown::escape_underscores(&note.text))
+            };
             doc.nodes.push(Node::Furniture {
                 layer: docling_core::ContentLayer::Furniture,
-                inner: Box::new(Node::Paragraph {
-                    text: super::markdown::escape_html(&super::markdown::escape_underscores(
-                        &note.text,
-                    )),
-                }),
+                inner: Box::new(Node::Paragraph { text }),
             });
-        }
+        });
         // Reviewer comments (docling's `notes` layer) are appended after the
         // body as `comment_section` groups: Markdown/LaTeX drop them, JSON
         // emits the group plus its notes text (and the `comments` back-refs on
@@ -190,7 +204,7 @@ impl DeclarativeBackend for DocxBackend {
         // back-refs — is upstream's; the flat nodes above stay the source for
         // Markdown / DocLang / LaTeX.
         doc.tree = Some(super::docx_tree::build_tree(
-            &mut pkg, body, &ctx, &comments,
+            &mut pkg, body, &ctx, &comments, &xml_notes,
         ));
         for (id, text) in comments {
             doc.nodes.push(Node::CommentSection {
@@ -200,6 +214,16 @@ impl DeclarativeBackend for DocxBackend {
                 // group's, so replies to one comment group together.
                 refs_note_text: false,
                 grouped: true,
+            });
+        }
+        // The main part's XML comments (docling#4584): notes-layer text
+        // after the reviewer comments, which Markdown and LaTeX leave out.
+        for note in xml_notes {
+            doc.nodes.push(Node::Furniture {
+                layer: docling_core::ContentLayer::Notes,
+                inner: Box::new(Node::Paragraph {
+                    text: super::markdown::escape_html(&super::markdown::escape_underscores(&note)),
+                }),
             });
         }
         Ok(doc)
@@ -301,32 +325,44 @@ fn even_and_odd_headers(pkg: &mut Package) -> bool {
         .is_some_and(|n| on_off(attr(n, "val")))
 }
 
-/// One footnote / endnote body ([`footnote_texts`]).
-pub(super) struct DocxNote {
+/// One footnote / endnote body ([`visit_notes`]).
+pub(super) struct DocxNote<'a, 'i> {
     /// `footnote` or `endnote` — which reference element calls it.
     pub(super) kind: &'static str,
     /// The note's `w:id`.
     pub(super) id: String,
+    /// Its non-blank paragraphs' plain texts, joined with one space.
     pub(super) text: String,
+    /// Those paragraphs, for a reading with formatting and links.
+    pub(super) paragraphs: Vec<XmlNode<'a, 'i>>,
 }
 
-/// The body text of every footnote and endnote, in part order (footnotes,
-/// then endnotes) and document order — docling's `_add_footnotes_and_endnotes`
+impl DocxNote<'_, '_> {
+    /// Whether a paragraph of the note holds a hyperlink with a target —
+    /// docling#5322's test for reading the note as an inline group.
+    pub(super) fn has_link(&self, ctx: &Ctx) -> bool {
+        self.paragraphs.iter().any(|p| {
+            p.descendants()
+                .any(|n| n.has_tag_name("hyperlink") && hyperlink_target(n, ctx).is_some())
+        })
+    }
+}
+
+/// Every footnote and endnote body, in part order (footnotes, then
+/// endnotes) and document order — docling's `_add_footnotes_and_endnotes`
 /// (docling#4374): the parts are reached through the document's FOOTNOTES /
 /// ENDNOTES relationships, the `separator` / `continuationSeparator` /
 /// `continuationNotice` placeholders Word writes into every document are
 /// skipped, and a note's non-blank paragraphs — at any depth, so a table in
 /// the note counts, read through the inline wrappers (a tracked insertion,
-/// a content control) like a body paragraph, docling#4735 — are joined with
-/// one space. Each becomes a furniture-layer `footnote` item.
+/// a content control) like a body paragraph, docling#4735 — make its body.
 /// The note's kind (`footnote` / `endnote`) and `w:id` come along: a body
 /// `w:footnoteReference` / `w:endnoteReference` names it by those (#538).
-pub(super) fn footnote_texts(
-    pkg: &mut Package,
-    hidden: &super::docx_hidden::HiddenStyles,
-) -> Vec<DocxNote> {
+/// `visit` gets each note with a [`Ctx`] for its part (docling#5322,
+/// #1160): the part's own relationships, so a link in a note resolves
+/// against `footnotes.xml.rels`, not the document's.
+pub(super) fn visit_notes(pkg: &mut Package, ctx: &Ctx, mut visit: impl FnMut(DocxNote, &Ctx)) {
     const SKIP_TYPES: [&str; 3] = ["separator", "continuationSeparator", "continuationNotice"];
-    let mut out = Vec::new();
     for (rel_suffix, tag) in [("/footnotes", "footnote"), ("/endnotes", "endnote")] {
         let Some(part) = pkg
             .rels_for("word/document.xml")
@@ -340,11 +376,15 @@ pub(super) fn footnote_texts(
             continue;
         };
         let xml = super::mc::resolve_alternate_content(&xml);
-        let xml = super::docx_hidden::resolve_hidden(&xml, hidden, true);
+        let xml = super::docx_hidden::resolve_hidden(&xml, ctx.hidden, true);
         let Ok(dom) = Document::parse(&xml) else {
             eprintln!("docling: failed to parse {tag}s part");
             continue;
         };
+        let rels = part_rels(pkg, &part);
+        let images = pkg.image_rels(&part, "word");
+        let charts = chart_rels(pkg, &part);
+        let note_ctx = ctx.for_part(&rels, &images, &charts);
         for note in dom
             .root_element()
             .children()
@@ -353,22 +393,25 @@ pub(super) fn footnote_texts(
             if attr(note, "type").is_some_and(|t| SKIP_TYPES.contains(&t)) {
                 continue;
             }
-            let texts: Vec<String> = note
+            let (paragraphs, texts): (Vec<_>, Vec<_>) = note
                 .descendants()
                 .filter(|n| n.has_tag_name("p"))
-                .map(|p| plain_paragraph_text(p).trim().to_string())
-                .filter(|t| !t.is_empty())
-                .collect();
+                .map(|p| (p, plain_paragraph_text(p).trim().to_string()))
+                .filter(|(_, t)| !t.is_empty())
+                .unzip();
             if !texts.is_empty() {
-                out.push(DocxNote {
-                    kind: tag,
-                    id: attr(note, "id").unwrap_or_default().to_string(),
-                    text: texts.join(" "),
-                });
+                visit(
+                    DocxNote {
+                        kind: tag,
+                        id: attr(note, "id").unwrap_or_default().to_string(),
+                        text: texts.join(" "),
+                        paragraphs,
+                    },
+                    &note_ctx,
+                );
             }
         }
     }
-    out
 }
 
 /// Walk one header/footer part and append its blocks wrapped in the furniture
@@ -673,7 +716,7 @@ pub(super) fn is_heading_paragraph(p: XmlNode, ctx: &Ctx) -> bool {
         .unwrap_or(style_id);
     named_heading_level(style_id, style_name, ctx).is_some()
         || (ctx.outline_headings
-            && inherited_outline(style_id, ctx).is_some_and(|l| (1..=9).contains(&l)))
+            && outline_level(p, style_id, ctx).is_some_and(|l| (1..=9).contains(&l)))
         || is_title_style(style_id, style_name, ctx)
 }
 
@@ -794,12 +837,20 @@ pub(super) fn paragraph_anchors(p: XmlNode, ctx: &Ctx) -> Vec<String> {
 /// resolves; else the bookmark `w:anchor` names, as `#id`. A relationship
 /// the part lacks and a bookmark the document lacks are diagnosed under
 /// `DOCLING_RS_DEBUG` and leave the text unlinked — never a failed
-/// conversion. `r:id` wins when both are present (Word writes both for a
-/// link into another file's bookmark; the file is the destination).
+/// conversion. With both present (Word writes both for a link into another
+/// file's bookmark) the file is the destination and the bookmark its
+/// fragment: `manual.docx#Installation`, `https://example.org/guide#top` —
+/// docling's `_get_hyperlink_target` (docling#5249, #1159); the fragment
+/// used to be dropped.
 pub(super) fn hyperlink_target(h: XmlNode, ctx: &Ctx) -> Option<String> {
     if let Some(id) = attr(h, "id") {
         match ctx.rels.get(id).filter(|t| !t.is_empty()) {
-            Some(target) => return Some(target.clone()),
+            Some(target) => {
+                return Some(match attr(h, "anchor").filter(|a| !a.is_empty()) {
+                    Some(fragment) => format!("{target}#{fragment}"),
+                    None => target.clone(),
+                })
+            }
             None => docling_core::debug_log!("docx: hyperlink relationship {id} is missing"),
         }
     }
@@ -925,9 +976,9 @@ fn process_block(node: XmlNode, ctx: &Ctx, state: &mut ListState, doc: &mut Docl
         "tbl" => {
             // A 1×1 table is treated as furniture: its single cell's content is
             // processed as document-body blocks (docling unwraps it).
-            let rows: Vec<XmlNode> = node
-                .children()
-                .filter(|n| n.has_tag_name("tr") && row_kept(*n, ctx))
+            let rows: Vec<XmlNode> = table_rows(node)
+                .into_iter()
+                .filter(|n| row_kept(*n, ctx))
                 .collect();
             let num_cols = rows
                 .iter()
@@ -1115,7 +1166,9 @@ fn handle_paragraph_body(
             .find(|n| n.has_tag_name("checked"))
             .and_then(|n| attr(n, "val"))
             == Some("1");
-        let text = clean_checkbox_symbols(&paragraph_markdown(p, ctx));
+        let text = clean_checkbox_symbols(&paragraph_markdown(p, ctx))
+            .trim_end()
+            .to_string();
         doc.push(Node::CheckboxItem { checked, text });
         state.end_list_run();
         state.last_list_num_id = None;
@@ -1146,9 +1199,11 @@ fn handle_paragraph_body(
     // style is a named heading, and it alone promotes a localized or custom
     // style ("Nadpis1", "Rubrik 1") the name check can't see. A Title style
     // keeps its own branch (level 1) either way, and outlineLvl 9 is OOXML's
-    // "body text" sentinel, not a heading.
+    // "body text" sentinel, not a heading. The paragraph's own `w:outlineLvl`
+    // comes before its style's (docling#4129, #1158), so a numbered paragraph
+    // carrying one is a numbered heading, not a list item.
     let named = named_heading_level(style_id, &style_name, ctx);
-    let outline = inherited_outline(style_id, ctx).filter(|l| (1..=9).contains(l));
+    let outline = outline_level(p, style_id, ctx).filter(|l| (1..=9).contains(l));
     let level = match (named, outline) {
         (Some(1), _) => Some(1), // Title
         (Some(_), Some(out)) => Some(out + 1),
@@ -1297,6 +1352,7 @@ fn handle_paragraph_body(
                     marker: Some(marker),
                     location: None,
                     spans: None,
+                    split: None,
                     dclx: None,
                     href: None,
                     layer: None,
@@ -1336,6 +1392,7 @@ fn handle_paragraph_body(
                     marker,
                     location: None,
                     spans: None,
+                    split: None,
                     dclx,
                     href: None,
                     layer: None,
@@ -1379,6 +1436,7 @@ fn handle_paragraph_body(
                 marker: None,
                 location: None,
                 spans: None,
+                split: None,
                 dclx,
                 href: None,
                 layer: None,
@@ -1407,7 +1465,26 @@ fn handle_paragraph_body(
             // one TextItem per element, keeping its formatting): a plain segment
             // is a paragraph, a formatted one an InlineGroup whose single run
             // carries the style (`<text><underline>…</underline></text>`).
-            for (t, f, l) in run_groups(paragraph_run_tuples(p, ctx)) {
+            // docling#3891 keeps a cell paragraph's runs in their inline
+            // group, which moves into the cell as a whole: several groups
+            // are one inline item, concatenated with their own spacing.
+            let tuples = paragraph_run_tuples(p, ctx);
+            let groups = run_groups(tuples.clone());
+            let multi = groups.len() > 1;
+            if multi {
+                let groups = groups.clone();
+                let runs = groups
+                    .into_iter()
+                    .filter(|(t, _, _)| !t.is_empty())
+                    .map(|(t, f, _)| f.to_inline_run(&t))
+                    .collect();
+                doc.push(Node::InlineGroup {
+                    unwrapped: false,
+                    runs,
+                    md_text: group_runs(tuples),
+                });
+            }
+            for (t, f, l) in groups.into_iter().filter(|_| !multi) {
                 let seg = serialize_run(&t, f, l.as_deref());
                 if seg.is_empty() {
                     continue;
@@ -1761,6 +1838,21 @@ pub(super) fn inherited_outline(style_id: &str, ctx: &Ctx) -> Option<u8> {
         .find_map(|sid| ctx.style_outline.get(sid).copied())
 }
 
+/// The 1-indexed `w:outlineLvl` a paragraph resolves to (docling#4129,
+/// #1158): its own direct `pPr/w:outlineLvl` first, else its style's
+/// ([`inherited_outline`]). A paragraph-level 9 — OOXML's body text, stored
+/// as 10 like the style's — masks the style's level: the callers keep only
+/// 1–9, so such a paragraph is a heading by its style *name* alone.
+pub(super) fn outline_level(p: XmlNode, style_id: &str, ctx: &Ctx) -> Option<u8> {
+    p.children()
+        .find(|n| n.has_tag_name("pPr"))
+        .and_then(|ppr| ppr.children().find(|n| n.has_tag_name("outlineLvl")))
+        .and_then(|n| attr(n, "val"))
+        .and_then(|v| v.parse::<u8>().ok())
+        .map(|l| l.saturating_add(1))
+        .or_else(|| inherited_outline(style_id, ctx))
+}
+
 /// Markdown heading level from a paragraph style, by name — the name path of
 /// docling's `_get_label_and_level` (#270 tail: custom styles without
 /// `w:outlineLvl`). The style *id*, its display name, and their `basedOn`
@@ -1953,10 +2045,12 @@ pub(super) fn child_elements<'a, 'i>(n: XmlNode<'a, 'i>) -> impl Iterator<Item =
 
 /// Strip a leading checkbox glyph (matches docling's `_clean_checkbox_symbols`).
 pub(super) fn clean_checkbox_symbols(text: &str) -> String {
-    let t = text.trim();
+    // Only the leading edge (docling#3891): the text may be the first of
+    // several inline runs.
+    let t = text.trim_start();
     for sym in ['☐', '☑', '☒', '□', '■', '▪', '▫'] {
         if let Some(rest) = t.strip_prefix(sym) {
-            return rest.trim().to_string();
+            return rest.trim_start().to_string();
         }
     }
     t.to_string()
@@ -1968,6 +2062,43 @@ pub(super) fn clean_checkbox_symbols(text: &str) -> String {
 /// `_get_paragraph_elements` segmentation, shared by the Markdown and the
 /// structured-run builders so both see the same text items.
 fn run_groups(runs: Vec<(String, Fmt, Option<String>)>) -> Vec<(String, Fmt, Option<String>)> {
+    group_by_format(runs, true)
+}
+
+/// docling#3891's `_get_paragraph_elements`: the same groups concatenated
+/// as they are — in DOCX the boundary space very often lives inside a
+/// formatted run, and it is that run's own text — then only the
+/// paragraph's outer edges trimmed (`trim_run_edges`). The Markdown side
+/// reads these; the DocLang runs keep [`run_groups`]' stripped ones.
+fn faithful_groups(runs: Vec<(String, Fmt, Option<String>)>) -> Vec<(String, Fmt, Option<String>)> {
+    docling_core::inline::trim_run_edges(
+        group_by_format(runs, false),
+        |g| g.0.as_str(),
+        |g, t| g.0 = t,
+        |_| true,
+    )
+}
+
+/// The grouping behind [`run_groups`] (`strip`: each group stripped, blank
+/// ones dropped — the pre-#997 shape) and [`faithful_groups`].
+fn group_by_format(
+    runs: Vec<(String, Fmt, Option<String>)>,
+    strip: bool,
+) -> Vec<(String, Fmt, Option<String>)> {
+    let keep = |t: &str| {
+        if strip {
+            !t.trim().is_empty()
+        } else {
+            !t.is_empty()
+        }
+    };
+    let cut = |t: &str| {
+        if strip {
+            t.trim().to_string()
+        } else {
+            t.to_string()
+        }
+    };
     let mut groups: Vec<(String, Fmt, Option<String>)> = Vec::new();
     let mut group_text = String::new();
     let mut previous_format: Option<Fmt> = None;
@@ -1975,30 +2106,26 @@ fn run_groups(runs: Vec<(String, Fmt, Option<String>)>) -> Vec<(String, Fmt, Opt
     for (text, fmt, link) in runs {
         last_format = fmt;
         if (!text.trim().is_empty() && Some(fmt) != previous_format) || link.is_some() {
-            if !group_text.trim().is_empty() {
-                groups.push((
-                    group_text.trim().to_string(),
-                    previous_format.unwrap_or_default(),
-                    None,
-                ));
+            if keep(&group_text) {
+                groups.push((cut(&group_text), previous_format.unwrap_or_default(), None));
             }
             group_text.clear();
             if link.is_some() {
-                groups.push((text.trim().to_string(), fmt, link));
+                groups.push((cut(&text), fmt, link));
                 continue;
             }
             previous_format = Some(fmt);
         }
         group_text.push_str(&text);
     }
-    if !group_text.trim().is_empty() {
+    if keep(&group_text) {
         // The trailing group closes under the format that *opened* it, as in
         // docling — a whitespace-only run never opens a group (its text is
         // just appended), so it must not decide the group's format either.
         // Taking the last run's format instead lost the bold/italic of a
         // paragraph that ends with an unformatted space (#408).
         groups.push((
-            group_text.trim().to_string(),
+            cut(&group_text),
             previous_format.unwrap_or(last_format),
             None,
         ));
@@ -2006,19 +2133,17 @@ fn run_groups(runs: Vec<(String, Fmt, Option<String>)>) -> Vec<(String, Fmt, Opt
     groups
 }
 
-/// One serialized Markdown segment per format group — docling's
-/// `_get_paragraph_elements`.
-fn run_segments(runs: Vec<(String, Fmt, Option<String>)>) -> Vec<String> {
-    run_groups(runs)
-        .iter()
-        .map(|(t, f, l)| serialize_run(t, *f, l.as_deref()))
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
-/// The segments joined with single spaces (a body paragraph's inline group).
+/// A paragraph's Markdown: one serialized segment per format group
+/// (docling's `_get_paragraph_elements`), concatenated as they are — each
+/// carries its own boundary whitespace, hoisted outside its markers
+/// (schema 1.11.0, #997).
 fn group_runs(runs: Vec<(String, Fmt, Option<String>)>) -> String {
-    run_segments(runs).join(" ")
+    faithful_groups(runs)
+        .iter()
+        .map(|(t, f, l)| {
+            docling_core::inline::hoist(t, |core| serialize_run(core, *f, l.as_deref()))
+        })
+        .collect()
 }
 
 /// One ordered fragment of a paragraph that mixes text and OMML: a raw text run
@@ -2113,22 +2238,23 @@ fn serialize_inline_equations(parts: &[EqPart]) -> String {
         match part {
             EqPart::Eq(e) => out.push(format!("${e}$")),
             EqPart::Text(t) => {
-                // The whole reconstructed text is stripped at its ends; the final
-                // text fragment is additionally stripped in full.
-                let s = if i == n - 1 {
-                    t.trim()
-                } else if i == 0 {
-                    t.trim_start()
-                } else {
-                    t.as_str()
-                };
+                // Only the paragraph's outer edges are trimmed: the
+                // whitespace around an inline equation is a run boundary
+                // (`$A=\pi r^{2}$ is the area formula`, docling#3891).
+                let mut s = t.as_str();
+                if i == 0 {
+                    s = s.trim_start();
+                }
+                if i == n - 1 {
+                    s = s.trim_end();
+                }
                 if !s.is_empty() {
                     out.push(escape_text(s));
                 }
             }
         }
     }
-    out.join(" ")
+    out.concat()
 }
 
 /// Structured [`InlineRun`]s for a mixed text/equation paragraph — the DocLang
@@ -2411,9 +2537,9 @@ fn parse_table_with(tbl: XmlNode, ctx: &Ctx, nested: bool) -> Option<Table> {
 }
 
 fn parse_table_inner(tbl: XmlNode, ctx: &Ctx, nested: bool) -> Option<Table> {
-    let rows: Vec<XmlNode> = tbl
-        .children()
-        .filter(|n| n.has_tag_name("tr") && row_kept(*n, ctx))
+    let rows: Vec<XmlNode> = table_rows(tbl)
+        .into_iter()
+        .filter(|n| row_kept(*n, ctx))
         .collect();
     // A row's width in grid columns includes the leading/trailing skipped
     // columns (`w:gridBefore`/`w:gridAfter`) — a row that starts late still
@@ -2526,6 +2652,7 @@ fn parse_table_inner(tbl: XmlNode, ctx: &Ctx, nested: bool) -> Option<Table> {
         }
     });
     Some(Table {
+        footnotes: Vec::new(),
         rows: grid,
         location: None,
         structure,
@@ -2534,6 +2661,7 @@ fn parse_table_inner(tbl: XmlNode, ctx: &Ctx, nested: bool) -> Option<Table> {
         caption: None,
         caption_parent: Default::default(),
         caption_location: None,
+        document_index: false,
     })
 }
 
@@ -2659,13 +2787,31 @@ pub(super) fn flat_text<'a, 'i>(n: XmlNode<'a, 'i>) -> Option<Cow<'a, str>> {
 /// slides left under the wrong header, and a 1×1 layout table loses its only
 /// cell — and with it all of its content.
 pub(super) fn row_cells<'a, 'i>(tr: XmlNode<'a, 'i>) -> Vec<XmlNode<'a, 'i>> {
+    unwrapped_children(tr, "tc")
+}
+
+/// A table's rows: its `w:tr` children, a row wrapped in `w:customXml` or a
+/// content control (`w:sdt/w:sdtContent`) included — docling's
+/// `_unwrapped_children(tbl, "tr")` (docling#4393, #1156). python-docx's
+/// `Table.rows` sees direct `w:tr` children only, and so did we: a wrapped
+/// row was dropped, its cells with it, and a vertical merge stopped there.
+pub(super) fn table_rows<'a, 'i>(tbl: XmlNode<'a, 'i>) -> Vec<XmlNode<'a, 'i>> {
+    unwrapped_children(tbl, "tr")
+}
+
+/// docling's `_unwrapped_children`: the `target` elements (`tr` or `tc`)
+/// under `parent` in document order, looking through `w:customXml` and
+/// `w:sdt/w:sdtContent` at any depth.
+fn unwrapped_children<'a, 'i>(parent: XmlNode<'a, 'i>, target: &str) -> Vec<XmlNode<'a, 'i>> {
     let mut out = Vec::new();
-    for child in tr.children().filter(XmlNode::is_element) {
-        if child.has_tag_name("tc") {
+    for child in parent.children().filter(XmlNode::is_element) {
+        if child.has_tag_name(target) {
             out.push(child);
+        } else if child.has_tag_name("customXml") {
+            out.extend(unwrapped_children(child, target));
         } else if child.has_tag_name("sdt") {
             if let Some(content) = child.children().find(|n| n.has_tag_name("sdtContent")) {
-                out.extend(row_cells(content));
+                out.extend(unwrapped_children(content, target));
             }
         }
     }
@@ -3653,6 +3799,38 @@ fn parse_numbering(
             num_to_abstract.insert(id.to_string(), abs.to_string());
         }
     }
+    // (numId, ilvl) -> the instance's `w:lvlOverride` (docling#5123, #1017):
+    // its `w:lvl` replaces the abstract level, its `w:startOverride` sets the
+    // start — ECMA-376 Part 1, 17.9.9 / 17.9.27. docling applies an override
+    // only in 0..=32767 (`_MAX_START_OVERRIDE`, also PowerPoint's largest
+    // `startAt`: letter and roman markers grow with the number); anything
+    // else keeps the level's own `w:start`.
+    let mut overrides: HashMap<(String, i64), (Option<NumLevel>, Option<i64>)> = HashMap::new();
+    for num in dom.descendants().filter(|n| n.has_tag_name("num")) {
+        let Some(id) = attr(num, "numId") else {
+            continue;
+        };
+        for ov in num.children().filter(|n| n.has_tag_name("lvlOverride")) {
+            let Some(ilvl) = attr(ov, "ilvl").and_then(|v| v.parse::<i64>().ok()) else {
+                continue;
+            };
+            let level = ov
+                .children()
+                .find(|n| n.has_tag_name("lvl"))
+                .map(|l| parse_num_level(l).1);
+            let start = ov
+                .children()
+                .find(|n| n.has_tag_name("startOverride"))
+                .and_then(|n| attr(n, "val"))
+                .and_then(|v| v.trim().parse::<i64>().ok())
+                .filter(|v| (0..=MAX_START_OVERRIDE).contains(v));
+            // The first `w:lvlOverride` for a level wins, like docling's
+            // `find`.
+            overrides
+                .entry((id.to_string(), ilvl))
+                .or_insert((level, start));
+        }
+    }
     // abstractNumId -> { ilvl -> NumLevel }
     let mut abstract_levels: HashMap<String, HashMap<i64, NumLevel>> = HashMap::new();
     // abstractNumId -> the numbering style its `numStyleLink` names
@@ -3671,42 +3849,15 @@ fn parse_numbering(
         }
         let mut levels = HashMap::new();
         for lvl in abs.children().filter(|n| n.has_tag_name("lvl")) {
-            let ilvl: i64 = attr(lvl, "ilvl").and_then(|v| v.parse().ok()).unwrap_or(0);
-            let num_fmt = lvl
-                .children()
-                .find(|n| n.has_tag_name("numFmt"))
-                .and_then(|n| attr(n, "val"));
-            let numbered = num_fmt.map(|v| v != "bullet").unwrap_or(true);
-            let visible = num_fmt.is_some_and(|v| VISIBLE_NUMBERING_FORMATS.contains(&v));
-            let start = lvl
-                .children()
-                .find(|n| n.has_tag_name("start"))
-                .and_then(|n| attr(n, "val"))
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(1);
-            let lvl_text = lvl
-                .children()
-                .find(|n| n.has_tag_name("lvlText"))
-                .and_then(|n| attr(n, "val"))
-                .unwrap_or("")
-                .to_string();
-            levels.insert(
-                ilvl,
-                NumLevel {
-                    numbered,
-                    visible,
-                    num_fmt: num_fmt.map(str::to_string),
-                    start,
-                    lvl_text,
-                    left: own_left_indent(lvl),
-                },
-            );
+            let (ilvl, level) = parse_num_level(lvl);
+            levels.insert(ilvl, level);
         }
         abstract_levels.insert(abs_id.to_string(), levels);
     }
     let ilvls: std::collections::BTreeSet<i64> = abstract_levels
         .values()
         .flat_map(|levels| levels.keys().copied())
+        .chain(overrides.keys().map(|(_, ilvl)| *ilvl))
         .collect();
     let resolve = |abs_id: &str, ilvl: i64| -> Option<&NumLevel> {
         let mut abs_id = abs_id.to_string();
@@ -3726,12 +3877,59 @@ fn parse_numbering(
     };
     for (num_id, abs_id) in &num_to_abstract {
         for &ilvl in &ilvls {
-            if let Some(level) = resolve(abs_id, ilvl) {
-                out.insert((num_id.clone(), ilvl), level.clone());
+            let key = (num_id.clone(), ilvl);
+            let (override_level, start) = match overrides.get(&key) {
+                Some((level, start)) => (level.as_ref(), *start),
+                None => (None, None),
+            };
+            if let Some(level) = override_level.or_else(|| resolve(abs_id, ilvl)) {
+                let mut level = level.clone();
+                if let Some(start) = start {
+                    level.start = start;
+                }
+                out.insert(key, level);
             }
         }
     }
     out
+}
+
+/// The largest `w:startOverride` applied — docling's `_MAX_START_OVERRIDE`.
+const MAX_START_OVERRIDE: i64 = 32767;
+
+/// One `w:lvl` of an `abstractNum` (or of a `w:lvlOverride`): its `ilvl`
+/// and the level.
+fn parse_num_level(lvl: XmlNode) -> (i64, NumLevel) {
+    let ilvl: i64 = attr(lvl, "ilvl").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let num_fmt = lvl
+        .children()
+        .find(|n| n.has_tag_name("numFmt"))
+        .and_then(|n| attr(n, "val"));
+    let numbered = num_fmt.map(|v| v != "bullet").unwrap_or(true);
+    let visible = num_fmt.is_some_and(|v| VISIBLE_NUMBERING_FORMATS.contains(&v));
+    let start = lvl
+        .children()
+        .find(|n| n.has_tag_name("start"))
+        .and_then(|n| attr(n, "val"))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+    let lvl_text = lvl
+        .children()
+        .find(|n| n.has_tag_name("lvlText"))
+        .and_then(|n| attr(n, "val"))
+        .unwrap_or("")
+        .to_string();
+    (
+        ilvl,
+        NumLevel {
+            numbered,
+            visible,
+            num_fmt: num_fmt.map(str::to_string),
+            start,
+            lvl_text,
+            left: own_left_indent(lvl),
+        },
+    )
 }
 
 /// Cap on the `basedOn` walk when resolving a style's numbering — docling's

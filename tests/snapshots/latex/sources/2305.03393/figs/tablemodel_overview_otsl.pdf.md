@@ -6,31 +6,33 @@ Names Amount
 
 1. Item
 
-2. Item
-
-3. Item
-
-4. Item
-
 1000
 
 unit
 
+2. Item
+
 500
+
+unit
+
+3. Item
 
 3500
 
+unit
+
+4. Item
+
 150
 
-unit unit unit Standardized Images Encoder BBox Decoder Structure Decoder Structure Tags in OTSL format
+unit Standardized Images Encoder BBox Decoder Structure Decoder BBoxes
 
 1
 
 2
 
 3
-
-BBoxes
 
 [x1, y2, x2, y2]
 
@@ -40,40 +42,46 @@ BBoxes
 
 ...
 
-BBoxes in sync with tag sequence
+Structure Tags
+
+in OTSL format BBoxes in sync with tag sequence
 
 1
 
 2
 
-NL
+C C
 
 L
-
-C C
 
 C C C 3
 
 C C C
 
-NL
-
-NL
-
 C C C
+
+NL
+
+NL
+
+NL
 
 NL
 
 C C C NL
 
-BBoxes can be traced back to the original image to
+BBoxes can be
 
-1
+traced back to the
 
-3
+original image to
 
 extract content
 
-Structure Tags sequence provide full description of the table structure
+1
 
 2
+
+3
+
+Structure Tags sequence provide full description of the table structure

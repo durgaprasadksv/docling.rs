@@ -47,6 +47,11 @@ pub enum InputFormat {
     Vtt,
     /// EBCDIC mainframe data + JSON copybook layout (#252, docling 2.118).
     Ebcdic,
+    /// An AFP / MO:DCA print stream (`.afp`, `application/vnd.ibm.modcap`,
+    /// or a nameless input opening with a structured-field introducer): its
+    /// pages and their PTOCA text — docling's `InputFormat.AFP`
+    /// (docling#4177, #1034).
+    Afp,
     Latex,
     Email,
     Epub,
@@ -171,6 +176,17 @@ pub enum InputFormat {
     /// read through the HTML backend — MarkItDown's `_rss_converter`
     /// shape. A docling.rs extension: docling has no feed backend.
     Feed,
+    /// A Box Note (`.boxnote`, `application/vnd.box.boxnote`, #1033): Box's
+    /// ProseMirror JSON document, read as docling's `BoxNoteDocumentBackend`
+    /// does. A `.json` holding one (a top-level `doc` node) takes the same
+    /// route.
+    Boxnote,
+    /// An iCalendar file (`.ics`, `.ical`, `.icalendar`, `.ifb`,
+    /// `text/calendar`, or a nameless input opening with `BEGIN:VCALENDAR`):
+    /// events, tasks, journal entries and free/busy blocks as headings,
+    /// `Field: value` paragraphs and attendee / reminder / attachment lists —
+    /// docling's `InputFormat.CALENDAR` (docling#4880).
+    Calendar,
     /// A format only a backend registered on the converter reads (#680,
     /// [`DocumentConverter::register_backend`](crate::DocumentConverter::register_backend)):
     /// what [`DocumentConverter::load_file`](crate::DocumentConverter::load_file)
@@ -214,6 +230,7 @@ impl InputFormat {
             InputFormat::Video => "video",
             InputFormat::Vtt => "vtt",
             InputFormat::Ebcdic => "ebc",
+            InputFormat::Afp => "afp",
             InputFormat::Latex => "latex",
             InputFormat::Email => "email",
             InputFormat::Epub => "epub",
@@ -246,6 +263,8 @@ impl InputFormat {
             InputFormat::Xml => "xml",
             InputFormat::Ipynb => "ipynb",
             InputFormat::Feed => "feed",
+            InputFormat::Boxnote => "boxnote",
+            InputFormat::Calendar => "calendar",
             InputFormat::Plugin => "plugin",
         }
     }
@@ -283,6 +302,7 @@ impl InputFormat {
             "video" => InputFormat::Video,
             "vtt" => InputFormat::Vtt,
             "ebc" => InputFormat::Ebcdic,
+            "afp" => InputFormat::Afp,
             "latex" => InputFormat::Latex,
             "email" => InputFormat::Email,
             "epub" => InputFormat::Epub,
@@ -315,6 +335,8 @@ impl InputFormat {
             "xml" => InputFormat::Xml,
             "ipynb" => InputFormat::Ipynb,
             "feed" => InputFormat::Feed,
+            "boxnote" => InputFormat::Boxnote,
+            "calendar" => InputFormat::Calendar,
             "plugin" => InputFormat::Plugin,
             _ => return None,
         })
@@ -357,12 +379,15 @@ impl InputFormat {
             "text/csv" | "text/tab-separated-values" => InputFormat::Csv,
             "text/x-tex" | "application/x-tex" | "application/x-latex" => InputFormat::Latex,
             "text/vtt" => InputFormat::Vtt,
+            "application/vnd.ibm.modcap" | "application/x-afp" => InputFormat::Afp,
+            "text/calendar" => InputFormat::Calendar,
             "application/json" => InputFormat::JsonDocling,
             "application/x-ndjson" | "application/jsonl" | "application/x-jsonlines" => {
                 InputFormat::Jsonl
             }
             "application/xml" | "text/xml" => InputFormat::Xml,
             "application/x-ipynb+json" => InputFormat::Ipynb,
+            "application/vnd.box.boxnote" => InputFormat::Boxnote,
             "application/rss+xml" | "application/atom+xml" | "application/rdf+xml" => {
                 InputFormat::Feed
             }
@@ -584,6 +609,11 @@ const EXTENSIONS: &[(&str, InputFormat)] = {
         ("rss", Feed),
         ("atom", Feed),
         ("rdf", Feed),
+        ("boxnote", Boxnote),
+        ("ics", Calendar),
+        ("ical", Calendar),
+        ("icalendar", Calendar),
+        ("ifb", Calendar),
         // `.mpga` *is* MPEG audio (an mp3 stream) — symphonia probes the
         // codec from the bytes, the extension is just the alias (#208).
         ("wav", Audio),
@@ -614,6 +644,7 @@ const EXTENSIONS: &[(&str, InputFormat)] = {
         // backend sniffs the magic and projects it onto RFC 822.
         ("msg", Email),
         ("ebc", Ebcdic),
+        ("afp", Afp),
         // Plain text and source code (#671): the extensions MarkItDown's
         // plain-text converter would take by `text/*` media type, each as
         // one code block in its language (`crate::backend::text::code_language`)

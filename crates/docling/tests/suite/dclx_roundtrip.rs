@@ -36,6 +36,7 @@ fn cdata_delimiter_text_round_trips() {
 fn tag_shaped_cell_text_round_trips() {
     let mut doc = DoclingDocument::new("t");
     doc.push(Node::Table(Table {
+        footnotes: Vec::new(),
         rows: vec![
             vec!["h1".into(), "h2".into()],
             vec!["<fcel>".into(), "<location value=\"3\"/> x".into()],
@@ -47,6 +48,7 @@ fn tag_shaped_cell_text_round_trips() {
         caption: None,
         caption_parent: Default::default(),
         caption_location: None,
+        document_index: false,
     }));
     let back = roundtrip(&doc);
     let md = back.export_to_markdown();

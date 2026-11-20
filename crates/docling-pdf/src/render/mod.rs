@@ -144,7 +144,7 @@ impl<'a> Renderer<'a> {
             f64::from(ch) + f64::from(pb.b) * sy,
         );
 
-        let content = doc.get_page_content(pid);
+        let content = crate::textparse::page_content(doc, pid);
         let resources = page_resources(doc, pid);
         let mut interp = content::Interp::new(doc, cw, ch, self.shared.clone(), bitmap_hint)?;
         crate::timing::timed("render.content", || {
@@ -173,9 +173,7 @@ pub fn render_page_sized(
 }
 
 fn page_resources(doc: &Document, pid: lopdf::ObjectId) -> Option<&lopdf::Dictionary> {
-    doc.get_page_resources(pid).ok().and_then(|(inline, ids)| {
-        inline.or_else(|| ids.into_iter().find_map(|id| doc.get_dictionary(id).ok()))
-    })
+    crate::textparse::page_res(doc, pid)
 }
 
 /// Premultiplied RGBA over an opaque white canvas → RGB (the alpha is 255

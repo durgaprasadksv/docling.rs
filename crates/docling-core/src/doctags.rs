@@ -391,6 +391,7 @@ fn parse_blocks(
                                 marker: None,
                                 location: loc,
                                 spans: None,
+                                split: None,
                                 dclx: None,
                                 href: None,
                                 layer: None,
@@ -452,6 +453,7 @@ fn parse_list(toks: &[Tok], i: &mut usize, out: &mut Vec<Node>, ordered: bool, l
                         marker: None,
                         location: loc,
                         spans: None,
+                        split: None,
                         dclx: None,
                         href: None,
                         layer: None,
@@ -633,6 +635,7 @@ fn parse_otsl(toks: &[Tok], i: &mut usize, out: &mut Vec<Node>, budget: &mut Bud
             .collect(),
     };
     out.push(Node::Table(Table {
+        footnotes: Vec::new(),
         rows,
         location: (locs.len() == 4).then(|| [locs[0], locs[1], locs[2], locs[3]]),
         structure: Some(structure),
@@ -641,6 +644,7 @@ fn parse_otsl(toks: &[Tok], i: &mut usize, out: &mut Vec<Node>, budget: &mut Bud
         caption: None,
         caption_parent: Default::default(),
         caption_location: None,
+        document_index: false,
     }));
 }
 

@@ -11,7 +11,7 @@ use crate::pdfium_backend::TextCell;
 // owned-value KV-cache fast path.
 use crate::tf_core::{
     argmax, build_table_cells, correct, merge_spans, preprocess_input, BboxBook, TableCell, END,
-    MAX_ROW_TAGS, MAX_STEPS, START, UCEL,
+    MAX_STEPS, START, UCEL,
 };
 use image::RgbImage;
 use ort::session::Session;
@@ -22,6 +22,18 @@ const EMBED_DIM: usize = crate::tf_core::EMBED_DIM;
 /// Decoder geometry, fixed by the exported TableModel04_rs graph: the cached
 /// decoder threads a `[N_LAYERS, past, 1, EMBED_DIM]` per-layer state cache.
 const N_LAYERS: usize = 6;
+/// Cells per bbox-head run (see `finish_table`): bounds its broadcast
+/// intermediates to ~BBOX_CHUNK_CELLS × 784 × 512 × 4 bytes per tensor.
+/// 256 halves the peak on ~1,000-cell tables for <1% extra time (smaller
+/// chunks repeat the head's encoder-side work more often); output is
+/// byte-identical to the single run.
+const BBOX_CHUNK_CELLS: usize = 256;
+
+/// Split the flat `[n, EMBED_DIM]` hidden states into bbox-head runs of at
+/// most [`BBOX_CHUNK_CELLS`] whole cells.
+fn bbox_chunks(hiddens: &[f32]) -> impl Iterator<Item = &[f32]> {
+    hiddens.chunks(BBOX_CHUNK_CELLS * EMBED_DIM)
+}
 
 /// Resolve the encoder / decoder / bbox files exactly as [`TableFormer::load`]
 /// will (shared with `model_inventory`, so diagnostics can never drift from
@@ -1039,37 +1051,50 @@ impl TableFormer {
         mut book: BboxBook,
         eo: &DynValue,
     ) -> Result<Vec<TableCell>, String> {
-        if book.runaway() {
-            docling_core::debug_log!(
-                "docling-pdf: tableformer: no row break in {MAX_ROW_TAGS} tags; \
-                 geometric table fallback"
+        // docling#4592: a structure with no row break, or cut mid-row at the
+        // step budget, is discarded with a warning (upstream logs at warning
+        // level too). docling then keeps the text as one child of an empty
+        // table; the port's empty result sends the region down the geometric
+        // table path instead, which keeps the words *and* a grid
+        // (docs/PDF_CONFORMANCE.md, "Degenerate TableFormer sequences").
+        if let Some(reason) = book.degenerate_reason() {
+            eprintln!(
+                "docling-pdf: tableformer: discarding a predicted structure of {} tags because \
+                 {reason}; geometric table fallback",
+                book.otsl.len()
             );
             return Ok(Vec::new());
         }
         if book.n == 0 {
             return Ok(Vec::new());
         }
-        let tag_h = Tensor::from_array(([book.n, EMBED_DIM], std::mem::take(&mut book.hiddens)))
-            .map_err(|e| format!("tableformer: tag_h: {e}"))?;
-        let bout = crate::timing::timed("tf.bbox", || {
-            docling_onnx::run(
-                &mut self.bbox,
-                ort::inputs!["enc_out" => eo, "tag_h" => tag_h],
-            )
-            .map_err(|e| format!("tableformer: bbox: {e}"))
-        })?;
-        let (_, raw) = bout["boxes"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| format!("tableformer: boxes: {e}"))?;
-        let boxes: Vec<[f32; 4]> = raw
-            .chunks_exact(4)
-            .map(|c| [c[0], c[1], c[2], c[3]])
-            .collect();
-        // Per-cell class logits [n, 3] → argmax (docling's `outputs_class`).
-        let (_, craw) = bout["classes"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| format!("tableformer: classes: {e}"))?;
-        let classes: Vec<i64> = craw.chunks_exact(3).map(|c| argmax(c) as i64).collect();
+        // One run over all cells materializes [ncells, 784, 512] fp32
+        // intermediates (~1.6 GB each at 1,000 cells). Cells are independent
+        // (each box/class depends on its own `tag_h` row and `enc_out`), so
+        // running them in chunks bounds the peak without changing the output.
+        let hiddens = std::mem::take(&mut book.hiddens);
+        let mut boxes: Vec<[f32; 4]> = Vec::with_capacity(book.n);
+        let mut classes: Vec<i64> = Vec::with_capacity(book.n);
+        for rows in bbox_chunks(&hiddens) {
+            let tag_h = Tensor::from_array(([rows.len() / EMBED_DIM, EMBED_DIM], rows.to_vec()))
+                .map_err(|e| format!("tableformer: tag_h: {e}"))?;
+            let bout = crate::timing::timed("tf.bbox", || {
+                docling_onnx::run(
+                    &mut self.bbox,
+                    ort::inputs!["enc_out" => eo, "tag_h" => tag_h],
+                )
+                .map_err(|e| format!("tableformer: bbox: {e}"))
+            })?;
+            let (_, raw) = bout["boxes"]
+                .try_extract_tensor::<f32>()
+                .map_err(|e| format!("tableformer: boxes: {e}"))?;
+            boxes.extend(raw.chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]));
+            // Per-cell class logits [n, 3] → argmax (docling's `outputs_class`).
+            let (_, craw) = bout["classes"]
+                .try_extract_tensor::<f32>()
+                .map_err(|e| format!("tableformer: classes: {e}"))?;
+            classes.extend(craw.chunks_exact(3).map(|c| argmax(c) as i64));
+        }
         let (merged, merged_classes) = merge_spans(&boxes, &classes, &book.merge);
         Ok(build_table_cells(&book.otsl, &merged, &merged_classes))
     }
@@ -1244,4 +1269,23 @@ fn warn_missing_once(enc: &str, dec: &str, bbx: &str) {
 fn preprocess(img: &RgbImage) -> Result<Tensor<f32>, String> {
     Tensor::from_array(([1usize, 3, SIDE, SIDE], preprocess_input(img)))
         .map_err(|e| format!("tableformer: input: {e}"))
+}
+
+#[cfg(test)]
+mod bbox_chunk_tests {
+    use super::*;
+
+    #[test]
+    fn chunks_cover_all_cells_in_order_on_cell_boundaries() {
+        for n in [1usize, 255, 256, 257, 980, 1000] {
+            let h: Vec<f32> = (0..n * EMBED_DIM).map(|i| i as f32).collect();
+            let chunks: Vec<&[f32]> = bbox_chunks(&h).collect();
+            assert!(chunks.iter().all(|c| c.len() % EMBED_DIM == 0));
+            assert!(chunks
+                .iter()
+                .all(|c| c.len() <= BBOX_CHUNK_CELLS * EMBED_DIM));
+            assert_eq!(chunks.concat(), h, "n={n}");
+            assert_eq!(chunks.len(), n.div_ceil(BBOX_CHUNK_CELLS));
+        }
+    }
 }

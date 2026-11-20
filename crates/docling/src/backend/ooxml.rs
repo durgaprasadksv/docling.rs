@@ -30,6 +30,83 @@ pub(crate) fn open_zip<R: std::io::Read + std::io::Seek>(
     ZipArchive::with_config(at_zero, reader()).or_else(|_| ZipArchive::new(reader()))
 }
 
+/// `xml` without its XML comments and processing instructions — docling's
+/// `etree.strip_elements(root, Comment, ProcessingInstruction,
+/// with_tail=False)` on each part it reads (docling#4584, #1157). The text
+/// on either side joins (`<w:t>first <!-- x -->run</w:t>` reads `first
+/// run`): roxmltree keeps a comment as a node of its own and `text()` returns
+/// only the first text child, so the words after one were lost. The XML
+/// declaration stays, CDATA sections are copied untouched, and an
+/// unterminated comment or instruction is left for the parser to reject.
+/// `notes` collects the comments' texts, trimmed, blank ones left out, in
+/// document order (docling keeps those of the main document part as
+/// notes-layer text). Borrowed when there is nothing to strip.
+pub(crate) fn strip_comments_and_pis<'a>(
+    xml: &'a str,
+    mut notes: Option<&mut Vec<String>>,
+) -> std::borrow::Cow<'a, str> {
+    let is_declaration = |at: usize| {
+        let rest = &xml.as_bytes()[at + 2..];
+        rest.starts_with(b"xml")
+            && rest
+                .get(3)
+                .is_some_and(|b| b.is_ascii_whitespace() || *b == b'?')
+    };
+    if !xml.contains("<!--") && xml.match_indices("<?").all(|(at, _)| is_declaration(at)) {
+        return std::borrow::Cow::Borrowed(xml);
+    }
+    let mut out = String::with_capacity(xml.len());
+    let (mut copied, mut at) = (0, 0);
+    while let Some(off) = xml[at..].find('<') {
+        let start = at + off;
+        let rest = &xml[start..];
+        let cut = if let Some(comment) = rest.strip_prefix("<!--") {
+            let Some(end) = comment.find("-->") else {
+                break;
+            };
+            if let Some(notes) = notes.as_deref_mut() {
+                let text = comment[..end].trim();
+                if !text.is_empty() {
+                    notes.push(text.to_string());
+                }
+            }
+            Some(4 + end + 3)
+        } else if rest.starts_with("<![CDATA[") {
+            let Some(end) = rest.find("]]>") else {
+                break;
+            };
+            at = start + end + 3;
+            continue;
+        } else if rest.starts_with("<?") && !is_declaration(start) {
+            let Some(end) = rest.find("?>") else {
+                break;
+            };
+            Some(end + 2)
+        } else {
+            None
+        };
+        match cut {
+            Some(len) => {
+                out.push_str(&xml[copied..start]);
+                copied = start + len;
+                at = copied;
+            }
+            None => at = start + 1,
+        }
+    }
+    out.push_str(&xml[copied..]);
+    std::borrow::Cow::Owned(out)
+}
+
+/// [`strip_comments_and_pis`] over an owned part, reusing it when there is
+/// nothing to strip.
+pub(crate) fn strip_comments_and_pis_owned(xml: String, notes: Option<&mut Vec<String>>) -> String {
+    match strip_comments_and_pis(&xml, notes) {
+        std::borrow::Cow::Owned(s) => s,
+        std::borrow::Cow::Borrowed(_) => xml,
+    }
+}
+
 /// Hard cap on a single decompressed OOXML part (512 MiB). Real documents
 /// stay far below this; the limit only exists to stop a decompression-bomb
 /// part from exhausting memory. Override with `DOCLING_RS_MAX_PART_BYTES`.
@@ -51,6 +128,10 @@ pub struct Package<B: AsRef<[u8]> = std::sync::Arc<[u8]>> {
     /// The member paths, decoded once: zip 9 decodes a name on every
     /// `file_names()` call and hands it back as a `Result`.
     names: std::sync::Arc<[String]>,
+    /// Strip XML comments and processing instructions from every part
+    /// [`Self::read`] returns ([`strip_comments_and_pis`]; the DOCX
+    /// backend's choice, docling#4584).
+    strip_comments: bool,
 }
 
 impl Package {
@@ -79,7 +160,11 @@ impl<B: AsRef<[u8]>> Package<B> {
             .filter_map(Result::ok)
             .map(|n| n.into_owned())
             .collect();
-        Some(Self { zip, names })
+        Some(Self {
+            zip,
+            names,
+            strip_comments: false,
+        })
     }
 
     /// The package's member paths, in central-directory order (a name that
@@ -122,7 +207,17 @@ impl<B: AsRef<[u8]>> Package<B> {
             eprintln!("docling: {e}; part skipped");
             return None;
         }
-        Some(text)
+        Some(if self.strip_comments {
+            strip_comments_and_pis_owned(text, None)
+        } else {
+            text
+        })
+    }
+
+    /// From now on, strip XML comments and processing instructions from
+    /// every part [`Self::read`] returns.
+    pub fn strip_comments_and_pis(&mut self) {
+        self.strip_comments = true;
     }
 
     /// Read a part's raw bytes (e.g. an embedded image), or `None` if absent.
@@ -287,146 +382,13 @@ pub fn is_metafile(data: &[u8]) -> bool {
 }
 
 /// PIL's `Image.info["dpi"]` (its horizontal value) for an embedded picture,
-/// read the way Pillow reads it: a PNG `pHYs` chunk in pixels per metre, a
-/// JPEG's JFIF density (per inch, or per centimetre × 2.54) else — when the
-/// JFIF segment carries no unit — its EXIF `XResolution` / `ResolutionUnit`
-/// (72 when the EXIF lacks them, as Pillow falls back), a BMP's pixels per
-/// metre (÷ 39.3701), a TIFF's resolution tags. `None` when the format
+/// read the way Pillow reads it ([`docling_core::image_dpi::resolution`]: a
+/// PNG `pHYs` chunk, a JPEG's JFIF density else its EXIF resolution, a BMP's
+/// pixels per metre, a TIFF's resolution tags). `None` when the format
 /// records none (GIF, WebP, a PNG without `pHYs`): python-pptx's `Image.dpi`
 /// then reports 72, and docling's `ImageRef.dpi` follows it.
 pub fn image_dpi(data: &[u8]) -> Option<f64> {
-    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return png_dpi(data);
-    }
-    if data.starts_with(&[0xff, 0xd8]) {
-        return jpeg_dpi(data);
-    }
-    if data.starts_with(b"BM") && data.len() >= 42 {
-        // BITMAPINFOHEADER (40 bytes) and later carry `biXPelsPerMeter`.
-        let header_size = u32::from_le_bytes([data[14], data[15], data[16], data[17]]);
-        if header_size >= 40 {
-            let ppm = i32::from_le_bytes([data[38], data[39], data[40], data[41]]);
-            return Some(f64::from(ppm) / 39.3701);
-        }
-        return None;
-    }
-    if data.starts_with(b"II*\0") || data.starts_with(b"MM\0*") {
-        // TiffImagePlugin: unit 2 → inches, 3 → centimetres, absent → inches
-        // (backward compatibility), 1 → `resolution`, not `dpi`.
-        let (xres, unit) = tiff_resolution(data)?;
-        return match unit {
-            Some(2) | None => Some(xres),
-            Some(3) => Some(xres * 2.54),
-            _ => None,
-        };
-    }
-    None
-}
-
-fn png_dpi(data: &[u8]) -> Option<f64> {
-    let mut pos = 8;
-    while pos + 8 <= data.len() {
-        let len =
-            u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
-        let kind = &data[pos + 4..pos + 8];
-        if kind == b"pHYs" && len >= 9 && pos + 8 + len <= data.len() {
-            let px =
-                u32::from_be_bytes([data[pos + 8], data[pos + 9], data[pos + 10], data[pos + 11]]);
-            // Unit 1 = metre; unit 0 records an aspect ratio only.
-            return (data[pos + 16] == 1).then(|| f64::from(px) * 0.0254);
-        }
-        if kind == b"IDAT" || kind == b"IEND" {
-            return None;
-        }
-        pos += 12 + len;
-    }
-    None
-}
-
-fn jpeg_dpi(data: &[u8]) -> Option<f64> {
-    let mut dpi: Option<f64> = None;
-    let mut pos = 2;
-    while pos + 4 <= data.len() && data[pos] == 0xff {
-        let marker = data[pos + 1];
-        // Stand-alone markers (padding, RSTn, SOI) carry no length.
-        if marker == 0xff || marker == 0x01 || (0xd0..=0xd8).contains(&marker) {
-            pos += if marker == 0xff { 1 } else { 2 };
-            continue;
-        }
-        // Start of scan / end of image: no more headers.
-        if marker == 0xda || marker == 0xd9 {
-            break;
-        }
-        let len = usize::from(u16::from_be_bytes([data[pos + 2], data[pos + 3]]));
-        let seg = data.get(pos + 4..(pos + 2 + len).min(data.len()))?;
-        if marker == 0xe0 && seg.starts_with(b"JFIF\0") && seg.len() >= 12 {
-            let density = f64::from(u16::from_be_bytes([seg[8], seg[9]]));
-            match seg[7] {
-                1 => dpi = Some(density),
-                2 => dpi = Some(density * 2.54),
-                _ => {}
-            }
-        } else if marker == 0xe1 && seg.starts_with(b"Exif\0\0") && dpi.is_none() {
-            // Pillow reads `XResolution` / `ResolutionUnit` from the EXIF only
-            // when the JFIF gave no dpi, and falls back to 72 when either tag
-            // is missing or unreadable.
-            dpi = Some(match tiff_resolution(&seg[6..]) {
-                Some((xres, Some(3))) => xres * 2.54,
-                Some((xres, Some(_))) => xres,
-                _ => 72.0,
-            });
-        }
-        pos += 2 + len;
-    }
-    dpi
-}
-
-/// A TIFF header's first IFD: (`XResolution`, `ResolutionUnit`), the former
-/// required — `None` when it is absent or malformed.
-fn tiff_resolution(t: &[u8]) -> Option<(f64, Option<u16>)> {
-    let le = match t.get(0..2)? {
-        b"II" => true,
-        b"MM" => false,
-        _ => return None,
-    };
-    let u16_at = |o: usize| -> Option<u16> {
-        let b = [*t.get(o)?, *t.get(o + 1)?];
-        Some(if le {
-            u16::from_le_bytes(b)
-        } else {
-            u16::from_be_bytes(b)
-        })
-    };
-    let u32_at = |o: usize| -> Option<u32> {
-        let b = [*t.get(o)?, *t.get(o + 1)?, *t.get(o + 2)?, *t.get(o + 3)?];
-        Some(if le {
-            u32::from_le_bytes(b)
-        } else {
-            u32::from_be_bytes(b)
-        })
-    };
-    let ifd = u32_at(4)? as usize;
-    let count = usize::from(u16_at(ifd)?);
-    let (mut xres, mut unit) = (None, None);
-    for i in 0..count {
-        let e = ifd + 2 + 12 * i;
-        let (tag, typ) = (u16_at(e)?, u16_at(e + 2)?);
-        match (tag, typ) {
-            // RATIONAL: two u32 at the value offset.
-            (0x011a, 5) => {
-                let off = u32_at(e + 8)? as usize;
-                let (num, den) = (u32_at(off)?, u32_at(off + 4)?);
-                if den == 0 {
-                    return None;
-                }
-                xres = Some(f64::from(num) / f64::from(den));
-            }
-            // SHORT: inline in the value field.
-            (0x0128, 3) => unit = Some(u16_at(e + 8)?),
-            _ => {}
-        }
-    }
-    Some((xres?, unit))
+    docling_core::image_dpi::resolution(data).map(|(x, _)| x)
 }
 
 fn mime_for(path: &str) -> &'static str {

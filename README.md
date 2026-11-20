@@ -30,7 +30,7 @@ match. docling.rs runs the same models from a single binary: PDF 4.3× faster
 than Python docling at under half the RAM, Office and HTML 20–60× faster, and
 tables that survive — cell recall 0.94 where MarkItDown gets 0.31
 ([numbers](#conformance-with-microsoft-markitdown),
-[method](./docs/PDF_CONFORMANCE.md#performance--review--profiling-notes)).
+[method](./docs/PERFORMANCE.md#review--profiling-notes)).
 
 **Coming from [MarkItDown](https://github.com/microsoft/markitdown)?**
 `pip install docling-rs`, swap one import —
@@ -191,7 +191,7 @@ warning.
 | Diagrams · Apple iWork | Visio, SVG, CGM (its text) · Pages, Numbers, Keynote |
 | PDF & images | PDF (layout, TableFormer, OCR), PNG, JPEG, TIFF, BMP, WebP, GIF, HEIC (opt-in), METS/GBS scans, DjVu |
 | XML · docling native | JATS, USPTO, XBRL, RIS (Austrian legal XML), DocLang · docling JSON, DocTags, DCLX |
-| Email · subtitles · mainframe | `.eml`, Outlook `.msg` · WebVTT · EBCDIC records through a COBOL copybook |
+| Email · notes · calendars · subtitles · mainframe | `.eml`, Outlook `.msg` · Box Notes (`.boxnote`) · iCalendar `.ics` (events, tasks, journal entries, free/busy) · WebVTT · EBCDIC records through a COBOL copybook, AFP / MO:DCA print streams |
 | Audio · video | WAV, MP3, M4A, AAC, OGG, FLAC; MP4, AVI, MOV, MKV, WebM, MPEG — local Whisper or Parakeet, plus scene frames from video; a YouTube watch URL — the video's title, description and caption transcript as timed items (`--asr-lang` picks the language) |
 
 Every extension, with what each backend does:
@@ -388,7 +388,7 @@ Declarative formats hold 17–28 MB against docling's 750–780 MB (it imports
 torch even for them) and finish 200–890× sooner end to end; the PDF peaks at
 0.46 GB against 2.2 GB and converts 19× faster end to end. Where the time
 goes, and what was measured not to help:
-[`docs/PDF_CONFORMANCE.md`](./docs/PDF_CONFORMANCE.md#where-the-time-goes).
+[`docs/PERFORMANCE.md`](./docs/PERFORMANCE.md#where-the-time-goes).
 
 ## Integration — using docling.rs from your language
 
@@ -543,3 +543,27 @@ conformance workflow, and the conventions a change is expected to follow.
 ## License
 
 MIT, matching upstream docling.
+
+The CID → Unicode tables in
+[`crates/docling-pdf/data/mapping-resources-pdf/`](./crates/docling-pdf/data/mapping-resources-pdf/)
+are Adobe's, under the BSD-3-Clause
+[`LICENSE.txt`](./crates/docling-pdf/data/mapping-resources-pdf/LICENSE.txt)
+there. The native builds compile them in (docling-pdf's `cid-collections`
+feature), so the published binaries carry that licence as
+`LICENSE-mapping-resources-pdf.txt`: the CLI and FFI archives and the Node.js
+packages next to the binary, the wheels in their `.dist-info/licenses/`
+(maturin includes `crates/docling-py/LICENSE-*`), the container images in
+`/usr/share/doc/docling.rs/`, and `install.sh` in its prefix. The wasm package
+and demo leave the tables out. A binary you build and redistribute yourself
+with the feature on needs the licence beside it too.
+
+The glyph-name tables are Adobe's as well. The
+[Adobe Glyph List](./crates/docling-pdf/data/adobe-glyph-list/) (BSD-3-Clause)
+is compiled into the native builds by docling-pdf's `glyph-list` feature, and
+the Symbol / ZapfDingbats encodings and standard-14 metrics in
+`symbol_fonts.rs` / `std14.rs` are derived from Adobe's Core 14 AFM files,
+which every build of the PDF text parser contains. One notice,
+[`LICENSE.txt`](./crates/docling-pdf/data/adobe-glyph-list/LICENSE.txt),
+covers both and travels as `LICENSE-adobe-glyph-list.txt` in the same places
+— plus the wasm package and the demo site, which leave the list out but carry
+the AFM-derived tables.

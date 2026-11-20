@@ -603,11 +603,7 @@ fn walk_block_nodes<'a>(
     for child in children {
         match child.value() {
             HtmlNode::Text(text) => {
-                let run = normalize_ws(text);
-                if !run.is_empty() {
-                    inline.md.push(serialize_run(&run, base, None));
-                    inline.push_rich(base.to_inline_run(&run));
-                }
+                inline.text_node(text, base);
             }
             HtmlNode::Element(e) => {
                 let Some(cref) = ElementRef::wrap(child) else {
@@ -720,7 +716,7 @@ fn walk_block_nodes<'a>(
 
 fn flush_inline(buf: &mut RunBuf, nodes: &mut Vec<Node>) {
     if !buf.md.is_empty() {
-        push_inline_paragraph(nodes, finalize(&buf.md), std::mem::take(&mut buf.rich));
+        push_inline_paragraph(nodes, finalize(buf), std::mem::take(&mut buf.rich));
     }
     *buf = RunBuf::default();
 }
@@ -785,7 +781,11 @@ fn handle_block(
                 // <code>the docs</code>…`), and re-parsing the joined text
                 // would lose the code flag on a linked segment and split the
                 // separators into their own plain runs.
-                push_inline_paragraph(nodes, runs.md.join(" "), std::mem::take(&mut runs.rich));
+                push_inline_paragraph(
+                    nodes,
+                    pre_runs_md(elem, base),
+                    std::mem::take(&mut runs.rich),
+                );
             } else {
                 let (language, text) = extract_pre(elem);
                 nodes.push(Node::Code {
@@ -840,11 +840,7 @@ fn handle_block(
             for child in elem.children() {
                 match child.value() {
                     HtmlNode::Text(text) => {
-                        let run = normalize_ws(text);
-                        if !run.is_empty() {
-                            inline.md.push(serialize_run(&run, base, None));
-                            inline.push_rich(base.to_inline_run(&run));
-                        }
+                        inline.text_node(text, base);
                     }
                     HtmlNode::Element(e) => {
                         let Some(cref) = ElementRef::wrap(child) else {
@@ -1241,9 +1237,12 @@ fn walk_list(
         // The item's own inline text, then its block content. Images fold into
         // the item text (so the list stays tight); nested lists and tables
         // follow as their own nodes.
-        let mut runs = RunBuf::default();
+        let mut runs = RunBuf {
+            keep_br: true,
+            ..RunBuf::default()
+        };
         collect_li_inline(li, base, &mut runs);
-        let mut text = finalize(&runs.md);
+        let mut text = finalize(&runs);
         let mut nested: Vec<(&str, ElementRef)> = Vec::new();
         append_li_blocks(li, &mut text, &mut nested);
         // An item without text still holds its table (docling#4617): an
@@ -1263,6 +1262,7 @@ fn walk_list(
                     .or_else(|| has_start.then(|| format!("{number}."))),
                 location: None,
                 spans: None,
+                split: None,
                 dclx: None,
                 href: first_href(li),
                 layer: None,
@@ -1405,11 +1405,7 @@ fn collect_li_inline(li: ElementRef, base: Fmt, runs: &mut RunBuf) {
     for child in li.children() {
         match child.value() {
             HtmlNode::Text(t) => {
-                let run = normalize_ws(t);
-                if !run.is_empty() {
-                    runs.md.push(serialize_run(&run, base, None));
-                    runs.push_rich(base.to_inline_run(&run));
-                }
+                runs.text_node(t, base);
             }
             HtmlNode::Element(e) => {
                 let Some(cref) = ElementRef::wrap(child) else {
@@ -1421,7 +1417,11 @@ fn collect_li_inline(li: ElementRef, base: Fmt, runs: &mut RunBuf) {
                 match e.name() {
                     "ul" | "ol" | "dl" | "img" | "table" => {} // pulled out as blocks
                     "p" | "div" | "section" | "article" | "blockquote" => {
-                        collect_li_inline(cref, base, runs)
+                        // A block child is a word boundary (docling#3891):
+                        // `<li>a<p>para</p>` reads `a para`.
+                        runs.pending = true;
+                        collect_li_inline(cref, base, runs);
+                        runs.pending = true;
                     }
                     _ => collect_element(cref, base, None, runs),
                 }
@@ -1508,6 +1508,7 @@ fn walk_dl(
                         marker: None,
                         location: None,
                         spans: None,
+                        split: None,
                         dclx: None,
                         href: first_href(c),
                         layer: None,
@@ -1534,11 +1535,7 @@ fn walk_dd(
     for child in dd.children() {
         match child.value() {
             HtmlNode::Text(t) => {
-                let run = normalize_ws(t);
-                if !run.is_empty() {
-                    runs.md.push(serialize_run(&run, base, None));
-                    runs.push_rich(base.to_inline_run(&run));
-                }
+                runs.text_node(t, base);
             }
             HtmlNode::Element(e) => {
                 let Some(cref) = ElementRef::wrap(child) else {
@@ -1552,7 +1549,7 @@ fn walk_dd(
             _ => {}
         }
     }
-    let text = finalize(&runs.md);
+    let text = finalize(&runs);
     if !text.is_empty() {
         nodes.push(Node::ListItem {
             ordered: false,
@@ -1563,6 +1560,7 @@ fn walk_dd(
             marker: None,
             location: None,
             spans: None,
+            split: None,
             dclx: None,
             href: first_href(dd),
             layer: None,
@@ -1617,16 +1615,27 @@ impl Fmt {
 #[derive(Default)]
 struct RunBuf {
     md: Vec<String>,
+    /// Per `md` entry: whether the source had whitespace before it — the
+    /// run boundary docling's runs now carry themselves (schema 1.11.0,
+    /// #997). [`finalize`] joins on it instead of a blanket space, so
+    /// `<b>x</b>.` is `**x**.` and `H<sub>2</sub>O` is `H2O`.
+    gaps: Vec<bool>,
+    /// Whitespace seen since the last `md` entry.
+    pending: bool,
+    /// A list item's runs (docling#3891): a `<br>` between two differently
+    /// annotated runs stays a line break instead of reading as a space.
+    keep_br: bool,
     rich: Vec<InlineRun>,
     /// Every text part in order with its annotation — docling's
     /// `AnnotatedTextList`, which the heading rule (`to_single_text_element`,
     /// [`render_heading`]) reads.
     parts: Vec<TextPart>,
     /// The last plain (non-link) text run — its index in `md` and `rich`, its
-    /// text and formatting — so the next same-annotation segment can merge
-    /// into it ([`RunBuf::push_text`]). Invalidated by anything pushed after
-    /// it (the indices no longer point at the tails).
-    last_plain: Option<(usize, usize, String, Fmt)>,
+    /// Markdown-side and DocLang-side text and formatting — so the next
+    /// same-annotation segment can merge into it ([`RunBuf::push_text`]).
+    /// Invalidated by anything pushed after it (the indices no longer point
+    /// at the tails).
+    last_plain: Option<(usize, usize, String, String, Fmt)>,
     /// How many runs `rich` would hold without the same-annotation merge —
     /// what the anchor-folding rule in [`collect_element`] counts (a TOC
     /// entry `<a><span>1</span><span>Etymology</span></a>` is *fragmented*
@@ -1647,9 +1656,52 @@ struct TextPart {
     text: String,
     fmt: Fmt,
     hyperlink: Option<String>,
+    /// Whitespace before it in the source (see [`RunBuf::gaps`]).
+    gap: bool,
 }
 
 impl RunBuf {
+    /// Push a Markdown entry, recording whether whitespace preceded it.
+    fn push_md(&mut self, md: String) {
+        self.md.push(md);
+        self.gaps.push(std::mem::take(&mut self.pending));
+    }
+
+    /// Note a source text node's leading whitespace: a boundary before
+    /// what follows.
+    fn ws_before(&mut self, raw: &str) {
+        if raw
+            .chars()
+            .next()
+            .is_some_and(docling_core::inline::is_space)
+        {
+            self.pending = true;
+        }
+    }
+
+    /// Note a source text node's trailing whitespace.
+    fn ws_after(&mut self, raw: &str) {
+        if raw
+            .chars()
+            .last()
+            .is_some_and(docling_core::inline::is_space)
+        {
+            self.pending = true;
+        }
+    }
+
+    /// A bare text node of a block (no annotation of its own): its Markdown
+    /// run and structured run, with its edge whitespace as boundaries.
+    fn text_node(&mut self, raw: &str, base: Fmt) {
+        self.ws_before(raw);
+        let run = normalize_ws(raw);
+        if !run.is_empty() {
+            self.push_md(serialize_run(&run, base, None));
+            self.push_rich(base.to_inline_run(&run));
+        }
+        self.ws_after(raw);
+    }
+
     /// Append a plain text segment (already whitespace-normalized) as a
     /// Markdown run, a structured run and a part. Two adjacent segments with
     /// the same annotation — formatting, no hyperlink — merge into one run
@@ -1662,20 +1714,29 @@ impl RunBuf {
             text: text.to_string(),
             fmt,
             hyperlink: hyperlink.map(str::to_string),
+            gap: self.pending,
         });
         if hyperlink.is_none() && !self.merge_next {
-            if let Some((mi, ri, prev, pfmt)) = self.last_plain.clone() {
+            if let Some((mi, ri, prev_md, prev, pfmt)) = self.last_plain.clone() {
                 if pfmt == fmt && mi + 1 == self.md.len() && ri + 1 == self.rich.len() {
+                    // Merged faithfully: a space only where the source has
+                    // one (#997). The DocLang run keeps its old join.
+                    let sep = if std::mem::take(&mut self.pending) {
+                        " "
+                    } else {
+                        ""
+                    };
+                    let merged_md = format!("{prev_md}{sep}{text}");
                     let merged = format!("{prev} {text}");
-                    self.md[mi] = serialize_run(&merged, fmt, None);
+                    self.md[mi] = serialize_run(&merged_md, fmt, None);
                     self.rich[ri].text = merged.clone();
-                    self.last_plain = Some((mi, ri, merged, fmt));
+                    self.last_plain = Some((mi, ri, merged_md, merged, fmt));
                     self.unmerged_runs += 1;
                     return;
                 }
             }
         }
-        self.md.push(serialize_run(text, fmt, hyperlink));
+        self.push_md(serialize_run(text, fmt, hyperlink));
         if hyperlink.is_some() {
             self.push_rich_link(fmt.to_inline_run(text));
             self.last_plain = None;
@@ -1693,6 +1754,7 @@ impl RunBuf {
                 (
                     self.md.len() - 1,
                     self.rich.len() - 1,
+                    text.to_string(),
                     text.to_string(),
                     fmt,
                 )
@@ -1715,6 +1777,7 @@ impl RunBuf {
             return;
         };
         self.md.truncate(n - 2);
+        self.gaps.truncate(n - 2);
         self.md[n - 3] = serialize_run(&folded, fmt, None);
     }
 
@@ -1756,9 +1819,16 @@ impl RunBuf {
     /// stays: that's a paragraph break). The caller pushes the md run before
     /// the rich run, so the sentinel sits one before the end.
     fn drop_single_sentinel(&mut self) {
+        if self.keep_br {
+            return;
+        }
         let n = self.md.len();
         if n >= 2 && self.md[n - 2] == BR_SENTINEL && (n < 3 || self.md[n - 3] != BR_SENTINEL) {
             self.md.remove(n - 2);
+            self.gaps.remove(n - 2);
+            // The fragment after the dropped `<br>` starts a new annotation:
+            // the boundary reads as a space.
+            self.gaps[n - 2] = true;
         }
     }
 }
@@ -1779,7 +1849,7 @@ fn same_style(a: &InlineRun, b: &InlineRun) -> bool {
 fn render_inline_fmt(elem: ElementRef, base: Fmt) -> String {
     let mut runs = RunBuf::default();
     collect_runs(elem, base, None, &mut runs);
-    finalize(&runs.md)
+    finalize(&runs)
 }
 
 /// A heading's Markdown — docling's `_handle_heading` makes the heading ONE
@@ -1792,15 +1862,20 @@ fn render_heading(elem: ElementRef, base: Fmt) -> String {
     let mut runs = RunBuf::default();
     collect_runs(elem, base, None, &mut runs);
     if runs.parts.is_empty() {
-        return finalize(&runs.md);
+        return finalize(&runs);
     }
-    let text = runs
-        .parts
-        .iter()
-        .map(|p| p.text.trim())
-        .filter(|t| !t.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
+    // The parts concatenated with the source's boundaries (#997).
+    let mut text = String::new();
+    for p in &runs.parts {
+        let t = p.text.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if !text.is_empty() && p.gap {
+            text.push(' ');
+        }
+        text.push_str(t);
+    }
     let plain = Fmt {
         raw: base.raw,
         ..Fmt::default()
@@ -1840,7 +1915,7 @@ fn shared_hyperlink(parts: &[TextPart]) -> Option<String> {
 fn render_inline(elem: ElementRef, base: Fmt) -> (String, Vec<InlineRun>) {
     let mut runs = RunBuf::default();
     collect_runs(elem, base, None, &mut runs);
-    (finalize(&runs.md), runs.rich)
+    (finalize(&runs), runs.rich)
 }
 
 /// docling represents a `<br>` with a sentinel that the serializer rewrites.
@@ -1866,13 +1941,15 @@ pub(super) fn pre_line_breaks(text: &str) -> String {
             i += 1;
         }
     }
-    out.trim().to_string()
+    // No trim: a `<pre>`'s interior runs keep their whitespace (#997); the
+    // callers trim the block's own edges.
+    out
 }
 
 /// upstream's `_resolve_line_breaks` (docling#4675, #769): in text that is
 /// one paragraph — a heading, a caption, a list item — every `<br>`
 /// sentinel with the spaces before it and the spaces and sentinels after it
-/// (` *SENT[ SENT]*`) is one line break; the ends are trimmed.
+/// (` *SENT[ SENT]*`) is one line break.
 pub(super) fn resolve_line_breaks(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
@@ -1894,13 +1971,22 @@ pub(super) fn resolve_line_breaks(text: &str) -> String {
             i = j.max(i + 1);
         }
     }
-    out.trim().to_string()
+    // Never trims (docling#3891): it also runs on single inline runs, whose
+    // edge whitespace is the run boundary; callers trim block edges.
+    out
 }
 
 /// Join runs with single spaces, then turn `<br>` sentinels into newlines,
 /// stripping the spaces the join inserted around them.
-fn finalize(runs: &[String]) -> String {
-    let joined = runs.join(" ");
+fn finalize(buf: &RunBuf) -> String {
+    // Joined where the source had whitespace (#997), never elsewhere.
+    let mut joined = String::new();
+    for (i, run) in buf.md.iter().enumerate() {
+        if i > 0 && buf.gaps.get(i).copied().unwrap_or(true) {
+            joined.push(' ');
+        }
+        joined.push_str(run);
+    }
     if !joined.contains(BR_SENTINEL) {
         return joined;
     }
@@ -1927,10 +2013,12 @@ fn collect_runs(elem: ElementRef, fmt: Fmt, hyperlink: Option<&str>, runs: &mut 
     for child in elem.children() {
         match child.value() {
             HtmlNode::Text(text) => {
+                runs.ws_before(text);
                 let normalized = normalize_ws(text);
                 if !normalized.is_empty() {
                     runs.push_text(&normalized, fmt, hyperlink);
                 }
+                runs.ws_after(text);
             }
             HtmlNode::Element(_) => {
                 if let Some(cref) = ElementRef::wrap(child) {
@@ -1980,6 +2068,74 @@ fn contains_block(elem: ElementRef) -> bool {
 /// The inline formatting an element applies to its children — the same tag
 /// set [`collect_element`] matches, for callers that block-walk an inline
 /// wrapper (#284) and still owe the wrapper's formatting to its inline text.
+/// A `<pre>` with inline structure as Markdown: each annotated segment a
+/// code span over its verbatim text (#997, docling#3891 — preformatted, so
+/// every interior space is significant and stays inside its span), same-
+/// annotation neighbours merged, only the block's edges trimmed.
+fn pre_runs_md(pre: ElementRef, base: Fmt) -> String {
+    fn walk(
+        el: ElementRef,
+        fmt: Fmt,
+        link: Option<&str>,
+        out: &mut Vec<(String, Fmt, Option<String>)>,
+    ) {
+        for child in el.children() {
+            match child.value() {
+                HtmlNode::Text(t) => push(out, t, fmt, link),
+                HtmlNode::Element(e) => {
+                    let Some(cref) = ElementRef::wrap(child) else {
+                        continue;
+                    };
+                    if is_hidden(e) || matches!(e.name(), "script" | "style" | "img") {
+                        continue;
+                    }
+                    match e.name() {
+                        "br" => push(out, BR_SENTINEL, fmt, link),
+                        "a" => {
+                            let href = e.attr("href").map(normalize_url);
+                            walk(cref, fmt, href.as_deref().or(link), out);
+                        }
+                        name => walk(cref, tag_fmt(name, fmt), link, out),
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    fn push(out: &mut Vec<(String, Fmt, Option<String>)>, t: &str, fmt: Fmt, link: Option<&str>) {
+        match out.last_mut() {
+            Some((text, f, l)) if *f == fmt && l.as_deref() == link => text.push_str(t),
+            _ => out.push((t.to_string(), fmt, link.map(str::to_string))),
+        }
+    }
+    let mut segs = Vec::new();
+    walk(pre, Fmt { code: true, ..base }, None, &mut segs);
+    if let Some(head) = segs.first_mut() {
+        head.0 = head.0.trim_start_matches('\n').to_string();
+    }
+    if let Some(tail) = segs.last_mut() {
+        tail.0 = tail.0.trim_end().to_string();
+    }
+    let n = segs.len();
+    let mut md = String::new();
+    for (i, (text, fmt, link)) in segs.iter().enumerate() {
+        let text = pre_line_breaks(text);
+        if text.is_empty() {
+            continue;
+        }
+        if text.trim().is_empty() && text.contains('\n') {
+            // A run of `<br>` alone: a line break between its neighbours,
+            // never inside a code span.
+            if 0 < i && i + 1 < n {
+                md.push('\n');
+            }
+            continue;
+        }
+        md.push_str(&serialize_run(&text, *fmt, link.as_deref()));
+    }
+    md
+}
+
 fn tag_fmt(name: &str, base: Fmt) -> Fmt {
     match name {
         "b" | "strong" => Fmt { bold: true, ..base },
@@ -2069,7 +2225,10 @@ fn collect_element(elem: ElementRef, fmt: Fmt, hyperlink: Option<&str>, runs: &m
         // the structured stream it folds the next same-formatting segment into
         // the previous run with a newline (docling keeps `a<br>b` as one item).
         "br" => {
-            runs.md.push(BR_SENTINEL.to_string());
+            runs.push_md(BR_SENTINEL.to_string());
+            // A line break is a boundary: what follows is not glued on
+            // (a heading's `Title<br>line` reads `Title line`).
+            runs.pending = true;
             runs.merge_next = true;
         }
         "a" => {
@@ -2104,16 +2263,30 @@ fn collect_element(elem: ElementRef, fmt: Fmt, hyperlink: Option<&str>, runs: &m
                 } else {
                     fmt
                 };
-                runs.md.push(serialize_run(&joined, run_fmt, link));
+                // The Markdown side keeps the fragments' own boundaries
+                // (#997): `<span>[</span>1<span>]</span>` is `[1]`.
+                let mut joined_md = String::new();
+                for (i, part) in inner.parts.iter().enumerate() {
+                    if i > 0 && part.gap {
+                        joined_md.push(' ');
+                    }
+                    joined_md.push_str(&part.text);
+                }
+                if inner.parts.first().is_some_and(|p| p.gap) {
+                    runs.pending = true;
+                }
+                runs.push_md(serialize_run(&joined_md, run_fmt, link));
+                runs.pending = inner.pending;
                 if link.is_some() {
                     runs.push_rich_link(run_fmt.to_inline_run(&joined));
                 } else {
                     runs.push_rich(run_fmt.to_inline_run(&joined));
                 }
                 runs.parts.push(TextPart {
-                    text: joined,
+                    text: joined_md,
                     fmt: run_fmt,
                     hyperlink: link.map(str::to_string),
+                    gap: runs.gaps.last().copied().unwrap_or(false),
                 });
                 runs.last_plain = None;
                 runs.unmerged_runs += 1;
@@ -2193,7 +2366,12 @@ fn extract_pre(pre: ElementRef) -> (Option<String>, String) {
     if text.contains(BR_CHAR) {
         text = pre_line_breaks(&text);
     }
-    (language, text.trim_matches('\n').to_string())
+    // Preformatted: interior whitespace is significant, only the block's
+    // edges go (HTML drops the newline right after `<pre>`).
+    (
+        language,
+        text.trim_start_matches('\n').trim_end().to_string(),
+    )
 }
 
 /// Extract a language hint from a `class` like `language-rust` or `lang-rust`.
@@ -2290,6 +2468,38 @@ pub(super) fn subtree_text(elem: ElementRef, out: &mut String) {
     }
 }
 
+/// A table's own `<tr>`s in the order of the HTML table model, without
+/// descending into nested tables (a recursive `select` would pull a nested
+/// table's cells into the outer grid). Row groups are unwrapped and the
+/// `tfoot`s' rows come after every other row, wherever the element sits in
+/// the source — HTML 4 required it before `tbody` (upstream's
+/// `_unwrap_table_sections`, docling#4323), so an HTML4-style table does not
+/// print its `Total` row before the rows it totals.
+pub(crate) fn table_rows<'a>(table: ElementRef<'a>) -> Vec<ElementRef<'a>> {
+    let mut rows: Vec<ElementRef<'a>> = Vec::new();
+    let mut foot: Vec<ElementRef<'a>> = Vec::new();
+    for child in table.children().filter_map(ElementRef::wrap) {
+        let name = child.value().name();
+        let into = match name {
+            "tr" => {
+                rows.push(child);
+                continue;
+            }
+            "thead" | "tbody" => &mut rows,
+            "tfoot" => &mut foot,
+            _ => continue,
+        };
+        into.extend(
+            child
+                .children()
+                .filter_map(ElementRef::wrap)
+                .filter(|c| c.value().name() == "tr"),
+        );
+    }
+    rows.extend(foot);
+    rows
+}
+
 /// Build a table's grid from its `<tr>`s. `render_cell` yields each cell's
 /// flat Markdown text, whether the cell is *rich* (docling's `RichTableCell`),
 /// and — for a rich cell — its structured block content for
@@ -2298,23 +2508,7 @@ fn parse_table_cells(
     table: ElementRef,
     render_cell: impl Fn(ElementRef) -> (String, Vec<Node>),
 ) -> Option<Table> {
-    // Collect this table's own rows without descending into nested tables (a
-    // recursive `select` would pull a nested table's cells into the outer grid).
-    let mut trs: Vec<ElementRef> = Vec::new();
-    for child in table.children().filter_map(ElementRef::wrap) {
-        match child.value().name() {
-            "tr" => trs.push(child),
-            "thead" | "tbody" | "tfoot" => {
-                trs.extend(
-                    child
-                        .children()
-                        .filter_map(ElementRef::wrap)
-                        .filter(|c| c.value().name() == "tr"),
-                );
-            }
-            _ => {}
-        }
-    }
+    let trs = table_rows(table);
 
     // A `<tr>` whose cells are all spanning `<th>`s is a "row header" (e.g. a
     // rowspan label alone in its `<tr>`): it doesn't advance the row index, and
@@ -2436,6 +2630,7 @@ fn parse_table_cells(
         .map(|row| row.into_iter().map(Option::unwrap_or_default).collect())
         .collect();
     (!rows.is_empty()).then_some(Table {
+        footnotes: Vec::new(),
         rows,
         location: None,
         structure: Some(docling_core::TableStructure {
@@ -2450,6 +2645,7 @@ fn parse_table_cells(
         caption: None,
         caption_parent: Default::default(),
         caption_location: None,
+        document_index: false,
     })
 }
 
@@ -2825,26 +3021,34 @@ fn table_caption_text(table: ElementRef) -> Option<String> {
 /// The text of a `<figcaption>`/`<caption>` element (docling's
 /// `_emit_caption`).
 fn caption_text(cap: ElementRef) -> Option<String> {
-    // A caption is plain text (formatting/links are stripped), but
-    // docling's `to_single_text_element` builds it per source text node:
-    // each fragment is stripped and the fragments are joined with single
-    // spaces — so tag boundaries always yield a space ("a b ." for
-    // `a <a>b</a>.`, "[ 49 ]" for a cite's `[`/`49`/`]` spans).
-    // A `<br>` is a line break (`_resolve_line_breaks`, #769).
-    let mut parts: Vec<String> = Vec::new();
+    // A caption is plain text (formatting/links are stripped): docling's
+    // `normalize_whitespace().to_single_text_element()` concatenates the
+    // source text nodes with their own boundary whitespace, one space where
+    // there was any (#997: `a <a>b</a>.` is "a b.", a cite's `[`/`49`/`]`
+    // spans "[49]"). A `<br>` is a line break (`_resolve_line_breaks`, #769).
+    let mut buf = RunBuf::default();
     for node in cap.descendants() {
         match node.value() {
             HtmlNode::Text(t) => {
+                buf.ws_before(t);
                 let frag = normalize_ws(t);
                 if !frag.is_empty() {
-                    parts.push(frag);
+                    buf.push_md(frag);
                 }
+                buf.ws_after(t);
             }
-            HtmlNode::Element(e) if e.name() == "br" => parts.push(BR_SENTINEL.to_string()),
+            HtmlNode::Element(e) if e.name() == "br" => buf.push_md(BR_SENTINEL.to_string()),
             _ => {}
         }
     }
-    let text = resolve_line_breaks(&parts.join(" "));
+    let mut joined = String::new();
+    for (i, frag) in buf.md.iter().enumerate() {
+        if i > 0 && buf.gaps[i] {
+            joined.push(' ');
+        }
+        joined.push_str(frag);
+    }
+    let text = resolve_line_breaks(&joined).trim().to_string();
     (!text.is_empty()).then_some(text)
 }
 
@@ -3033,6 +3237,172 @@ mod tests {
         HtmlBackend.convert(&src).unwrap()
     }
 
+    /// The JSON items under `parent_ref` (a `children` list of `$ref`s).
+    fn children_of<'j>(json: &'j serde_json::Value, r: &str) -> Vec<&'j str> {
+        let item = resolve(json, r);
+        item["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["$ref"].as_str().unwrap())
+            .collect()
+    }
+
+    fn resolve<'j>(json: &'j serde_json::Value, r: &str) -> &'j serde_json::Value {
+        if r == "#/body" {
+            return &json["body"];
+        }
+        let (kind, i) = r[2..].split_once('/').unwrap();
+        &json[kind][i.parse::<usize>().unwrap()]
+    }
+
+    /// docling#5037 (#1023): an image caption — `<figcaption>` or the `alt`
+    /// text — is a child of its picture, so it stays in the picture's
+    /// section; upstream's `test_image_caption_stays_in_the_section_of_its_image`.
+    #[test]
+    fn image_caption_stays_in_the_section_of_its_image() {
+        for figure in [
+            r#"<figure><img src="x.png" alt="x"><figcaption>Caption text</figcaption></figure>"#,
+            r#"<img src="x.png" alt="Caption text">"#,
+        ] {
+            let doc = convert(&format!(
+                "<html><body><h1>One</h1>{figure}<p>Para one.</p>\
+                 <h1>Two</h1><p>Para two.</p></body></html>"
+            ));
+            let json = doc.export_to_json_value();
+            let pic = &json["pictures"][0];
+            let pic_ref = pic["self_ref"].as_str().unwrap();
+            let section = resolve(&json, pic["parent"]["$ref"].as_str().unwrap());
+            assert_eq!(section["text"], "One", "{figure}");
+            let cap_ref = pic["captions"][0]["$ref"].as_str().unwrap();
+            assert_eq!(resolve(&json, cap_ref)["text"], "Caption text");
+            assert_eq!(resolve(&json, cap_ref)["parent"]["$ref"], pic_ref);
+            assert_eq!(children_of(&json, pic_ref), [cap_ref], "{figure}");
+            let para = json["texts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|t| t["text"] == "Para one.")
+                .unwrap();
+            assert_eq!(
+                children_of(&json, section["self_ref"].as_str().unwrap()),
+                [pic_ref, para["self_ref"].as_str().unwrap()],
+                "{figure}"
+            );
+            let body: Vec<_> = children_of(&json, "#/body")
+                .into_iter()
+                .map(|r| resolve(&json, r)["label"].as_str().unwrap())
+                .collect();
+            assert_eq!(body, ["title", "title"], "{figure}");
+            // Markdown is unchanged: the caption, then its picture.
+            let md = doc.export_to_markdown();
+            assert!(md.contains("Caption text\n\n<!-- image -->"), "{md}");
+        }
+    }
+
+    /// docling#4998 (#1023): sibling `<code>` children of a `<pre>` are one
+    /// code block, not three code runs of an inline group; upstream's
+    /// `test_preformatted_blocks_preserve_inline_whitespace` cases.
+    #[test]
+    fn pre_sibling_code_tags_are_one_code_block() {
+        for (pre, expected) in [
+            (
+                "<pre><code>line one</code>\n<code>line two</code>\n<code>line three</code></pre>",
+                "line one\nline two\nline three",
+            ),
+            (
+                "<pre><code>x = 'a  b'</code> <code>y</code></pre>",
+                "x = 'a  b' y",
+            ),
+            (
+                "<pre><code>\n    if ok:\n        run()\n\n</code></pre>",
+                "    if ok:\n        run()",
+            ),
+        ] {
+            let doc = convert(&format!("<html><body>{pre}</body></html>"));
+            let json = doc.export_to_json_value();
+            let codes: Vec<_> = json["texts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|t| t["label"] == "code")
+                .map(|t| t["text"].as_str().unwrap())
+                .collect();
+            assert_eq!(codes, [expected], "{pre}");
+            let md = doc.export_to_markdown();
+            assert_eq!(md, format!("```\n{expected}\n```\n"), "{pre}");
+        }
+    }
+
+    /// docling#4323 (#1023): `<tfoot>` rows are kept and come after every
+    /// other row group, wherever the element sits; a footer `rowspan` does
+    /// not reach back into the body. Upstream's `test_table_tfoot_rows_are_kept`.
+    #[test]
+    fn table_tfoot_rows_are_kept_last() {
+        const THEAD: &str = "<thead><tr><th>Item</th><th>Amount</th></tr></thead>";
+        const TFOOT: &str = "<tfoot><tr><td>Total</td><td>10</td></tr></tfoot>";
+        let widgets = "<tbody><tr><td>Widgets</td><td>10</td></tr></tbody>";
+        let cases = [
+            (
+                format!("{THEAD}{widgets}{TFOOT}"),
+                vec![["Item", "Amount"], ["Widgets", "10"], ["Total", "10"]],
+            ),
+            (
+                format!("{THEAD}{TFOOT}{widgets}"),
+                vec![["Item", "Amount"], ["Widgets", "10"], ["Total", "10"]],
+            ),
+            (
+                format!(
+                    "<tbody><tr><td>Widgets</td><td>4</td></tr></tbody>{TFOOT}\
+                     <tbody><tr><td>Gadgets</td><td>6</td></tr></tbody>"
+                ),
+                vec![["Widgets", "4"], ["Gadgets", "6"], ["Total", "10"]],
+            ),
+            (
+                format!(
+                    "{THEAD}<tfoot><tr><td rowspan=\"2\">Total</td><td>10</td></tr></tfoot>{widgets}"
+                ),
+                vec![["Item", "Amount"], ["Widgets", "10"], ["Total", "10"]],
+            ),
+        ];
+        for (body, expected) in cases {
+            let doc = convert(&format!("<table>{body}</table>"));
+            let json = doc.export_to_json_value();
+            let tables = json["tables"].as_array().unwrap();
+            assert_eq!(tables.len(), 1, "{body}");
+            let data = &tables[0]["data"];
+            assert_eq!(data["num_rows"], 3, "{body}");
+            let grid: Vec<Vec<&str>> = data["grid"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| {
+                    row.as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|c| c["text"].as_str().unwrap())
+                        .collect()
+                })
+                .collect();
+            assert_eq!(grid, expected, "{body}");
+            if body.contains("rowspan=") {
+                let total = data["table_cells"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|c| c["text"] == "Total")
+                    .unwrap();
+                assert_eq!(total["row_span"], 1, "{body}");
+            }
+            // The Markdown table keeps the same row order.
+            let md = doc.export_to_markdown();
+            let rows: Vec<&str> = md.lines().filter(|l| !l.starts_with("|--")).collect();
+            for (line, want) in rows.iter().zip(&expected) {
+                assert!(line.contains(want[0]), "{body}\n{md}");
+            }
+        }
+    }
+
     /// #769 (docling#4675): one-paragraph text turns each run of `<br>`
     /// sentinels, with the spaces around them, into one line break; `<pre>`
     /// text turns each sentinel (with one space either side) into one.
@@ -3047,7 +3417,8 @@ mod tests {
             resolve_line_breaks(&format!("a {b} {b}{b} b  c")),
             "a\nb  c"
         );
-        assert_eq!(resolve_line_breaks(&format!(" {b} ")), "");
+        // No trim: callers trim the block's edges (#997).
+        assert_eq!(resolve_line_breaks(&format!(" {b} ")), "\n");
         assert_eq!(pre_line_breaks(&format!("Code{b}line")), "Code\nline");
         assert_eq!(pre_line_breaks(&format!("a  {b}  b{b}{b}c")), "a \n b\n\nc");
     }
@@ -3074,11 +3445,12 @@ mod tests {
             "<p><b><time>May 21, 6:29 <abbr>p.m.</abbr></time></b> and <b>x</b><b>y</b> <i>z</i></p>",
         )
         .export_to_markdown();
-        assert!(md.contains("**May 21, 6:29 p.m.** and **x y** *z*"), "{md}");
+        // Faithful merge (#997): `<b>x</b><b>y</b>` has no space between.
+        assert!(md.contains("**May 21, 6:29 p.m.** and **xy** *z*"), "{md}");
         let md =
             convert("<ul><li><a href=\"#e\"><span>1</span><span>Etymology</span></a></li></ul>")
                 .export_to_markdown();
-        assert!(md.contains("[1 Etymology](#e)"), "{md}");
+        assert!(md.contains("[1Etymology](#e)"), "{md}");
     }
 
     /// docling#4287 (2.129): a zero `colspan`/`rowspan` covers no grid slot,
@@ -3352,7 +3724,7 @@ mod tests {
         );
         assert_eq!(
             doc.export_to_markdown(),
-            "# Title\n\nHello **bold** and *italic* and [link](https://x.com/) .\n"
+            "# Title\n\nHello **bold** and *italic* and [link](https://x.com/).\n"
         );
     }
 

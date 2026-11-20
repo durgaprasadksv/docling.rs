@@ -23,6 +23,18 @@ pub struct TextCell {
     pub b: f32,
 }
 
+impl TextCell {
+    /// The cell's width per character: the scale of what it draws. Its
+    /// height is the font's claim instead — ascent plus descent, which some
+    /// faces inflate far past the glyphs (#1129: 3117 / -2464, a 5.6 em box
+    /// around every line, where the descriptor gives no cap height to scale
+    /// them back by, `textparse::font_ascent_descent`) — so a rule about
+    /// lines that has to hold on such a font measures against this.
+    pub(crate) fn mean_advance(&self) -> f32 {
+        (self.r - self.l).abs() / self.text.trim().chars().count().max(1) as f32
+    }
+}
+
 /// Pixels-per-point used to render page images. Layout is scale-invariant (it
 /// scales normalized boxes by the page point size), but OCR benefits from the
 /// extra resolution.
@@ -51,6 +63,19 @@ pub struct PdfPage {
     /// ([`crate::formula_text`]); empty on a scan and on a `/Rotate`d page
     /// (its glyphs are not in the display frame).
     pub math: crate::formula_text::MathLayer,
+    /// The page's image placements (`[l, t, r, b]`, page points, the cells'
+    /// frame), as the text parser walks past them (#999) — what docling's
+    /// pdf-aware OCR calls the page's bitmaps: a layout region over one whose
+    /// text layer does not account for it is OCR'd even though it holds
+    /// programmatic text (a scan with a typed-in value). Empty without a text
+    /// layer (an OCR page is OCR'd whole anyway).
+    pub bitmaps: Vec<[f32; 4]>,
+    /// The page's vector shapes (`[l, t, r, b]`, page points, the cells'
+    /// frame) for the reading-order separators (#1092): stroked axis-aligned
+    /// segments and the boxes of connected painted paths, docling-parse's
+    /// `get_shape_lines` / `get_connected_shape_bounding_boxes`. Empty
+    /// without a text layer.
+    pub shapes: crate::textparse::PageShapes,
     /// The rendered page bitmap. Present whenever pixels are available at all
     /// (`ocr-prep` ⊂ `ml`): the native pipeline renders it with pdfium, the
     /// browser pipeline receives it from the host canvas. Picture regions are
@@ -104,6 +129,13 @@ pub struct PdfPage {
     /// `…`, `⁄`, `•` — instead of folding it to ASCII the way docling-parse's
     /// sanitizer does (`pdf_keep_typography`, #921). Read by assembly.
     pub keep_typography: bool,
+    /// The page's image placements (#1007, docling's
+    /// `use_embedded_picture_images`): a picture region matching exactly one
+    /// safe image gets that bitmap at native resolution instead of a render
+    /// crop. Empty unless the walk was asked for them
+    /// ([`TextOptions::embedded_pictures`]).
+    #[cfg(feature = "render")]
+    pub embedded_images: Vec<crate::embedded::EmbeddedImage>,
 }
 
 impl PdfPage {
@@ -123,6 +155,8 @@ impl PdfPage {
             word_cells: Vec::new(),
             checkboxes: Vec::new(),
             math: Default::default(),
+            bitmaps: Vec::new(),
+            shapes: Default::default(),
             #[cfg(feature = "ocr-prep")]
             image: RgbImage::new(0, 0),
             #[cfg(feature = "ocr-prep")]
@@ -134,6 +168,8 @@ impl PdfPage {
             links: Vec::new(),
             rotation: 0,
             keep_typography: false,
+            #[cfg(feature = "render")]
+            embedded_images: Vec::new(),
         }
     }
 
@@ -449,12 +485,17 @@ pub enum BitmapRender {
 
 /// The text layer's settings a page walk applies (#921): the word-gap rule
 /// of the line and word cells, and whether assembly keeps typographic
-/// punctuation as drawn ([`PdfPage::keep_typography`]).
+/// punctuation as drawn ([`PdfPage::keep_typography`]) — plus whether the
+/// walk lists each page's embedded images for the picture images (#1007).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct TextOptions {
     /// `None` = the process default (`DOCLING_RS_PDF_WORD_GAP`).
     pub word_gap: Option<crate::dp_lines::WordGap>,
     pub keep_typography: bool,
+    /// Collect [`PdfPage::embedded_images`] — docling's
+    /// `use_embedded_picture_images` (#1007). Off by default: the walk
+    /// then reads no image placements and decodes nothing.
+    pub embedded_pictures: bool,
 }
 
 impl TextOptions {
@@ -464,6 +505,7 @@ impl TextOptions {
         Self {
             word_gap: None,
             keep_typography: crate::assemble::keep_typography_from_env(),
+            embedded_pictures: false,
         }
     }
 }
@@ -592,6 +634,13 @@ where
                 render_image,
             )?;
             extracted.keep_typography = text.keep_typography;
+            if text.embedded_pictures && extracted.rotation == 0 {
+                if let Some(m) = meta.as_deref() {
+                    extracted.embedded_images = crate::timing::timed("embedded_images", || {
+                        crate::embedded::page_images(m, i)
+                    });
+                }
+            }
             f(i, total, extracted)?;
         }
         // The helper ends once this sender and every page's handle are gone.
@@ -1222,6 +1271,8 @@ fn extract_page(
     } else {
         Default::default()
     };
+    let mut bitmaps = rc.bitmaps;
+    let mut shapes = rc.shapes;
     if rotation != 0 {
         for c in cells
             .iter_mut()
@@ -1234,6 +1285,14 @@ fn extract_page(
         for c in &mut checkboxes {
             let (l, t, r, b) = to_display_frame((c.l, c.t, c.r, c.b), rotation, unrot_w, unrot_h);
             (c.l, c.t, c.r, c.b) = (l, t, r, b);
+        }
+        for [l, t, r, b] in bitmaps
+            .iter_mut()
+            .chain(shapes.lines.iter_mut())
+            .chain(shapes.boxes.iter_mut())
+        {
+            let d = to_display_frame((*l, *t, *r, *b), rotation, unrot_w, unrot_h);
+            (*l, *t, *r, *b) = d;
         }
     }
 
@@ -1425,10 +1484,14 @@ fn extract_page(
         word_cells,
         checkboxes,
         math,
+        bitmaps,
+        shapes,
         image,
         links,
         rotation: 0,
         keep_typography: false,
+        #[cfg(feature = "render")]
+        embedded_images: Vec::new(),
     };
     if rotation != 0 && scanned && render_image {
         page.unrotate(rotation);
@@ -1498,6 +1561,7 @@ pub(crate) fn to_display_frame(
 /// ink box (used by the legacy `lines_from_glyphs`); `ll/lb/lr/lt` is the *loose*
 /// box (font ascent/descent + advance — uniform per font/size), which the
 /// docling-parse-style sanitizer needs so adjacent glyphs share a top edge.
+#[derive(Clone)]
 pub(crate) struct Glyph {
     pub(crate) ch: char,
     pub(crate) l: f32,
@@ -1544,6 +1608,28 @@ pub(crate) struct Glyph {
     /// `program_name`): kept for the formula layer, dropped before any cell
     /// is built, so the text output is what it was.
     pub(crate) formula_only: bool,
+    /// Drawn in an invisible text rendering mode (`Tr` 3 or 7) — an OCR
+    /// layer over a scan. Only the script-position stage reads it (#1005).
+    pub(crate) invisible: bool,
+    /// Letter-spaced from the glyph before it: the two are letters of one
+    /// word a typesetter set apart with a space glyph between them, which
+    /// the text parser took out (`textparse::drop_letter_spacing_spaces`,
+    /// #1139). The gap is still on the page, so the word contraction is
+    /// told it is no word boundary (`dp_lines::tracked_gaps`).
+    pub(crate) spaced: bool,
+    /// The box of the clip in force when the glyph was drawn, `[x0, y0, x1,
+    /// y1]` in the glyph's own frame — the intersection of every `W` / `W*`
+    /// capture's box, saved and restored with `q` / `Q` (docling-parse's
+    /// `clip_bbox`, docling-parse#443, #1150). A glyph fitted into a table
+    /// cell is clipped to it; a clip boundary that cuts a glyph separates
+    /// lines and words (`dp_lines`). `None`: no clip.
+    pub(crate) clip: Option<[f32; 4]>,
+    /// A hash of the glyph's quad at full (`f64`) precision, 0 when
+    /// unknown. docling-parse's exact-overprint pass compares the quads'
+    /// doubles (#1151): a column drawn twice through two matrices that
+    /// differ by 1e-5 pt is two copies there, though the `f32` boxes above
+    /// are equal — `newspaper-00` reads both.
+    pub(crate) exact: u64,
 }
 
 impl Glyph {

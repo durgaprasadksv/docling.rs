@@ -27,6 +27,14 @@ for (const f of ['index.js', 'index.d.ts', 'deps.js', 'native.js', 'native.d.ts'
 }
 cpSync(join(nodeDir, 'cuda', 'postinstall.js'), join(out, 'postinstall.js'))
 cpSync(join(nodeDir, 'cuda', 'README.md'), join(out, 'README.md'))
+cpSync(
+  join(nodeDir, '..', 'docling-pdf', 'data', 'mapping-resources-pdf', 'LICENSE.txt'),
+  join(out, 'LICENSE-mapping-resources-pdf.txt'),
+)
+cpSync(
+  join(nodeDir, '..', 'docling-pdf', 'data', 'adobe-glyph-list', 'LICENSE.txt'),
+  join(out, 'LICENSE-adobe-glyph-list.txt'),
+)
 
 writeFileSync(
   join(out, 'package.json'),

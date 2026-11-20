@@ -64,10 +64,11 @@ everywhere. The ones most conversions reach for:
 | Wire name | CLI | Meaning |
 |---|---|---|
 | `pages` | `--pages A-B` | PDF page window (#80) |
-| `no_ocr` · `text_layer_only` · `force_full_page_ocr` | `--no-ocr` · `--text-layer-only[=auto]` · `--force-full-page-ocr` | never OCR, layout and tables kept · the text layer alone, no ML (`auto`: per document — the text layer when it carries the document, the pipeline with OCR when it does not) · OCR every page even with a text layer |
-| `no_table_former` | `--no-table-former` | geometric tables instead of TableFormer |
+| `no_ocr` · `text_layer_only` · `force_full_page_ocr` · `replace_broken_text_layer` | `--no-ocr` · `--text-layer-only[=auto]` · `--force-full-page-ocr` · `--replace-broken-text-layer` | never OCR, layout and tables kept · the text layer alone, no ML (`auto`: per document — the text layer when it carries the document, the pipeline with OCR when it does not) · OCR every page even with a text layer · OCR only the pages whose text layer is broken (#1006) |
+| `no_table_former` | `--no-table-former` | skip table structure; table words stay text. docling 2.150 emits an empty table instead (`do_table_structure=False`) |
 | `ocr_lang` · `ocr_engine` | `--ocr-lang` · `--ocr-engine` | `en` / `ch` / BCP-47; `ppocr` or `tesseract` (#460) |
 | `heading_hierarchy` | `--heading-hierarchy` | infer PDF heading levels (#302) |
+| `script_positions` | `--script-positions` | mark PDF superscripts and subscripts as `formatting.script` runs (#1005) |
 | `images_scale` · `page_images` | `--images-scale` · `--page-images` | picture-crop resolution; keep page renders in the JSON (#520) |
 | `document_timeout` | `--document-timeout` | per-document budget; the pages done so far become a partial success (#497) |
 | `password` | `--password` | encrypted PDF and Office documents (#611, #625) |
@@ -95,10 +96,10 @@ let converter = DocumentConverter::from_options(&options)?; // validated + appli
 | `--to` / `to` | Library | What it is |
 |---|---|---|
 | `md` (default) | `export_to_markdown()` | docling's Markdown byte for byte; `--strict` for the cleaner dialect (below); `--images embedded\|referenced` for pictures |
-| `json` | `export_to_json()` | docling-core's `DoclingDocument` wire format (schema 1.10.0): the `body` tree of `$ref`s into `texts` / `groups` / `tables` / `pictures`, labels, list groups, table grids, images as `data:` URIs. Loads straight into Python docling-core (`DoclingDocument.load_from_json`) and round-trips to the same Markdown |
+| `json` | `export_to_json()` | docling-core's `DoclingDocument` wire format (schema 1.11.0): the `body` tree of `$ref`s into `texts` / `groups` / `tables` / `pictures`, labels, list groups, table grids, images as `data:` URIs. Loads straight into Python docling-core (`DoclingDocument.load_from_json`) and round-trips to the same Markdown |
 | `html` | `export_to_html()` | docling-core's `HTMLDocSerializer` with its defaults: stylesheet, `<h{level+1}>`, inline groups, tables with spans and rich cells, `<figure>` pictures, MathML formulas (a literal port of `latex2mathml`). Byte-identical to docling-core on the whole declarative corpus (265/265) |
 | `text` | `export_to_text()` | docling's `--to text` (#613): the Markdown with the decoration off — no `#`, no emphasis markers, links as their label, code without fences, no escaping; lists, checkboxes and table grids kept |
-| `dclx` | `export_to_doclang()`, `export_to_doclang_with_images(mode)`, `docling::dclx::save_as_dclx` | DocLang — docling 2.110's XML of the tree (`<doclang version="0.7">`), pretty-printed like `minidom.toprettyxml`; `.dclx` is the OPC archive `save_as_doclang()` writes (`document.xml` + one PNG part per picture). `export_to_doclang()` is that `document.xml` (pictures as `<src uri="assets/…"/>`); `export_to_doclang_with_images(ImageMode::Placeholder)` is docling-core's own `export_to_doclang()` default, no `<src>`. Reads back in too: `.dclg` / `.dclx` are input formats (15/15 exact vs docling) |
+| `dclx` | `export_to_doclang()`, `export_to_doclang_with_images(mode)`, `docling::dclx::save_as_dclx` | DocLang 0.9 — docling-core 2.106's XML of the item tree (`<doclang version="0.9">`), each text block's body on one line and `<content>` only where DocLang's whitespace rules would change the reading; `.dclx` is the OPC archive `save_as_doclang()` writes (`document.xml` + one PNG part per picture). `export_to_doclang()` is that `document.xml` (pictures as `<src uri="assets/…"/>`); `export_to_doclang_with_images(ImageMode::Placeholder)` is docling-core's own `export_to_doclang()` default, no `<src>`. Reads back in too: `.dclg` / `.dclx` are input formats (JSON 15/15 identical vs docling 2.148) |
 | `latex` | `export_to_latex()` | docling 2.124's `LaTeXDocSerializer` with its defaults: `article` preamble, `\title` + `\maketitle`, sectioning, `itemize` / `enumerate`, `tabular` grids, `figure` placeholders, `verbatim`, `$$…$$`. 93 of 116 fixtures byte-exact against `docling --to latex` (98 once upstream's duplicated formatted list items — docling-core#740 — are normalized away) |
 | `pandoc` | `export_to_pandoc_json()` | Pandoc's JSON AST (#515, `pandoc-api-version` 1.23.1.1), so every Pandoc writer — DOCX, ODT, EPUB, reST, Org, Typst, … — sits behind the parser; pictures embedded by default. `--pandoc-api-version` states the version a consumer needs; `--pandoc-heading-depth source` (#848; `PandocExportOptions::heading_depth`) writes a section heading at the depth its author wrote — a DOCX `Heading 1` as `Header 1`, as `pandoc -f docx` reads it — instead of docling's title-reserving `n + 1` |
 | `vtt` | `export_to_vtt()` | WebVTT subtitles (#614, docling-core's `WebVTTDocSerializer`): one cue per timed item — an ASR transcript's segments, a WebVTT input's cues with voices and formatting. Untimed content is not represented |
@@ -151,8 +152,9 @@ captions) with its heading path; `HybridChunker` refines them with a
 tokenizer — splits oversized chunks (item boundaries, then docling's
 `semchunk` inside text, tables line by line) and merges undersized
 same-heading neighbours. Against docling's chunkers on the 83-document
-corpus (`scripts/conformance/chunks_conformance.sh`): hierarchical 98.8 % /
-hybrid 96.2 % identical chunk records.
+corpus (`scripts/conformance/chunks_conformance.sh`, docling 2.148): hierarchical
+92.3 % / hybrid 69.6 % identical chunk records. Each chunk's `doc_items` refs
+name items of the document's own JSON export (#1041).
 
 ```rust
 use docling::chunker::{contextualize, HierarchicalChunker, HybridChunker, HuggingFaceTokenizer};
@@ -298,14 +300,21 @@ and defaults in [`docs/OPTIONS.md`](../../docs/OPTIONS.md):
   when the text layer carries the document (no model loaded), the full
   pipeline — OCR included — when it does not (a scan, or a vestigial layer
   of a few typed-in form fields); `TextLayerOnly::Auto` in the API. `--no-ocr` (docling's `--no-ocr` since 2.0, #611) keeps layout
-  and TableFormer but never runs OCR; `--no-table-former` keeps OCR but
-  reconstructs tables geometrically. `--force-full-page-ocr` is the
+  and TableFormer but never runs OCR; `--no-table-former` keeps OCR and
+  layout. docling 2.150 emits an empty table; the words stay text. `--force-full-page-ocr` is the
   opposite: OCR every page from its render even when a text layer exists
   (for layers that lie — broken encodings, garbage subset fonts).
 - `--heading-hierarchy` (#302, docling's `HeadingHierarchyModel`): infers
   section-header levels after assembly from the PDF outline, legal/outline
   numbering and font style, in that precedence. Off by default, as in the
   docling groundtruth.
+- `--script-positions` (#1005, docling's `ScriptPositionModel`): marks
+  superscript and subscript text from the size and baseline of the PDF's
+  characters. A paragraph or footnote holding such text becomes, in the
+  JSON, an item with an inline group of runs carrying `formatting.script`
+  (HTML `<sup>`/`<sub>`, DocLang `<superscript>`/`<subscript>`); Markdown
+  joins the runs — `E = mc2 in 1905.` where the plain text layer reads
+  `E = mc 2 in 1905.`. Off by default.
 - `--no-text-panels`: keeps every detected picture a picture instead of
   demoting uncaptioned dense-text "pictures" into paragraphs (#173).
 - `--skip-empty-cells`, `--compact-tables` (#271): sparse-spreadsheet
@@ -443,6 +452,14 @@ curl -F file=@deck.pptx -F password=1234 localhost:5001/v1/convert
 
 
 ## Repaired PDF input
+
+A missing OCR model does not fail a conversion: scanned pages and text
+inside images come back empty, the status stays `Success`, and the result
+says why (#1210) — `result.ocr_status` is `None` when nothing needed OCR,
+`Some(OcrStatus::Available)` when it ran, and
+`Some(OcrStatus::Unavailable { reason })` (the load error) when it could
+not (Python `result.ocr_status`, Node `ocrStatus`, serve
+`X-Docling-Ocr-Status`).
 
 The PDF reader repairs what it can — a stream whose `/Length` overstates or
 understates its data is read from its `endstream` boundary — and says

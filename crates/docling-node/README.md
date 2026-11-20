@@ -525,12 +525,17 @@ constructor; output options (`to`, `imageMode`, `artifactsDir`) are per call.
   `iso:` prefix accepted). Other languages are rejected.
 - `forceFullPageOcr`: OCR every PDF page even when it carries a text layer
   (docling's `force_full_page_ocr`).
+- `replaceBrokenTextLayer`: OCR only the PDF pages whose text layer a broken
+  font mapping produced (docling's `replace_broken_text_layer`, #1006).
 - `noTextPanels`: keep every detected picture as a picture — disable the
   demotion of uncaptioned dense-text "picture" regions into paragraphs (#173).
 - `headingHierarchy`: infer PDF/image section-header levels after assembly
   (docling's `HeadingHierarchyModel`, #302): PDF bookmarks are authoritative,
   then legal/outline numbering, then font style. Off by default — headings
   then keep the flat detected level.
+- `scriptPositions`: mark PDF superscripts and subscripts (footnote markers,
+  `1st`, `mc²`, `H₂O`) as `formatting.script` runs — docling's
+  `script_position_options.enabled` (#1005). Off by default.
 - `doPictureClassification` / `doCodeEnrichment` / `doFormulaEnrichment`: the
   opt-in enrichment models (docling's `PdfPipelineOptions` flags of the same
   names, #423) — classify pictures with DocumentFigureClassifier (26 classes

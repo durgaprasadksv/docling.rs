@@ -148,6 +148,11 @@ pub struct ConverterOptions {
     /// Keep each page's render as the JSON `pages[n].image` — docling's
     /// `generate_page_images` (#520). Default `false`.
     pub page_images: Option<bool>,
+    /// A PDF picture whose region holds exactly one embedded image with
+    /// nothing drawn over it gets that bitmap at native resolution (`dpi` 72)
+    /// instead of the render crop — docling's `use_embedded_picture_images`
+    /// (#1007). Default `false`.
+    pub use_embedded_picture_images: Option<bool>,
     /// Which OCR engine reads scanned pages (#460): `"ppocr"` (default, the
     /// built-in PP-OCRv3 recognizer) | `"tesseract"` (the system `tesseract`
     /// binary). Under Tesseract `ocrLang` is its language list — tessdata
@@ -190,13 +195,18 @@ pub struct ConverterOptions {
     /// `--pdf-password`), still read; set one of the two.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pdf_password: Option<String>,
-    /// Skip TableFormer — tables come from the layout model's geometry
-    /// instead (the CLI's `--no-table-former`, #577). Default `false`.
+    /// Skip table structure (the CLI's `--no-table-former`, docling's
+    /// `do_table_structure=False`, #577). docling 2.150 emits an empty
+    /// table; the words stay text, each with its own box. Default `false`.
     pub no_table_former: Option<bool>,
     /// OCR every PDF page even when it carries an embedded text layer
     /// (docling's `force_full_page_ocr`) — for text layers that exist but lie.
     /// Default `false`.
     pub force_full_page_ocr: Option<bool>,
+    /// OCR only the PDF pages whose text layer a broken font mapping
+    /// produced — control / U+FFFD / private-use characters, mojibake Latin
+    /// (docling's `replace_broken_text_layer`, #1006). Default `false`.
+    pub replace_broken_text_layer: Option<bool>,
     /// Keep every detected picture as a picture: disable the demotion of
     /// uncaptioned dense-text "picture" regions into paragraphs (the escape
     /// hatch for image-extraction workflows, #173). Default `false`.
@@ -206,6 +216,10 @@ pub struct ConverterOptions {
     /// legal/outline numbering, then font style. Default `false` — headings
     /// then keep the flat detected level.
     pub heading_hierarchy: Option<bool>,
+    /// Mark PDF superscripts and subscripts as `formatting.script` runs
+    /// (docling's `script_position_options.enabled`, #1005). Default
+    /// `false`.
+    pub script_positions: Option<bool>,
     /// Classify every PDF/image picture with DocumentFigureClassifier
     /// (docling's `do_picture_classification`, #423): the 26-class prediction
     /// lands on the JSON picture item's `classification`. Needs
@@ -502,6 +516,11 @@ pub struct ConvertOptions {
     /// Keep each page's render as the JSON `pages[n].image` — docling's
     /// `generate_page_images` (#520). Default `false`.
     pub page_images: Option<bool>,
+    /// A PDF picture whose region holds exactly one embedded image with
+    /// nothing drawn over it gets that bitmap at native resolution (`dpi` 72)
+    /// instead of the render crop — docling's `use_embedded_picture_images`
+    /// (#1007). Default `false`.
+    pub use_embedded_picture_images: Option<bool>,
     /// Which OCR engine reads scanned pages (#460): `"ppocr"` (default) |
     /// `"tesseract"`.
     pub ocr_engine: Option<String>,
@@ -540,18 +559,24 @@ pub struct ConvertOptions {
     /// `--pdf-password`), still read; set one of the two.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pdf_password: Option<String>,
-    /// Skip TableFormer — tables come from the layout model's geometry
-    /// instead (the CLI's `--no-table-former`, #577). Default `false`.
+    /// Skip table structure (the CLI's `--no-table-former`, docling's
+    /// `do_table_structure=False`, #577). docling 2.150 emits an empty
+    /// table; the words stay text, each with its own box. Default `false`.
     pub no_table_former: Option<bool>,
     /// OCR every PDF page even when it carries a text layer (docling's
     /// `force_full_page_ocr`). Default `false`.
     pub force_full_page_ocr: Option<bool>,
+    /// OCR only the pages whose text layer is broken (docling's
+    /// `replace_broken_text_layer`, #1006). Default `false`.
+    pub replace_broken_text_layer: Option<bool>,
     /// Keep every detected picture as a picture: disable text-panel demotion
     /// (#173). Default `false`.
     pub no_text_panels: Option<bool>,
     /// Infer PDF/image section-header levels after assembly (#302). Default
     /// `false`.
     pub heading_hierarchy: Option<bool>,
+    /// Mark PDF superscripts and subscripts (#1005). Default `false`.
+    pub script_positions: Option<bool>,
     /// Opt-in enrichment models (#423): picture classification, code rewrite
     /// + language, formula LaTeX. See [`ConverterOptions`]. Default `false`.
     pub do_picture_classification: Option<bool>,
@@ -677,6 +702,14 @@ pub struct ConvertResult {
     /// `pdfReportRepairs` was on and the input is a PDF — `[]` for a
     /// well-formed file; absent otherwise.
     pub pdf_repairs: Option<Vec<PdfRepairItem>>,
+    /// Whether the conversion had the OCR it asked for (#1210):
+    /// `"available"`, or `"unavailable"` when the OCR model could not be
+    /// loaded and the conversion went on without it — scanned pages and
+    /// text inside images are then missing although the status is
+    /// `"success"`. Absent when nothing asked for OCR.
+    pub ocr_status: Option<String>,
+    /// The load error behind an `"unavailable"` `ocrStatus`.
+    pub ocr_unavailable_reason: Option<String>,
 }
 
 /// One repair the PDF reader made to read the input (#934).
@@ -853,6 +886,7 @@ pub struct RawResult {
     errors: Vec<docling::ErrorItem>,
     redaction: Option<docling::RedactionReport>,
     pdf_repairs: Option<Vec<docling::PdfRepair>>,
+    ocr_status: Option<docling::OcrStatus>,
 }
 
 impl RawResult {
@@ -867,6 +901,11 @@ impl RawResult {
                 .redaction
                 .map(|r| r.counts.into_iter().map(|(k, v)| (k, v as u32)).collect()),
             pdf_repairs: self.pdf_repairs.map(pdf_repair_items),
+            ocr_status: self.ocr_status.as_ref().map(|s| s.as_str().to_string()),
+            ocr_unavailable_reason: match self.ocr_status {
+                Some(docling::OcrStatus::Unavailable { reason }) => Some(reason),
+                _ => None,
+            },
             images: self
                 .images
                 .into_iter()
@@ -1051,6 +1090,7 @@ fn render_doc(
         errors,
         redaction,
         pdf_repairs: None,
+        ocr_status: None,
     }
 }
 
@@ -1111,6 +1151,7 @@ fn run_convert(source: SourceDocument, cfg: &ConvertConfig) -> Result<RawResult>
     let status = status_str(result.status);
     Ok(RawResult {
         pdf_repairs: result.pdf_repairs,
+        ocr_status: result.ocr_status,
         ..render_doc(
             result.document,
             cfg,
@@ -1696,8 +1737,10 @@ struct WarmPipelineConfig {
     password: Option<String>,
     no_table_former: bool,
     force_full_page_ocr: bool,
+    replace_broken_text_layer: bool,
     no_text_panels: bool,
     heading_hierarchy: bool,
+    script_positions: bool,
     page_range: Option<(usize, usize)>,
     /// docling's `document_timeout` (#497).
     document_timeout: Option<std::time::Duration>,
@@ -1741,8 +1784,10 @@ fn warm_pipeline_config(o: &ConverterOptions) -> Result<WarmPipelineConfig> {
         password: s.password.clone(),
         no_table_former: s.no_table_former.unwrap_or(false),
         force_full_page_ocr: s.force_full_page_ocr.unwrap_or(false),
+        replace_broken_text_layer: s.replace_broken_text_layer.unwrap_or(false),
         no_text_panels: s.no_text_panels.unwrap_or(false),
         heading_hierarchy: s.heading_hierarchy.unwrap_or(false),
+        script_positions: s.script_positions.unwrap_or(false),
         page_range: s.page_range().map_err(option_err)?,
         document_timeout: s.document_timeout().map_err(option_err)?,
         ocr_engine: s.ocr_engine().map_err(option_err)?,
@@ -1812,10 +1857,12 @@ impl Pipeline {
             .text_layer_auto(warm.text_layer_only == docling::TextLayerOnly::Auto)
             .no_table_former(warm.no_table_former)
             .force_full_page_ocr(warm.force_full_page_ocr)
+            .replace_broken_text_layer(warm.replace_broken_text_layer)
             .no_text_panels(warm.no_text_panels)
             .heading_hierarchy(docling::HeadingHierarchyOptions::enabled(
                 warm.heading_hierarchy,
             ))
+            .script_positions(warm.script_positions)
             .ocr_engine(warm.ocr_engine)
             .ocr_lang(warm.ocr_lang)
             .tesseract_lang(warm.tesseract_lang)
@@ -1825,6 +1872,7 @@ impl Pipeline {
             .keep_typography(warm.keep_typography)
             .images_scale(warm.images.scale)
             .generate_page_images(warm.images.page_images)
+            .use_embedded_picture_images(warm.images.embedded_pictures)
             .pages(warm.page_range)
             .document_timeout(warm.document_timeout)
             .enrichments(warm.enrich);
@@ -1978,6 +2026,8 @@ fn run_pipeline(
     let reporter = Arc::new(converter.reporter(1, &source.name, None));
     reporter.document_started();
     pipe.set_progress(reporter.page_hook());
+    // What an earlier conversion that failed half-way left (#1210).
+    let _ = pipe.take_ocr_status();
     // docling's PARTIAL_SUCCESS (#497): a spent budget leaves the pages done.
     let mut errors: Vec<docling::ErrorItem> = Vec::new();
     let converted = match source.format {
@@ -1996,6 +2046,7 @@ fn run_pipeline(
         _ => pipe.convert_image(&source.bytes, &source.name),
     };
     pipe.set_progress(None);
+    reporter.note_ocr_status(pipe.take_ocr_status());
     let mut doc = match converted {
         Ok(doc) => doc,
         Err(e) => {
@@ -2026,6 +2077,7 @@ fn run_pipeline(
     };
     Ok(RawResult {
         pdf_repairs,
+        ocr_status: reporter.take_ocr_status(),
         ..render_doc(
             doc,
             cfg,
@@ -2767,6 +2819,9 @@ pub fn supported_formats() -> Vec<String> {
         "xml",
         "ipynb",
         "feed",
+        "afp",
+        "boxnote",
+        "calendar",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -3110,6 +3165,7 @@ mod tests {
             ocr_scale: Some(3.0),
             images_scale: Some(1.5),
             page_images: Some(true),
+            use_embedded_picture_images: Some(true),
             skip_ocr: Some(true),
             force_full_page_ocr: Some(true),
             no_text_panels: Some(true),
@@ -3128,7 +3184,8 @@ mod tests {
             got.images,
             docling::ImageOutput {
                 scale: Some(1.5),
-                page_images: true
+                page_images: true,
+                embedded_pictures: true,
             }
         );
         // `skipOcr` is read as `noOcr` (its pre-2.0 name, #611).
@@ -3165,8 +3222,10 @@ mod tests {
                 password: None,
                 no_table_former: false,
                 force_full_page_ocr: false,
+                replace_broken_text_layer: false,
                 no_text_panels: false,
                 heading_hierarchy: false,
+                script_positions: false,
                 page_range: None,
                 document_timeout: None,
                 ocr_engine: None,

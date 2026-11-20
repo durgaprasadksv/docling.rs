@@ -77,10 +77,9 @@ impl DeclarativeBackend for LatexBackend {
         conv.run(&text);
         let mut doc = DoclingDocument::new(&source.name);
         let (nodes, mut tree) = conv.doc.finish();
-        // The tree is docling's own, so DocLang serializes it as docling-core
-        // does (#884); the flat nodes lose footnote labels, inline formulas
-        // in captions and cells, and raw text.
-        tree.doclang = true;
+        // The walker keeps each run's own whitespace (docling's LaTeX
+        // backend always did): the runs are schema 1.11.0's (#997).
+        tree.inline_whitespace = true;
         doc.nodes = nodes;
         doc.tree = Some(tree);
         Ok(doc)
@@ -169,7 +168,6 @@ const MACROS_STRUCTURAL: &[&str] = &[
     "textrm",
     "textnormal",
     "mbox",
-    "href",
     "newline",
     "hfill",
     "break",
@@ -636,6 +634,7 @@ impl Builder {
             parent,
             None,
             TreeKind::Table {
+                footnotes: Vec::new(),
                 table,
                 rich_cells: Vec::new(),
                 captions: Vec::new(),
@@ -856,6 +855,7 @@ impl Flat<'_> {
                         marker: None,
                         location: None,
                         spans: None,
+                        split: None,
                         dclx: None,
                         href: None,
                         layer: None,
@@ -880,6 +880,7 @@ impl Flat<'_> {
                 table,
                 rich_cells,
                 captions,
+                ..
             } => {
                 let mut flat = table.clone();
                 if let Some(cells) = &mut flat.cells {
@@ -952,7 +953,10 @@ impl Flat<'_> {
                 });
             }
         }
-        (parts.join(" "), runs)
+        // The runs carry their own boundary whitespace (they always did in
+        // the walker); docling-core 2.106 concatenates them (#997):
+        // `states $h_t$,`, not `states  $h_t$ ,`.
+        (parts.concat(), runs)
     }
 
     /// An item's own Markdown text (an inline group's, or its escaped text).
@@ -963,6 +967,7 @@ impl Flat<'_> {
         match &self.tree.items[id].kind {
             TreeKind::Text { label, text, .. } if label == "formula" => format!("$${text}$$"),
             TreeKind::Text { text, .. } => escape_text(text),
+            TreeKind::Group { label, .. } if label == "inline" => self.render_inline(id).0,
             TreeKind::Group { .. } => self.group_md(id),
             _ => String::new(),
         }
@@ -1749,10 +1754,16 @@ impl Converter {
             if !arg.is_empty() {
                 buf.push(Part::Text(format!("[{arg}]")));
             }
-        } else if name == "url" {
-            let url = self.extract_macro_arg(node);
-            if !url.is_empty() {
-                buf.push(Part::Text(url));
+        } else if name == "url" || name == "href" {
+            // docling#4600: an `\href` stays inline as `[text](url)`, in the
+            // paragraph, heading or list item it sits in.
+            let link = if name == "href" {
+                self.href_link_text(node)
+            } else {
+                self.extract_macro_arg(node)
+            };
+            if !link.is_empty() {
+                buf.push(Part::Text(link));
             }
         } else if MACROS_COLOR.contains(&name) {
         } else if MACROS_TEXT_STYLE.contains(&name) {
@@ -1879,30 +1890,6 @@ impl Converter {
             }
         } else if MACROS_ESCAPED.contains(&name) {
             self.doc.add_text(cx.parent, text_label, name);
-        } else if name == "href" {
-            let Some(args) = node.args().filter(|a| a.len() >= 2) else {
-                return;
-            };
-            let arg_text = |arg: &Option<N>| -> String {
-                match arg {
-                    Some(n) => match n.group_list() {
-                        Some(list) => self.nodes_to_text(list),
-                        None => n.verbatim().trim_matches(|c| "{} ".contains(c)).to_string(),
-                    },
-                    None => String::new(),
-                }
-            };
-            let url = arg_text(&args[0]);
-            let display = arg_text(&args[1]);
-            let link = match (url.is_empty(), display.is_empty()) {
-                (false, false) => docling_core::hyperlink::markdown_link(&display, &url),
-                (false, true) => url,
-                (true, false) => display,
-                (true, true) => String::new(),
-            };
-            if !link.is_empty() {
-                self.doc.add_text(cx.parent, "reference", &link);
-            }
         } else if MACROS_SPACING.contains(&name) {
             if name == "newline" {
                 self.doc.add_text(cx.parent, text_label, "\n");
@@ -2353,6 +2340,26 @@ impl Converter {
         }
     }
 
+    /// docling's `_href_link_text` (docling#4600): `[text](url)` for
+    /// `\href[options]{url}{text}`, or whichever part is set. The URL is
+    /// the second-to-last argument taken verbatim — `_` and `#` are not
+    /// markup there — and the text the last, read as text.
+    fn href_link_text(&self, node: &N) -> String {
+        let Some(args) = node.args().filter(|a| a.len() >= 2) else {
+            return String::new();
+        };
+        let url = args[args.len() - 2]
+            .as_ref()
+            .map(|n| n.verbatim().trim_matches(|c| "{} ".contains(c)).to_string())
+            .unwrap_or_default();
+        let text = self.extract_macro_arg(node);
+        match (url.is_empty(), text.is_empty()) {
+            (false, false) => format!("[{text}]({url})"),
+            (false, true) => url,
+            _ => text,
+        }
+    }
+
     fn extract_macro_arg(&self, node: &N) -> String {
         match node.last_arg() {
             Some(arg) => match arg.group_list() {
@@ -2438,6 +2445,9 @@ impl Converter {
         }
         if MACROS_CITATION.contains(&name) {
             return (node.verbatim().to_string(), 0);
+        }
+        if name == "href" {
+            return (self.href_link_text(node), 0);
         }
         if name == "\\" {
             return ("\n".into(), 0);
@@ -2650,6 +2660,7 @@ impl Converter {
         let grid = table_grid(&cells, &vec![vec![String::new(); num_cols]; num_rows]);
         Some(ParsedTable {
             table: Table {
+                footnotes: Vec::new(),
                 rows: grid,
                 location: None,
                 structure: None,
@@ -2658,6 +2669,7 @@ impl Converter {
                 caption: None,
                 caption_parent: Default::default(),
                 caption_location: None,
+                document_index: false,
             },
             rich,
         })

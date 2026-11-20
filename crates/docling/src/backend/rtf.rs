@@ -843,6 +843,7 @@ impl<'a> Parser<'a> {
             row.resize(width, String::new());
         }
         doc.push(Node::Table(Table {
+            footnotes: Vec::new(),
             rows,
             location: None,
             structure: None,
@@ -851,6 +852,7 @@ impl<'a> Parser<'a> {
             caption: None,
             caption_parent: Default::default(),
             caption_location: None,
+            document_index: false,
         }));
         self.prev_was_list = false;
     }
@@ -936,6 +938,7 @@ impl<'a> Parser<'a> {
                     marker: Some(marker),
                     location: None,
                     spans: None,
+                    split: None,
                     dclx: None,
                     href: None,
                     layer: None,
@@ -950,6 +953,7 @@ impl<'a> Parser<'a> {
                     marker: None,
                     location: None,
                     spans: None,
+                    split: None,
                     dclx: None,
                     href: None,
                     layer: None,

@@ -281,7 +281,8 @@ impl MathLayer {
                         (x0.min(x1), y - 0.2, x0.max(x1), y + 0.2)
                     }
                     Ink::Rect { l, b, r, t } | Ink::Blot { l, b, r, t } => (l, b, r, t),
-                    Ink::Seg { .. } => return None,
+                    // A sloped stroke, or an image placement: never a bar.
+                    Ink::Seg { .. } | Ink::Bitmap { .. } => return None,
                 };
                 let (w, th) = (r - l, t - b);
                 (th <= MAX_RULE_THICKNESS && w >= 1.5 && w >= 3.0 * th).then_some(Rule {

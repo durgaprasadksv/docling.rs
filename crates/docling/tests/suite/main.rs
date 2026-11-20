@@ -16,11 +16,15 @@
 //! does `regression`, which the fixture docs name (`DOCLING_RS_REGEN=1 cargo
 //! test --release -p docling --test regression`).
 
+mod afp;
 mod asciidoc_upstream;
+mod calendar;
 mod charset;
+mod chunk_refs;
 mod dclx_roundtrip;
 mod detect;
 mod djvu_prov;
+mod doclang_reading;
 mod doclang_upstream;
 mod docling_json_prov;
 mod document_metadata;
@@ -42,10 +46,14 @@ mod json_prov;
 mod latex_upstream;
 mod legacy_216;
 mod md_upstream;
+mod mets_gbs;
+mod numbers;
 mod odf_upstream;
 mod options_inventory;
+mod padded_crops;
 mod page_breaks;
 mod pandoc;
+mod partial_text_layer;
 mod pdf_repairs;
 mod picture_alt_text;
 mod picture_ocr;
@@ -59,6 +67,7 @@ mod pptx_shapes;
 mod progress;
 mod redact;
 mod scanned;
+mod script_position;
 mod security_doc;
 mod sideways_outlines;
 mod svg;

@@ -7,7 +7,9 @@
 //! files fine.
 //!
 //! Data: the Adobe Core 14 AFM metrics (redistributable per Adobe's AFM
-//! license), as tabulated by pdfminer.six's `fontmetrics.py`, re-keyed by the
+//! license — the notice that licence asks for is section 2 of
+//! `data/adobe-glyph-list/LICENSE.txt`, which every published binary
+//! carries), as tabulated by pdfminer.six's `fontmetrics.py`, re-keyed by the
 //! Unicode character each glyph decodes to. Oblique/Italic Helvetica share the
 //! upright widths and the Courier family is fixed-pitch 600, so six tables
 //! cover the twelve text faces; Symbol and ZapfDingbats are excluded (they
@@ -266,7 +268,15 @@ pub(crate) fn widths_for(base: &[u8]) -> Option<Std14Widths> {
     };
     let bold = style.contains("bold");
     let italic = style.contains("italic") || style.contains("oblique");
-    match family.as_str() {
+    // The Monotype PostScript names the Microsoft faces go by: `ArialMT`,
+    // `TimesNewRomanPSMT`, `TimesNewRomanPS-BoldMT`, `CourierNewPSMT`
+    // (#1153). docling-parse carries AFMs under these names; they are the
+    // same metrics as the standard-14 faces they substitute.
+    let family = ["psmt", "mt", "ps"]
+        .iter()
+        .find_map(|sfx| family.strip_suffix(sfx))
+        .unwrap_or(&family);
+    match family {
         "courier" | "couriernew" => Some(Std14Widths::Fixed(COURIER_WIDTH)),
         "helvetica" | "arial" => Some(Std14Widths::Table(if bold {
             HELVETICA_BOLD

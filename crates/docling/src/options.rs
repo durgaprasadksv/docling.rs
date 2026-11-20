@@ -192,12 +192,17 @@ pub struct ConvertOptions {
     pub password: Option<String>,
     /// OCR every page, discarding the text layer.
     pub force_full_page_ocr: Option<bool>,
-    /// Skip TableFormer (geometric tables instead).
+    /// OCR only the pages whose text layer is broken (#1006).
+    pub replace_broken_text_layer: Option<bool>,
+    /// Skip table structure (`do_table_structure=False`). docling 2.150
+    /// emits an empty table; the words stay text, each with its own box.
     pub no_table_former: Option<bool>,
     /// Disable the text-panel heuristic (#173).
     pub no_text_panels: Option<bool>,
     /// Infer heading levels after assembly (#302).
     pub heading_hierarchy: Option<bool>,
+    /// Mark PDF superscripts and subscripts (#1005).
+    pub script_positions: Option<bool>,
     /// `ppocr` (default) | `tesseract` (#460).
     pub ocr_engine: Option<String>,
     /// OCR language: `en` | `ch` or a BCP-47 tag under PP-OCR, tessdata stems
@@ -230,6 +235,10 @@ pub struct ConvertOptions {
     /// `generate_page_images`, #520 — accepted as an alias).
     #[serde(alias = "generate_page_images")]
     pub page_images: Option<bool>,
+    /// A PDF picture takes its one safe embedded image at native resolution
+    /// instead of the render crop (docling's `use_embedded_picture_images`,
+    /// #1007). Default off.
+    pub use_embedded_picture_images: Option<bool>,
     /// Enrichment: classify pictures with DocumentFigureClassifier (#423).
     pub do_picture_classification: Option<bool>,
     /// Enrichment: rewrite code blocks with CodeFormulaV2 (#423).
@@ -638,12 +647,14 @@ pub const OPTIONS: &[OptionInfo] = &[
         ..row("password")
     },
     row("force_full_page_ocr"),
+    row("replace_broken_text_layer"),
     OptionInfo {
         python: Some("do_table_structure"),
         ..row("no_table_former")
     },
     row("no_text_panels"),
     row("heading_hierarchy"),
+    row("script_positions"),
     row("ocr_engine"),
     row("ocr_lang"),
     row("ocr_mode"),
@@ -658,6 +669,7 @@ pub const OPTIONS: &[OptionInfo] = &[
         python: Some("generate_page_images"),
         ..row("page_images")
     },
+    row("use_embedded_picture_images"),
     OptionInfo {
         cli: Some("--enrich-picture-classes"),
         ..row("do_picture_classification")
@@ -1392,6 +1404,9 @@ impl ConvertOptions {
         if let Some(v) = self.force_full_page_ocr {
             c = c.force_full_page_ocr(v);
         }
+        if let Some(v) = self.replace_broken_text_layer {
+            c = c.replace_broken_text_layer(v);
+        }
         if let Some(v) = self.no_table_former {
             c = c.no_table_former(v);
         }
@@ -1400,6 +1415,9 @@ impl ConvertOptions {
         }
         if let Some(v) = self.heading_hierarchy {
             c = c.heading_hierarchy(v);
+        }
+        if let Some(v) = self.script_positions {
+            c = c.script_positions(v);
         }
         if let Some(v) = &self.ocr_engine {
             c = c.ocr_engine(v.clone());
@@ -1430,6 +1448,9 @@ impl ConvertOptions {
         }
         if let Some(v) = self.page_images {
             c = c.generate_page_images(v);
+        }
+        if let Some(v) = self.use_embedded_picture_images {
+            c = c.use_embedded_picture_images(v);
         }
         if let Some(v) = self.do_picture_classification {
             c = c.do_picture_classification(v);
@@ -1617,6 +1638,7 @@ impl ConvertOptions {
         crate::ImageOutput {
             scale: self.images_scale,
             page_images: self.page_images.unwrap_or(false),
+            embedded_pictures: self.use_embedded_picture_images.unwrap_or(false),
         }
     }
 
@@ -1827,6 +1849,17 @@ mod tests {
             ),
             vec!["strictness".to_string()]
         );
+    }
+
+    /// #1007: `use_embedded_picture_images` reaches the pipeline's image
+    /// output, off unless asked for.
+    #[cfg(feature = "pdf")]
+    #[test]
+    fn use_embedded_picture_images_reaches_the_image_output() {
+        let on: ConvertOptions =
+            serde_json::from_str(r#"{"use_embedded_picture_images": true}"#).unwrap();
+        assert!(on.image_output().embedded_pictures);
+        assert!(!ConvertOptions::default().image_output().embedded_pictures);
     }
 
     /// #647: `video_frames` reads an integer, `"all"`, a digit string (the

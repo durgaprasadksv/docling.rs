@@ -89,6 +89,7 @@ pub(crate) struct StreamSettings {
     pub no_ocr: bool,
     pub password: Option<String>,
     pub force_full_page_ocr: bool,
+    pub replace_broken_text_layer: bool,
     pub enrich: docling_pdf::EnrichmentOptions,
     pub page_range: Option<(usize, usize)>,
     pub ocr_lang: Option<docling_pdf::OcrLang>,
@@ -103,6 +104,8 @@ pub(crate) struct StreamSettings {
     pub ocr_textline_orientation: Option<bool>,
     /// Picture-crop scale (#520); page images have no place in a stream.
     pub images_scale: Option<f32>,
+    /// [`DocumentConverter::use_embedded_picture_images`] (#1007).
+    pub embedded_pictures: bool,
     /// [`DocumentConverter::keep_picture_images`] (#645): off, each page
     /// batch loses its pictures' bytes before it is serialized (#896), as
     /// the buffered path's document does.
@@ -141,7 +144,8 @@ pub(crate) fn spawn(
         // PDF is the format with internal page-level parallelism, so it gets the
         // true streaming path: emit each page's Markdown in order as it completes.
         // Exception: the heading-hierarchy stage (#302) rewrites levels across
-        // the *whole* assembled document, so those conversions run buffered
+        // the *whole* assembled document (and the script-position stage,
+        // #1005, runs after it on the assembled items), so those conversions run buffered
         // (one chunk) — streamed output stays byte-identical to buffered.
         // A `.pdf` without the PDF header is something else saved under that
         // name: the buffered path converts it, retrying as its content's
@@ -150,6 +154,7 @@ pub(crate) fn spawn(
         // A registered backend (#680) claiming the source takes it buffered.
         InputFormat::Pdf
             if !converter.heading_hierarchy_enabled()
+                && !converter.script_positions_enabled()
                 && !converter.claims(&source)
                 && crate::sniff::looks_like_pdf(&source.bytes) =>
         {
@@ -283,6 +288,7 @@ fn run_pdf(
             .text_layer_auto(settings.text_layer_only == crate::TextLayerOnly::Auto)
             .skip_ocr(settings.no_ocr)
             .force_full_page_ocr(settings.force_full_page_ocr)
+            .replace_broken_text_layer(settings.replace_broken_text_layer)
             .ocr_lang(settings.ocr_lang)
             .ocr_engine(settings.ocr_engine)
             .tesseract_lang(settings.tesseract_lang.clone())
@@ -291,6 +297,7 @@ fn run_pdf(
             .word_gap(settings.word_gap)
             .keep_typography(settings.keep_typography)
             .images_scale(settings.images_scale)
+            .use_embedded_picture_images(settings.embedded_pictures)
             .enrichments(settings.enrich)
             .pages(settings.page_range)
             .document_timeout(settings.document_timeout)

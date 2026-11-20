@@ -13,12 +13,13 @@
 //! sanitizer ([`crate::dp_lines`]). Only the digital text layer is handled here;
 //! pages without one still fall back to OCR upstream.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use lopdf::{Dictionary, Document, Object};
 
 use crate::pdfium_backend::Glyph;
+use crate::tounicode::parse_tounicode;
 
 /// Per-document caches for the content-stream interpreter. Fonts are indirect
 /// objects shared by many pages, but were fully re-parsed — ToUnicode CMap
@@ -32,6 +33,16 @@ use crate::pdfium_backend::Glyph;
 struct DocCaches {
     fonts: HashMap<(lopdf::ObjectId, Vec<u8>), Arc<Font>>,
     forms: HashMap<lopdf::ObjectId, Arc<lopdf::content::Content>>,
+    /// Forms decoded once and not (yet) cached (#994). A form enters
+    /// [`Self::forms`] on its *second* sighting: a shared header/footer form
+    /// is decoded twice and then hits the cache on every later page, while
+    /// a generator's one-form-per-page body (each page's chart in its own
+    /// form, used once) is dropped with its page instead of every decoded
+    /// `Content` — many times its stream's size — living until the document
+    /// ends. Caching on first use made peak RSS grow ~45 MB per page on such
+    /// files (7 GiB at 60 pages of the issue's repro, flat ~0.6 GiB now).
+    /// Only ids are kept here, so the set itself stays tiny.
+    forms_seen: HashSet<lopdf::ObjectId>,
 }
 
 /// A 2×3 affine matrix `[a b c d e f]`: maps `(x,y)` → `(a·x+c·y+e, b·x+d·y+f)`.
@@ -81,15 +92,21 @@ struct Font {
     two_byte: bool,
     /// code → Unicode string (from ToUnicode; may be multi-char, e.g. ligatures).
     to_unicode: HashMap<u32, String>,
+    /// For codes ToUnicode lacks (ISO 32000-1, 9.10.2).
+    cid_fallback: CidFallback,
     /// code → glyph advance, in 1000-unit glyph space.
     widths: HashMap<u32, f64>,
     default_width: f64,
     /// 1-byte fallback decoding when ToUnicode lacks a code (WinAnsi-ish).
     simple_encoding: Option<HashMap<u8, char>>,
-    /// code → raw `/Differences` glyph name, for GID-style names (`g115`) that
-    /// have no Unicode mapping. docling-parse emits these verbatim as `/g115`
-    /// (see the redp5110 bulleted list); matching it keeps no text skipped.
+    /// code → raw `/Differences` glyph name, for placeholder names (`g115`,
+    /// `SM590000`) that have no Unicode mapping; they override the base
+    /// encoding (see [`unknown_name_text`]).
     fallback_names: HashMap<u8, String>,
+    /// The unmapped codes whose embedded glyph paints nothing — semantic
+    /// spaces (docling-parse 7.24's blank glyph programs: the redp5110
+    /// list's `/g3`). Every other unmapped code reads U+FFFD.
+    blank_codes: HashSet<u32>,
     /// code → char from the embedded Type1 font program's own `/Encoding` vector,
     /// used only as a last resort for glyphs the base encoding leaves unmapped
     /// (standard TeX math fonts: `λ`, `≤`, …).
@@ -99,8 +116,26 @@ struct Font {
     /// ToUnicode (`formula_text` reads it; the base-encoding guess turns
     /// CMEX's `parenlefttp` at code 0x30 into `0`).
     program_names: HashMap<u8, std::sync::Arc<str>>,
+    /// A symbolic simple font without a declared base encoding: the text of
+    /// each code its embedded program's builtin encoding resolves
+    /// (docling-parse 7.25, #1113 — 2203.01017's `Dingbats` check marks are
+    /// `a19` / `a23`, `✓` / `✗`, not the `3` / `7` the Latin tables read).
+    /// It outranks every encoding table but a `/Differences` entry
+    /// ([`Font::diff_codes`]); empty for every other font and in a build
+    /// without the renderer.
+    builtin: HashMap<u8, String>,
+    /// The codes `/Differences` names.
+    diff_codes: HashSet<u8>,
     ascent: f64,
     descent: f64,
+    /// code → its embedded glyph's ink extent `(y_min, y_max)` in 1000-unit
+    /// em, for a font whose descriptor metrics docling-parse rejects
+    /// ([`font_ascent_descent`]'s third value): docling-parse 7.24 boxes such
+    /// a font's glyphs by their outline's control box, so a glyph drawn
+    /// under the baseline — 2305.03393's `_` in `PMC5406406_003_01.png` —
+    /// is a cell of its own, not part of the word. Empty for every other
+    /// font, a glyph with no ink, and a build without the renderer.
+    ink_y: HashMap<u32, (f64, f64)>,
     hash: u64,
     /// Whether the font's docling-parse name marks a math face
     /// ([`is_math_font_name`]) — for the word contraction's local
@@ -115,24 +150,55 @@ struct Font {
 }
 
 impl Font {
-    fn decode_code(&self, code: u32) -> (Option<String>, f64) {
+    /// The text of `code` and its advance; the flag marks a blank unmapped
+    /// glyph, whose box has no height.
+    ///
+    /// A code no source maps to Unicode is visibly painted but carries no
+    /// text: docling-parse 7.24 emits U+FFFD for it, and docling turns a NUL
+    /// into U+FFFD too (docling#5070), so the loss stays visible and counted
+    /// by the text-quality check instead of silently dropping the glyph
+    /// (`mL⁻¹` reading `mL1`). A glyph whose embedded program paints nothing
+    /// is a space — a word boundary — instead.
+    fn decode_code(&self, code: u32) -> (Option<String>, f64, bool) {
         let w = self
             .widths
             .get(&code)
             .copied()
             .unwrap_or(self.default_width);
         if let Some(s) = self.to_unicode.get(&code) {
-            return (Some(decompose_ligatures(s)), w);
+            return (Some(decompose_ligatures(s)), w, false);
         }
+        let unmapped = |font: &Font| {
+            let blank = font.blank_codes.contains(&code);
+            (
+                Some(if blank { " " } else { "\u{FFFD}" }.to_string()),
+                w,
+                blank,
+            )
+        };
         if !self.two_byte {
-            // A GID-style `/Differences` name (no Unicode) overrides the base
-            // encoding, matching docling's verbatim `/g115` fallback.
+            // A placeholder `/Differences` name (no Unicode) overrides the
+            // base encoding. docling-parse 7.24 reads a bare glyph index
+            // (`g115`, `gid00043`) as unmapped and any other unknown name as
+            // its text (`SM590000`, the redp5110 bullets).
             if let Some(name) = self.fallback_names.get(&(code as u8)) {
-                return (Some(format!("/{name}")), w);
+                return match unknown_name_text(name) {
+                    Some(text) => (Some(text), w, false),
+                    None => unmapped(self),
+                };
+            }
+            // docling-parse 7.25's `get_correct_character`: after
+            // `/Differences` and `/ToUnicode`, a symbolic font's builtin
+            // encoding — "the producer's own statement of what each code
+            // draws" — before any base-font or Latin table.
+            if !self.diff_codes.contains(&(code as u8)) {
+                if let Some(text) = self.builtin.get(&(code as u8)) {
+                    return (Some(decompose_ligatures(text)), w, false);
+                }
             }
             if let Some(enc) = &self.simple_encoding {
                 if let Some(&ch) = enc.get(&(code as u8)) {
-                    return (Some(decompose_ligatures(&ch.to_string())), w);
+                    return (Some(decompose_ligatures(&ch.to_string())), w, false);
                 }
             }
             // Last resort: the embedded Type1 font program's own `/Encoding`
@@ -143,10 +209,24 @@ impl Font {
             // recovers these from the same font program. This only fills codes the
             // base encoding left unmapped, so it never changes an existing decode.
             if let Some(&ch) = self.program_encoding.get(&(code as u8)) {
-                return (Some(decompose_ligatures(&ch.to_string())), w);
+                return (Some(decompose_ligatures(&ch.to_string())), w, false);
+            }
+        } else {
+            match self.cid_fallback {
+                CidFallback::None => {}
+                CidFallback::UnicodeCodes { .. } => {
+                    if let Some(ch) = unicode_cmap_char(code).filter(|c| !c.is_control()) {
+                        return (Some(ch.to_string()), w, false);
+                    }
+                }
+                CidFallback::Collection(table) => {
+                    if let Some(s) = collection_text(table, code) {
+                        return (Some(decompose_ligatures(&s)), w, false);
+                    }
+                }
             }
         }
-        (None, w)
+        unmapped(self)
     }
 }
 
@@ -165,7 +245,9 @@ fn decompose_ligatures(s: &str) -> String {
                 '\u{FB02}' => "fl",
                 '\u{FB03}' => "ffi",
                 '\u{FB04}' => "ffl",
-                '\u{FB05}' => "ft",
+                // U+FB05 is LATIN SMALL LIGATURE LONG S T (`ſt`): `st`, as
+                // docling's ligature map and Unicode's decomposition (#1001).
+                '\u{FB05}' => "st",
                 '\u{FB06}' => "st",
                 _ => return c.to_string(),
             }
@@ -286,6 +368,28 @@ fn parse_font(doc: &Document, name: &[u8], fdict: &Dictionary) -> Font {
             reconcile_stale_tounicode(&mut to_unicode, &diffs);
         }
     }
+    let sanitizer_name = sanitizer_font_name(doc, fdict, two_byte);
+    // Symbol / ZapfDingbats mapped into the private-use "symbol charset"
+    // (`U+F000` + byte): docling-parse 7.25 reads the glyph's text through
+    // the face's own encoding instead (docling-parse#431, #1113 — redp5110's
+    // `U+F0AE` is `→`, a Word bullet `U+F0B7` is `•`).
+    let raw_base = fdict.get(b"BaseFont").ok().and_then(|o| o.as_name().ok());
+    let names: Vec<&[u8]> = std::iter::once(sanitizer_name.as_slice())
+        .chain(raw_base)
+        .collect();
+    if let Some(face) = crate::symbol_fonts::symbol_face(&names) {
+        for value in to_unicode.values_mut() {
+            if let Some(ch) = crate::symbol_fonts::fold_private_use(face, value) {
+                *value = ch.to_string();
+            }
+        }
+    }
+
+    let cid_fallback = if two_byte {
+        cid_fallback(doc, fdict)
+    } else {
+        CidFallback::None
+    };
 
     let (mut widths, mut default_width) = if two_byte {
         cid_widths(doc, fdict)
@@ -318,6 +422,34 @@ fn parse_font(doc: &Document, name: &[u8], fdict: &Dictionary) -> Font {
             // Codes the table misses still advance a typical width instead of
             // stacking at x=0 (the failure mode this whole branch fixes).
             default_width = 500.0;
+        } else if let Some(face) = crate::symbol_fonts::symbol_face(&[base_font_name(fdict)
+            .as_deref()
+            .unwrap_or_default()])
+        {
+            // The two symbol faces are no std14 text faces: their AFM
+            // advances by code, as docling-parse's base font reads them.
+            for code in 0..=255u8 {
+                if let Some(w) = crate::symbol_fonts::face_width(face, code) {
+                    widths.insert(u32::from(code), w);
+                }
+            }
+            default_width = 500.0;
+        } else {
+            // Any other simple font without `/Widths` (a non-embedded
+            // Georgia, Verdana, Tahoma …; the spec requires `/Widths`
+            // outside the standard 14, but such files exist, #1153) advanced
+            // 0 per glyph, and its zero-width line was dropped with all its
+            // text. docling-parse reads the face's AFM; without one, the
+            // descriptor's `/AvgWidth`, else a typical 500 units, keeps the
+            // text with approximate geometry.
+            default_width = fdict
+                .get(b"FontDescriptor")
+                .ok()
+                .and_then(|o| as_dict(doc, o))
+                .and_then(|d| d.get(b"AvgWidth").ok())
+                .and_then(num)
+                .filter(|w| *w > 0.0)
+                .unwrap_or(500.0);
         }
     }
     let fallback_names = if two_byte {
@@ -338,20 +470,23 @@ fn parse_font(doc: &Document, name: &[u8], fdict: &Dictionary) -> Font {
         program_names.extend(differences_names(doc, fdict));
     }
 
-    let (ascent, descent) = font_ascent_descent(doc, fdict, two_byte);
-    let sanitizer_name = sanitizer_font_name(doc, fdict, two_byte);
-
-    Font {
+    let (ascent, descent, ink_boxes) = font_ascent_descent(doc, fdict, two_byte);
+    let mut font = Font {
         two_byte,
         to_unicode,
+        cid_fallback,
         widths,
         default_width,
         simple_encoding,
         fallback_names,
+        blank_codes: HashSet::new(),
         program_encoding,
         program_names,
+        builtin: HashMap::new(),
+        diff_codes: differences_codes(doc, fdict),
         ascent,
         descent,
+        ink_y: HashMap::new(),
         hash: hash_name(&sanitizer_name),
         math: is_math_font_name(&sanitizer_name),
         face: crate::formula_text::Face::of_font_name(&String::from_utf8_lossy(
@@ -360,7 +495,240 @@ fn parse_font(doc: &Document, name: &[u8], fdict: &Dictionary) -> Font {
         style: crate::font_style::parse_font_style(&String::from_utf8_lossy(
             &base_font_name(fdict).unwrap_or_else(|| name.to_vec()),
         )),
+    };
+    font.blank_codes = blank_codes(doc, fdict, &font);
+    if !two_byte && subtype != b"Type3".as_slice() && uses_builtin_encoding(doc, fdict) {
+        font.builtin = builtin_encoding(doc, fdict, &font);
     }
+    if ink_boxes {
+        font.ink_y = ink_extents(doc, fdict, &font);
+    }
+    font
+}
+
+/// docling-parse 7.25's `uses_builtin_encoding` for a simple, non-Type 3
+/// font: the descriptor flags it symbolic (bit 3) and the PDF declares no
+/// base encoding — no `/Encoding` name, no `/BaseEncoding` in an `/Encoding`
+/// dictionary (a bare `/Differences` overrides only the codes it lists,
+/// 9.6.6.1).
+fn uses_builtin_encoding(doc: &Document, fdict: &Dictionary) -> bool {
+    let symbolic = fdict
+        .get(b"FontDescriptor")
+        .ok()
+        .and_then(|o| as_dict(doc, o))
+        .and_then(|fd| fd.get(b"Flags").ok())
+        .and_then(|o| deref(doc, o))
+        .and_then(num)
+        .is_some_and(|f| (f as i64) & 4 != 0);
+    let declared_base = match fdict.get(b"Encoding").ok().and_then(|o| deref(doc, o)) {
+        Some(Object::Name(_)) => true,
+        Some(Object::Dictionary(d)) => d.get(b"BaseEncoding").is_ok(),
+        _ => false,
+    };
+    symbolic && !declared_base
+}
+
+/// The codes a simple font's `/Differences` names.
+fn differences_codes(doc: &Document, fdict: &Dictionary) -> HashSet<u8> {
+    let mut codes = HashSet::new();
+    let mut code = 0i64;
+    for el in differences_array(doc, fdict).unwrap_or_default() {
+        match el {
+            Object::Integer(i) => code = i,
+            Object::Real(r) => code = r as i64,
+            Object::Name(_) => {
+                if (0..=255).contains(&code) {
+                    codes.insert(code as u8);
+                }
+                code += 1;
+            }
+            _ => {}
+        }
+    }
+    codes
+}
+
+/// [`Font::builtin`]: read from the embedded program only when a declared
+/// code is left to it — not covered by `/ToUnicode` or `/Differences`
+/// (docling-parse reads the program lazily, on the first code that needs it).
+#[cfg(feature = "render")]
+fn builtin_encoding(doc: &Document, fdict: &Dictionary, font: &Font) -> HashMap<u8, String> {
+    let mut codes: Vec<u32> = font.widths.keys().copied().collect();
+    if codes.is_empty() {
+        codes.extend(0..=255);
+    }
+    let needed = codes.iter().any(|&c| {
+        c <= 255 && !font.to_unicode.contains_key(&c) && !font.diff_codes.contains(&(c as u8))
+    });
+    if !needed {
+        return HashMap::new();
+    }
+    crate::render::font::LoadedFont::load(doc, fdict).builtin_encoding_text()
+}
+
+/// Without the renderer there is no program to read: the font keeps the
+/// encoding tables' reading.
+#[cfg(not(feature = "render"))]
+fn builtin_encoding(_doc: &Document, _fdict: &Dictionary, _font: &Font) -> HashMap<u8, String> {
+    HashMap::new()
+}
+
+/// The ink extents of `font`'s declared codes ([`Font::ink_y`]), read from
+/// its embedded program; nothing past a CID font's first 4096 codes.
+#[cfg(feature = "render")]
+fn ink_extents(doc: &Document, fdict: &Dictionary, font: &Font) -> HashMap<u32, (f64, f64)> {
+    const MAX_CODES: usize = 4096;
+    let loaded = crate::render::font::LoadedFont::load(doc, fdict);
+    if !loaded.has_program() {
+        return HashMap::new();
+    }
+    let mut codes: Vec<u32> = font.widths.keys().copied().collect();
+    if !font.two_byte {
+        codes.extend(0..=255);
+        codes.sort_unstable();
+        codes.dedup();
+    }
+    codes
+        .into_iter()
+        .take(MAX_CODES)
+        .filter_map(|c| Some((c, loaded.glyph_ink_y(c)??)))
+        .collect()
+}
+
+/// Without the renderer there is no program to read: the font keeps its
+/// loose box (docling-parse's own fallback when FreeType resolves no glyph).
+#[cfg(not(feature = "render"))]
+fn ink_extents(_doc: &Document, _fdict: &Dictionary, _font: &Font) -> HashMap<u32, (f64, f64)> {
+    HashMap::new()
+}
+
+/// The codes `font` leaves unmapped whose embedded glyph paints nothing
+/// ([`Font::blank_codes`]). The program is loaded only when the font has
+/// unmapped codes among those it declares widths for; without the
+/// renderer (the wasm text-layer build) there is no program to ask, and
+/// every unmapped glyph reads U+FFFD.
+#[cfg(feature = "render")]
+fn blank_codes(doc: &Document, fdict: &Dictionary, font: &Font) -> HashSet<u32> {
+    // A CID font can declare tens of thousands of widths: past this many
+    // unmapped codes nothing is classified (the glyphs read U+FFFD).
+    const MAX_CANDIDATES: usize = 4096;
+    let unmapped: Vec<u32> = font
+        .widths
+        .keys()
+        .copied()
+        .filter(|&c| font.decode_code(c).0.as_deref() == Some("\u{FFFD}"))
+        .take(MAX_CANDIDATES + 1)
+        .collect();
+    if unmapped.is_empty() || unmapped.len() > MAX_CANDIDATES {
+        return HashSet::new();
+    }
+    let loaded = crate::render::font::LoadedFont::load(doc, fdict);
+    unmapped
+        .into_iter()
+        .filter(|&c| loaded.glyph_has_ink(c) == Some(false))
+        .collect()
+}
+
+#[cfg(not(feature = "render"))]
+fn blank_codes(_doc: &Document, _fdict: &Dictionary, _font: &Font) -> HashSet<u32> {
+    HashSet::new()
+}
+
+#[derive(Clone, Copy)]
+enum CidFallback {
+    None,
+    UnicodeCodes { utf16: bool },
+    Collection(&'static [u8]),
+}
+
+/// A Unicode CMap code retains its original bytes for ToUnicode lookups;
+/// a four-byte UTF-16 code is a packed surrogate pair, not a scalar value.
+pub(crate) fn unicode_cmap_char(code: u32) -> Option<char> {
+    if code <= 0xffff {
+        char::from_u32(code)
+    } else {
+        let units = [(code >> 16) as u16, code as u16];
+        let mut chars = char::decode_utf16(units);
+        let ch = chars.next()?.ok()?;
+        chars.next().is_none().then_some(ch)
+    }
+}
+
+#[cfg(not(feature = "cid-collections"))]
+fn collection_table(_ordering: &[u8]) -> Option<&'static [u8]> {
+    None
+}
+
+#[cfg(feature = "cid-collections")]
+fn collection_table(ordering: &[u8]) -> Option<&'static [u8]> {
+    macro_rules! table {
+        ($file:literal) => {
+            include_bytes!(concat!(env!("OUT_DIR"), "/", $file))
+        };
+    }
+    Some(match ordering {
+        b"Japan1" => table!("Adobe-Japan1-UCS2"),
+        b"GB1" => table!("Adobe-GB1-UCS2"),
+        b"CNS1" => table!("Adobe-CNS1-UCS2"),
+        b"Korea1" => table!("Adobe-Korea1-UCS2"),
+        b"KR" => table!("Adobe-KR-UCS2"),
+        _ => return None,
+    })
+}
+
+/// The text of `cid` in a table build.rs wrote: the CID count, then three
+/// bytes per CID (0 for none, a code point, or 0x110000 + the offset of a
+/// length-prefixed UTF-8 string after the entries).
+pub(crate) fn collection_text(table: &[u8], cid: u32) -> Option<String> {
+    let n = u32::from_le_bytes(table.get(..4)?.try_into().ok()?) as usize;
+    let at = 4 + 3 * usize::try_from(cid).ok().filter(|&c| c < n)?;
+    let &[a, b, c] = table.get(at..at + 3)? else {
+        return None;
+    };
+    match u32::from_be_bytes([0, a, b, c]) {
+        0 => None,
+        v @ ..0x110000 => char::from_u32(v).map(String::from),
+        v => {
+            let at = 4 + 3 * n + (v - 0x110000) as usize;
+            let len = *table.get(at)? as usize;
+            std::str::from_utf8(table.get(at + 1..at + 1 + len)?)
+                .ok()
+                .map(str::to_owned)
+        }
+    }
+}
+
+fn cid_fallback(doc: &Document, fdict: &Dictionary) -> CidFallback {
+    let encoding = fdict
+        .get(b"Encoding")
+        .ok()
+        .and_then(|o| deref(doc, o))
+        .and_then(|o| o.as_name().ok())
+        .unwrap_or(&[]);
+    if encoding.starts_with(b"Uni")
+        && (encoding.windows(4).any(|w| w == b"UCS2") || encoding.windows(5).any(|w| w == b"UTF16"))
+    {
+        return CidFallback::UnicodeCodes {
+            utf16: encoding.windows(5).any(|w| w == b"UTF16"),
+        };
+    }
+    if encoding != b"Identity-H" && encoding != b"Identity-V" {
+        // Other CMaps need code → CID tables that are not bundled.
+        return CidFallback::None;
+    }
+    cid_collection(doc, fdict).map_or(CidFallback::None, CidFallback::Collection)
+}
+
+/// The CID → Unicode table of the character collection a Type0 font uses.
+pub(crate) fn cid_collection(doc: &Document, fdict: &Dictionary) -> Option<&'static [u8]> {
+    let Object::Array(descendants) = deref(doc, fdict.get(b"DescendantFonts").ok()?)? else {
+        return None;
+    };
+    let descendant = as_dict(doc, descendants.first()?)?;
+    let info = as_dict(doc, descendant.get(b"CIDSystemInfo").ok()?)?;
+    let registry = deref(doc, info.get(b"Registry").ok()?)?.as_str().ok()?;
+    let ordering = deref(doc, info.get(b"Ordering").ok()?)?.as_str().ok()?;
+    (registry == b"Adobe").then(|| collection_table(ordering))?
 }
 
 /// A simple font's `/Encoding` `/Differences` array, dereferenced.
@@ -383,7 +751,26 @@ fn differences_array(doc: &Document, fdict: &Dictionary) -> Option<Vec<Object>> 
 /// `/Differences` name resolves to something else, is that stale copy: the
 /// name wins. A CMap that disagrees any other way is left alone — ToUnicode
 /// is the producer's word on what the glyph means.
+///
+/// The name also wins over a ToUnicode value that says nothing (#1121):
+/// docling-parse's `has_to_unicode` discards an empty value and a single
+/// NUL, U+FFFD or Unicode noncharacter for a code `/Differences` names, and
+/// resolves the name instead. A figure embedded in 1503.04203 re-encodes
+/// its TeX glyphs to code 33 with `/Differences [33 /minus]` and a CMap
+/// `<21> <0000>` — the glyph's old code written as its Unicode — so
+/// `Q = −1/2` read `Q = � 12` and `√Δ²` read `p�2`.
 fn reconcile_stale_tounicode(to_unicode: &mut HashMap<u32, String>, diffs: &[Object]) {
+    let says_nothing = |value: &str| {
+        let mut chars = value.chars();
+        match (chars.next(), chars.next()) {
+            (None, _) => true,
+            (Some(c), None) => {
+                let cp = c as u32;
+                cp == 0 || cp == 0xFFFD || (0xFDD0..=0xFDEF).contains(&cp) || cp & 0xFFFE == 0xFFFE
+            }
+            _ => false,
+        }
+    };
     let mut code = 0u8;
     for el in diffs {
         match el {
@@ -391,8 +778,9 @@ fn reconcile_stale_tounicode(to_unicode: &mut HashMap<u32, String>, diffs: &[Obj
             Object::Name(name) => {
                 if let Some(ch) = glyph_name_to_char(name) {
                     let identity = (code as char).to_string();
-                    if ch.to_string() != identity
-                        && to_unicode.get(&u32::from(code)) == Some(&identity)
+                    let current = to_unicode.get(&u32::from(code));
+                    if (ch.to_string() != identity && current == Some(&identity))
+                        || current.is_some_and(|v| says_nothing(v))
                     {
                         to_unicode.insert(u32::from(code), ch.to_string());
                     }
@@ -404,12 +792,6 @@ fn reconcile_stale_tounicode(to_unicode: &mut HashMap<u32, String>, diffs: &[Obj
     }
 }
 
-/// Collect `/Differences` entries whose glyph name is a GID placeholder
-/// (`g115`, `cid42`, `glyph7`, `index9`) with no Unicode mapping. docling-parse
-/// emits such glyphs as the literal name `/g115`; mapping them here keeps the
-/// text from being silently dropped (subsetted fonts with no ToUnicode). The
-/// GID-name restriction keeps real Adobe glyph names on the normal path so this
-/// never invents garbage on the clean files.
 /// Every glyph name the font dictionary's `/Encoding /Differences` assigns,
 /// `code → name` (for `formula_text`'s glyph identities).
 fn differences_names(doc: &Document, fdict: &Dictionary) -> HashMap<u8, std::sync::Arc<str>> {
@@ -439,6 +821,11 @@ fn differences_names(doc: &Document, fdict: &Dictionary) -> HashMap<u8, std::syn
     map
 }
 
+/// Collect `/Differences` entries whose glyph name is a GID placeholder
+/// (`g115`, `cid42`, `glyph7`, `index9`, `SM590000`) with no Unicode mapping
+/// (subsetted fonts with no ToUnicode); [`unknown_name_text`] decides what
+/// each reads as. The placeholder-name restriction keeps real Adobe glyph
+/// names on the normal path so this never invents garbage on the clean files.
 fn differences_gid_names(doc: &Document, fdict: &Dictionary) -> HashMap<u8, String> {
     let mut map = HashMap::new();
     let Some(Object::Dictionary(enc)) = fdict.get(b"Encoding").ok().and_then(|o| deref(doc, o))
@@ -519,10 +906,37 @@ fn type1_program_encoding(
     (map, names)
 }
 
+/// The reading text docling-parse 7.24 keeps for a `/Differences` glyph name
+/// no table resolves (`resolve_unknown_name`): the name without any
+/// `.suffix` — `None` when that is a bare glyph index
+/// (`(gid|glyph|g|cid|index)\d+`, any case), which names a glyph of the
+/// font program but carries no text (docling-parse#238), so it is unmapped.
+fn unknown_name_text(name: &str) -> Option<String> {
+    let stem = name.rsplit_once('.').map_or(name, |(s, _)| s);
+    (!is_index_name(stem)).then(|| stem.to_string())
+}
+
+/// docling-parse's index-style glyph name, `(gid|glyph|g|cid|index)` then
+/// hexadecimal digits, case-insensitive (`re_gid`): `/gid00043`, `/g43`,
+/// `/cid43`, `/index43` from the subset generators, and since docling-parse
+/// 7.25 (#389 in docling-parse#431, #1113) Skia/PDF's `g%X` — `/g15C`,
+/// `/gA1` from Chrome's print-to-PDF and Notion exports, which read as
+/// their base encoding's letters before. The name points into the font
+/// program and carries no text.
+fn is_index_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    ["gid", "glyph", "g", "cid", "index"].iter().any(|p| {
+        lower
+            .strip_prefix(p)
+            .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_hexdigit()))
+    })
+}
+
 /// A glyph name that is a synthetic placeholder, not a real Adobe name:
 /// `g115`, `cid42`, `glyph7`, `index9`, `G12`, or a short-prefix code name like
-/// `SM590000` (IBM BookMaster). These carry no Unicode meaning, and docling-parse
-/// emits them verbatim (`/SM590000`). `afii####` / `uni####` are real Adobe names
+/// `SM590000` (IBM BookMaster). These carry no Unicode meaning (docling-parse
+/// keeps the code-like names as text, `SM590000`, and reads the glyph indexes
+/// as unmapped, see [`unknown_name_text`]). `afii####` / `uni####` are real Adobe names
 /// and excluded. The restriction keeps genuine glyph names on the Unicode path.
 fn is_gid_name(name: &[u8]) -> bool {
     let Ok(s) = std::str::from_utf8(name) else {
@@ -531,12 +945,8 @@ fn is_gid_name(name: &[u8]) -> bool {
     if s.starts_with("afii") || s.starts_with("uni") {
         return false;
     }
-    for prefix in ["g", "G", "cid", "CID", "glyph", "index"] {
-        if let Some(rest) = s.strip_prefix(prefix) {
-            if !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
-                return true;
-            }
-        }
+    if is_index_name(s) {
+        return true;
     }
     // Short alpha prefix (≤3 letters) followed by a run of ≥3 digits — synthetic
     // code names like `SM590000`, distinct from real Adobe names (whole words or
@@ -548,7 +958,18 @@ fn is_gid_name(name: &[u8]) -> bool {
         && s.as_bytes()[alpha..].iter().all(|b| b.is_ascii_digit())
 }
 
-fn font_ascent_descent(doc: &Document, fdict: &Dictionary, two_byte: bool) -> (f64, f64) {
+/// The top and bottom of the font's loose char boxes above the baseline
+/// (1000-unit em) — docling-parse's: the ascent and descent, scaled by
+/// `CapHeight / Ascent` where the descriptor gives a cap height — and whether docling-parse 7.24 rejects its descriptor metrics
+/// (`invalid_vertical_metrics`, `init_ascent_and_descent`) — then it boxes
+/// each glyph by its embedded outline instead ([`Font::ink_y`]):
+///
+/// - an `/Ascent` or `/Descent` beyond ±8000 (`MAX_PLAUSIBLE_VERTICAL_METRIC`)
+///   is ignored for the `/FontBBox` edge, when that is usable;
+/// - metrics that do not straddle the baseline (`descent <= 0 <= ascent`,
+///   `descent < ascent` — `/Ascent 0 /Descent 0`, or a math font's two
+///   positive values) give way to a valid `/FontBBox`.
+fn font_ascent_descent(doc: &Document, fdict: &Dictionary, two_byte: bool) -> (f64, f64, bool) {
     // For Type0, the descriptor lives on the descendant CIDFont.
     let descr_owner = if two_byte {
         fdict
@@ -566,32 +987,78 @@ fn font_ascent_descent(doc: &Document, fdict: &Dictionary, two_byte: bool) -> (f
     let fd = descr_owner
         .and_then(|d| d.get(b"FontDescriptor").ok())
         .and_then(|o| as_dict(doc, o));
-    let asc = fd
-        .and_then(|d| d.get(b"Ascent").ok())
-        .and_then(|o| {
-            o.as_float()
-                .ok()
-                .or_else(|| o.as_i64().ok().map(|i| i as f32))
-        })
-        .unwrap_or(750.0) as f64;
-    let desc = fd
-        .and_then(|d| d.get(b"Descent").ok())
-        .and_then(|o| {
-            o.as_float()
-                .ok()
-                .or_else(|| o.as_i64().ok().map(|i| i as f32))
-        })
-        .unwrap_or(-250.0) as f64;
-    // Some subsetted fonts carry a degenerate FontDescriptor (`/Ascent 0
-    // /Descent 0`) — the real metrics live in the font program. That collapses
-    // the loose box to zero height, so the line cells get zero area and the
-    // layout's region/text assignment drops them (2305's References list lost
-    // every prose line, keeping only the URLs). Fall back to typical text metrics
-    // so the box has height.
-    if asc - desc <= 1.0 {
-        return (750.0, -250.0);
+    let read = |key: &[u8]| fd.and_then(|d| d.get(key).ok()).and_then(num);
+    let plausible = |v: f64| v.is_finite() && v.abs() <= 8000.0;
+    let bbox = fd
+        .and_then(|d| d.get(b"FontBBox").ok())
+        .and_then(|o| deref(doc, o))
+        .and_then(|o| match o {
+            Object::Array(a) if a.len() == 4 => {
+                let v: Vec<f64> = a.iter().filter_map(num).collect();
+                (v.len() == 4).then(|| [v[0], v[1], v[2], v[3]])
+            }
+            _ => None,
+        });
+    let usable = |v: f64| v.abs() > 1e-3 && plausible(v);
+    // docling-parse does not box a glyph between the font's descent and
+    // ascent but between both scaled by `CapHeight / Ascent`
+    // (`pdf_state<TEXT>`: `compute_rect(font_descent*ratio,
+    // font_ascent*ratio, width)`, the ratio taken when it lies in
+    // 0.05..=1): the box tops out at the capitals, and the descent shrinks
+    // in proportion. For most text faces that is a few percent (a
+    // Libertine line cell is 15.3 pt where the unscaled box is 16.0), and
+    // it is what keeps a face with inflated metrics readable: Cambria's
+    // regular face declares `/Ascent 3117 /Descent -2464 /CapHeight 667`,
+    // a 5.6 em box around every line unscaled — each line cell covering
+    // the four lines around it, none of them more than a fifth inside its
+    // own one-line layout region — and 1.19 em scaled (0.667 above the
+    // baseline, 0.527 below). A font without a `/CapHeight` keeps its
+    // metrics as they are (docling-parse reads a standard-14 face's from
+    // its AFM, like the ascent and descent this port defaults).
+    let cap_scaled = |asc: f64, desc: f64| {
+        let ratio = read(b"CapHeight")
+            .filter(|&c| plausible(c))
+            .map(|c| c / asc)
+            .filter(|r| (0.05..=1.0).contains(r))
+            .unwrap_or(1.0);
+        (asc * ratio, desc * ratio)
+    };
+    let mut invalid = false;
+    let asc = match read(b"Ascent") {
+        Some(v) if plausible(v) => v,
+        Some(_) => {
+            invalid = true;
+            bbox.map(|b| b[3]).filter(|&v| usable(v)).unwrap_or(750.0)
+        }
+        None => 750.0,
+    };
+    let desc = match read(b"Descent") {
+        Some(v) if plausible(v) => v,
+        Some(_) => {
+            invalid = true;
+            bbox.map(|b| b[1]).filter(|&v| usable(v)).unwrap_or(-250.0)
+        }
+        None => -250.0,
+    };
+    if !(desc <= 0.0 && asc >= 0.0 && desc < asc) {
+        if let Some(b) = bbox.filter(|b| {
+            b[1] <= 0.0 && b[3] >= 0.0 && b[1] < b[3] && plausible(b[1]) && plausible(b[3])
+        }) {
+            let (asc, desc) = cap_scaled(b[3], b[1]);
+            return (asc, desc, true);
+        }
     }
-    (asc, desc)
+    // Some subsetted fonts carry a degenerate FontDescriptor (`/Ascent 0
+    // /Descent 0`) and no usable FontBBox either: the real metrics live in
+    // the font program. A zero-height loose box gives the line cells zero
+    // area and the layout's region/text assignment drops them (2305's
+    // References list lost every prose line, keeping only the URLs), so
+    // fall back to typical text metrics.
+    if asc - desc <= 1.0 {
+        return (750.0, -250.0, invalid);
+    }
+    let (asc, desc) = cap_scaled(asc, desc);
+    (asc, desc, invalid)
 }
 
 /// The `/BaseFont` name with any `ABCDEF+` subset prefix stripped (#187).
@@ -678,135 +1145,27 @@ fn cid_widths(doc: &Document, fdict: &Dictionary) -> (HashMap<u32, f64>, f64) {
 fn num(o: &Object) -> Option<f64> {
     match o {
         Object::Integer(i) => Some(*i as f64),
-        Object::Real(r) => Some(*r as f64),
+        Object::Real(r) => Some(real(*r)),
         _ => None,
     }
 }
 
-/// Parse a ToUnicode CMap's `bfchar` / `bfrange` sections into code→string.
-pub(crate) fn parse_tounicode(data: &[u8]) -> HashMap<u32, String> {
-    let text = String::from_utf8_lossy(data);
-    let mut map = HashMap::new();
-    let hex = |s: &str| -> Option<Vec<u16>> {
-        let s = s.trim();
-        if !s.starts_with('<') || !s.ends_with('>') {
-            return None;
-        }
-        let h = &s[1..s.len() - 1];
-        let bytes: Vec<u8> = (0..h.len())
-            .step_by(2)
-            .filter_map(|i| u8::from_str_radix(h.get(i..i + 2)?, 16).ok())
-            .collect();
-        Some(
-            bytes
-                .chunks(2)
-                .map(|c| {
-                    if c.len() == 2 {
-                        u16::from_be_bytes([c[0], c[1]])
-                    } else {
-                        c[0] as u16
-                    }
-                })
-                .collect(),
-        )
-    };
-    let u16s_to_string = |u: &[u16]| String::from_utf16_lossy(u);
-    let code_of = |u: &[u16]| u.iter().fold(0u32, |acc, &x| (acc << 16) | x as u32);
-
-    // Tokenize by structure, not whitespace: CMap hex groups are often written
-    // back-to-back with no separators (`<21><21><0054>`), so scan for `<…>`
-    // groups, `[`/`]` brackets, and bareword keywords.
-    let tokens: Vec<String> = {
-        let bytes = text.as_bytes();
-        let mut toks = Vec::new();
-        let mut i = 0;
-        while i < bytes.len() {
-            let c = bytes[i];
-            if c.is_ascii_whitespace() {
-                i += 1;
-            } else if c == b'<' {
-                let start = i;
-                while i < bytes.len() && bytes[i] != b'>' {
-                    i += 1;
-                }
-                i += 1; // include '>'
-                toks.push(String::from_utf8_lossy(&bytes[start..i.min(bytes.len())]).into_owned());
-            } else if c == b'[' || c == b']' {
-                toks.push((c as char).to_string());
-                i += 1;
-            } else {
-                let start = i;
-                while i < bytes.len()
-                    && !bytes[i].is_ascii_whitespace()
-                    && bytes[i] != b'<'
-                    && bytes[i] != b'['
-                    && bytes[i] != b']'
-                {
-                    i += 1;
-                }
-                toks.push(String::from_utf8_lossy(&bytes[start..i]).into_owned());
-            }
-        }
-        toks
-    };
-    let tokens: Vec<&str> = tokens.iter().map(|s| s.as_str()).collect();
-    let mut i = 0;
-    while i < tokens.len() {
-        match tokens[i] {
-            "beginbfchar" => {
-                i += 1;
-                while i + 1 < tokens.len() && tokens[i] != "endbfchar" {
-                    if let (Some(src), Some(dst)) = (hex(tokens[i]), hex(tokens[i + 1])) {
-                        map.insert(code_of(&src), u16s_to_string(&dst));
-                    }
-                    i += 2;
-                }
-            }
-            "beginbfrange" => {
-                i += 1;
-                while i + 2 < tokens.len() && tokens[i] != "endbfrange" {
-                    let (Some(lo), Some(hi)) = (hex(tokens[i]), hex(tokens[i + 1])) else {
-                        i += 1;
-                        continue;
-                    };
-                    let lo = code_of(&lo);
-                    let hi = code_of(&hi);
-                    if tokens[i + 2] == "[" {
-                        // `<lo> <hi> [ <d0> <d1> ... ]`: one dst per code in the range.
-                        let mut j = i + 3;
-                        let mut code = lo;
-                        while j < tokens.len() && tokens[j] != "]" {
-                            if let Some(dst) = hex(tokens[j]) {
-                                map.insert(code, u16s_to_string(&dst));
-                            }
-                            code += 1;
-                            j += 1;
-                        }
-                        i = j + 1;
-                    } else if let Some(dst) = hex(tokens[i + 2]) {
-                        // `<lo> <hi> <dst>`: consecutive Unicode from a base.
-                        let base = code_of(&dst);
-                        for (k, code) in (lo..=hi).enumerate() {
-                            if let Some(ch) = char::from_u32(base + k as u32) {
-                                map.insert(code, ch.to_string());
-                            }
-                        }
-                        i += 3;
-                    } else {
-                        i += 1;
-                    }
-                }
-            }
-            _ => i += 1,
-        }
-    }
-    map
+/// lopdf keeps a real as an `f32`; docling-parse reads the same token as a
+/// double. The shortest decimal that round-trips the `f32` is the token the
+/// file wrote (for any real written with the precision `f32` holds), so
+/// `90.144 + 1.44` meets `91.584` here as it does there.
+fn real(r: f32) -> f64 {
+    use std::fmt::Write as _;
+    let mut buf = String::with_capacity(16);
+    let _ = write!(buf, "{r}");
+    buf.parse().unwrap_or(r as f64)
 }
 
-/// Decode a PDF string literal in a Tj/TJ operand into raw code units.
+/// Decode a PDF string literal into codes, retaining packed UTF-16 pairs
+/// as the original four-byte keys used by ToUnicode.
 fn codes(font: &Font, bytes: &[u8]) -> Vec<u32> {
     if font.two_byte {
-        bytes
+        let mut units = bytes
             .chunks(2)
             .map(|c| {
                 if c.len() == 2 {
@@ -815,7 +1174,18 @@ fn codes(font: &Font, bytes: &[u8]) -> Vec<u32> {
                     c[0] as u32
                 }
             })
-            .collect()
+            .peekable();
+        let utf16 = matches!(font.cid_fallback, CidFallback::UnicodeCodes { utf16: true });
+        let mut out = Vec::with_capacity(bytes.len() / 2 + 1);
+        while let Some(mut code) = units.next() {
+            if utf16 && (0xd800..=0xdbff).contains(&code) {
+                if let Some(low) = units.next_if(|u| (0xdc00..=0xdfff).contains(u)) {
+                    code = (code << 16) | low;
+                }
+            }
+            out.push(code);
+        }
+        out
     } else {
         bytes.iter().map(|&b| b as u32).collect()
     }
@@ -903,6 +1273,86 @@ pub(crate) fn page_box(doc: &Document, page_id: lopdf::ObjectId) -> PageBox {
     }
 }
 
+/// A content stream's decoded bytes — a page's, a Form XObject's or a Type 3
+/// glyph procedure's — keeping what a damaged Flate stream inflates before
+/// its error (#1154). lopdf's decoder loses the output of the read that
+/// failed, so a short stream (all of it one read) comes back empty, and a
+/// stream it cannot decode at all comes back raw from `get_page_content` —
+/// compressed bytes the tokenizer rejects with the rest of the content.
+/// docling-parse (`qpdf_stream_decoder::decode_damaged_stream`, per stream
+/// since docling-parse#451) and pdfium keep the intact prefix; so does this.
+/// `None` only for a Flate stream nothing can be read from.
+pub(crate) fn content_stream_bytes(stream: &lopdf::Stream) -> Option<Vec<u8>> {
+    let predictor = stream
+        .dict
+        .get(b"DecodeParms")
+        .ok()
+        .and_then(|o| o.as_dict().ok())
+        .and_then(|d| d.get(b"Predictor").ok())
+        .and_then(|o| o.as_i64().ok())
+        .unwrap_or(1);
+    let plain_flate = predictor <= 1
+        && matches!(
+            stream.filters().unwrap_or_default().as_slice(),
+            [f] if *f == b"FlateDecode" || *f == b"Fl"
+        );
+    if plain_flate {
+        let out = inflate_prefix(&stream.content);
+        if !out.is_empty() {
+            return Some(out);
+        }
+    }
+    // Everything else — and a Flate stream without a zlib header, which
+    // lopdf retries as raw deflate — as lopdf decodes it.
+    match stream.decompressed_content() {
+        Ok(data) => Some(data),
+        Err(_) if plain_flate => None,
+        // Anything else as lopdf has always handed it over.
+        Err(_) => Some(stream.content.clone()),
+    }
+}
+
+/// zlib inflate up to the first error, keeping everything before it —
+/// pdfium's `FlateModule`. Stepped through `Decompress` because a
+/// `read::ZlibDecoder` drops what the failing read had already inflated.
+pub(crate) fn inflate_prefix(data: &[u8]) -> Vec<u8> {
+    let mut dec = flate2::Decompress::new(true);
+    let mut out = Vec::new();
+    let mut buf = vec![0u8; 1 << 16];
+    loop {
+        let (in_before, out_before) = (dec.total_in(), dec.total_out());
+        let input = &data[(in_before as usize).min(data.len())..];
+        let status = dec.decompress(input, &mut buf, flate2::FlushDecompress::None);
+        let written = (dec.total_out() - out_before) as usize;
+        out.extend_from_slice(&buf[..written]);
+        match status {
+            Ok(flate2::Status::Ok) if written > 0 || dec.total_in() > in_before => {}
+            _ => break,
+        }
+    }
+    out
+}
+
+/// A page's content — every stream of its `/Contents`, decoded by
+/// [`content_stream_bytes`], each followed by a newline as lopdf's
+/// `get_page_content` joins them. An undecodable stream drops out instead of
+/// spilling its raw bytes into the content of the others.
+pub(crate) fn page_content(doc: &Document, page_id: lopdf::ObjectId) -> Vec<u8> {
+    let mut content = Vec::new();
+    for id in doc.get_page_contents(page_id) {
+        if let Some(data) = doc
+            .get_object(id)
+            .and_then(Object::as_stream)
+            .ok()
+            .and_then(content_stream_bytes)
+        {
+            content.extend_from_slice(&data);
+            content.push(b'\n');
+        }
+    }
+    content
+}
+
 /// Page size (width, height) in PDF points — the display box's, like pdfium's
 /// `FPDF_GetPageWidthF/HeightF`.
 fn page_size(doc: &Document, page_id: lopdf::ObjectId) -> (f32, f32) {
@@ -924,7 +1374,7 @@ pub fn content_diagnosis(bytes: &[u8]) -> String {
     let mut out = String::new();
     let mut caches = DocCaches::default();
     for (n, pid) in pages.into_iter().take(4) {
-        let content_bytes = doc.get_page_content(pid);
+        let content_bytes = page_content(&doc, pid);
         let ops = lopdf::content::Content::decode(&content_bytes)
             .map(|c| c.operations.len())
             .ok();
@@ -1114,7 +1564,7 @@ fn has_page_content(doc: &Document) -> bool {
     doc.get_pages()
         .into_values()
         .take(4)
-        .any(|pid| !doc.get_page_content(pid).is_empty())
+        .any(|pid| !page_content(doc, pid).is_empty())
 }
 
 /// Correct `/Length` values that disagree with where `endstream` actually is.
@@ -1333,6 +1783,11 @@ pub struct PageParserCells {
     /// The glyphs and thin rules a formula region is rebuilt from
     /// ([`crate::formula_text`]), in the cells' frame.
     pub math: crate::formula_text::MathLayer,
+    /// Image placements (#999), in the cells' frame — see
+    /// [`crate::pdfium_backend::PdfPage::bitmaps`].
+    pub bitmaps: Vec<[f32; 4]>,
+    /// The page's shapes for the reading-order separators (#1092).
+    pub shapes: PageShapes,
 }
 
 /// The parser text layer, driven one page at a time: the document is loaded
@@ -1444,6 +1899,49 @@ impl PageTextParser {
             .collect()
     }
 
+    /// The characters of the 0-based page `index` as the script-position
+    /// stage measures them (#1005, docling's `read_page_chars`): every
+    /// visible, non-blank glyph with its font-metric box, baseline and drawn
+    /// size in the unrotated page frame (y up), and beside it the same box in
+    /// the display frame (`/Rotate` applied, top-left origin: the frame the
+    /// items' boxes live in). Invisible text (`Tr` 3 / 7, an OCR layer over a
+    /// scan) is left out, as docling leaves it: it follows the scanned lines,
+    /// not a typeset baseline.
+    pub(crate) fn script_chars(
+        &mut self,
+        index: usize,
+    ) -> Vec<(crate::script_position::ScriptChar, [f32; 4])> {
+        let Some(&pid) = self.pages.get(index) else {
+            return Vec::new();
+        };
+        let (w, h) = page_size(&self.doc, pid);
+        let rotation = page_rotation(&self.doc, pid);
+        page_glyphs_cached(&self.doc, pid, &mut self.caches)
+            .iter()
+            .filter(|g| !g.invisible && !g.ch.is_whitespace() && g.ll.is_finite())
+            .filter_map(|g| {
+                let [_, y, size] = g.pen?;
+                let c = crate::script_position::ScriptChar {
+                    text: g.ch,
+                    left: g.ll,
+                    bottom: g.lb,
+                    right: g.lr,
+                    top: g.lt,
+                    baseline: y,
+                    size,
+                    horizontal: g.quad.is_none(),
+                };
+                let (l, t, r, b) = crate::pdfium_backend::to_display_frame(
+                    (g.ll, h - g.lt, g.lr, h - g.lb),
+                    rotation,
+                    w,
+                    h,
+                );
+                Some((c, [l, t, r, b]))
+            })
+            .collect()
+    }
+
     /// Prose, word and code cells of the 0-based page `index` — empty for an
     /// index the parser's page tree doesn't have (a damaged file whose page
     /// tree disagrees with the object model's count).
@@ -1452,7 +1950,8 @@ impl PageTextParser {
             return PageParserCells::default();
         };
         let (_w, h) = page_size(&self.doc, pid);
-        let (mut glyphs, inks) = page_glyphs_and_inks(&self.doc, pid, &mut self.caches);
+        let (mut glyphs, inks, bitmaps, shapes) =
+            page_glyphs_and_inks(&self.doc, pid, &mut self.caches);
         // The formula layer sees every glyph; the text cells never the
         // formula-only ones (see `show_text`).
         let math = crate::formula_text::MathLayer::new(&glyphs, &inks, h);
@@ -1465,6 +1964,8 @@ impl PageTextParser {
             code: crate::pdfium_backend::code_cells_from_glyphs(&glyphs, h),
             checkboxes: crate::checkbox::find(&inks, h),
             math,
+            bitmaps,
+            shapes,
         }
     }
 
@@ -1479,7 +1980,7 @@ impl PageTextParser {
     /// document's cells. A blank page (no cells) for an index the page tree
     /// doesn't have.
     pub fn text_page(&mut self, index: usize) -> crate::pdfium_backend::PdfPage {
-        let (w, h, (glyphs, inks)) = match self.pages.get(index) {
+        let (w, h, (glyphs, inks, _, shapes)) = match self.pages.get(index) {
             Some(&pid) => {
                 let (w, h) = page_size(&self.doc, pid);
                 (w, h, page_glyphs_and_inks(&self.doc, pid, &mut self.caches))
@@ -1505,11 +2006,15 @@ impl PageTextParser {
             word_cells: words,
             checkboxes: crate::checkbox::find(&inks, h),
             math,
+            bitmaps: Vec::new(),
+            shapes,
             #[cfg(feature = "ocr-prep")]
             image: image::RgbImage::new(1, 1),
             links: Vec::new(),
             rotation: 0,
             keep_typography: self.keep_typography,
+            #[cfg(feature = "render")]
+            embedded_images: Vec::new(),
             #[cfg(feature = "render")]
             pending_image: None,
             #[cfg(feature = "render")]
@@ -1575,6 +2080,22 @@ fn drop_overpainted_cells(cells: &mut Vec<crate::pdfium_backend::TextCell>) {
             if vo < 0.6 * (a.b - a.t).min(b.b - b.t) {
                 continue;
             }
+            // … and the two sit at one height. The overlap alone says nothing
+            // when the font's vertical metrics are inflated (#1129: a face
+            // whose ascent and descent make every cell 55 pt tall on lines
+            // 11.7 pt apart — each line overlaps the next by four fifths, and
+            // a short line under a long one read as paint: 37 of the page's
+            // 44 lines went, and its table with them. That face has a cap
+            // height and its boxes are scaled back now,
+            // `font_ascent_descent`; one without is boxed as it claims). A
+            // cell's height is the font's claim; its width per character is
+            // what was drawn, and lines of prose are never set closer than
+            // that, so a shift of more than half of it is another line,
+            // however tall the boxes.
+            let shift = ((a.t + a.b) - (b.t + b.b)).abs() / 2.0;
+            if shift > 0.5 * a.mean_advance().min(b.mean_advance()) {
+                continue;
+            }
             // `a` horizontally inside `b` (with a small tolerance).
             let ho = (a.r.min(b.r) - a.l.max(b.l)).max(0.0);
             if ho >= 0.8 * (a.r - a.l) && (a.r - a.l) <= (b.r - b.l) {
@@ -1598,6 +2119,8 @@ struct TextState {
     tl: f64,
     trise: f64,
     fsize: f64,
+    /// The text rendering mode (`Tr`).
+    tr: i64,
 }
 
 impl TextState {
@@ -1608,17 +2131,51 @@ impl TextState {
         tl: 0.0,
         trise: 0.0,
         fsize: 0.0,
+        tr: 0,
     };
 }
 
-/// The effective `/Resources` dictionary for a page (inline or via reference,
-/// falling back to an inherited one from a `/Parent`).
-fn page_res(doc: &Document, page_id: lopdf::ObjectId) -> Option<&Dictionary> {
-    let (inline, ids) = doc.get_page_resources(page_id).ok()?;
-    if let Some(d) = inline {
-        return Some(d);
+/// pdfium's `CPDF_Page::GetPageRotation` — the inherited `/Rotate`, in
+/// quarter turns, as degrees (`pdf_meta`'s rule).
+fn page_rotation(doc: &Document, pid: lopdf::ObjectId) -> u16 {
+    let mut id = pid;
+    for _ in 0..32 {
+        let Ok(dict) = doc.get_dictionary(id) else {
+            return 0;
+        };
+        if let Some(obj) = dict.get(b"Rotate").ok().and_then(|o| deref(doc, o)) {
+            let quarter = (num(obj).unwrap_or(0.0) as i64 / 90).rem_euclid(4);
+            return (quarter * 90) as u16;
+        }
+        match dict.get(b"Parent").ok().and_then(|o| o.as_reference().ok()) {
+            Some(parent) => id = parent,
+            None => return 0,
+        }
     }
-    ids.into_iter().find_map(|id| doc.get_dictionary(id).ok())
+    0
+}
+
+/// The effective `/Resources` dictionary for a page: its own (inline or via
+/// reference), else the nearest ancestor's in the page tree — ISO 32000-1
+/// 7.7.3.4 makes `/Resources` inheritable. Walked by hand rather than through
+/// lopdf's `get_page_resources`, which collects an ancestor's `/Resources`
+/// only when it is an indirect reference: an *inline* dictionary on the
+/// `/Pages` node — the R&OS php pdf writer puts the one font there and gives
+/// each page only `/Type`, `/Parent` and `/Contents` (#1130) — was dropped,
+/// every font went missing and the whole text layer read as empty. A
+/// `/Resources` that does not resolve to a dictionary is skipped in favour of
+/// the next ancestor's (pdf.js and poppler read such files the same way).
+pub(crate) fn page_res(doc: &Document, page_id: lopdf::ObjectId) -> Option<&Dictionary> {
+    let mut id = page_id;
+    // The page-tree depth lopdf itself tolerates; also ends a `/Parent` cycle.
+    for _ in 0..32 {
+        let dict = doc.get_object(id).ok()?.as_dict().ok()?;
+        if let Some(res) = dict.get(b"Resources").ok().and_then(|o| as_dict(doc, o)) {
+            return Some(res);
+        }
+        id = dict.get(b"Parent").ok()?.as_reference().ok()?;
+    }
+    None
 }
 
 /// Build the code→[`Font`] map for a resources dictionary's `/Font` sub-dict,
@@ -1707,20 +2264,29 @@ fn page_glyphs_cached(
 
 /// [`page_glyphs_cached`] plus the small painted path pieces the same walk
 /// passed — what [`crate::checkbox::find`] looks for checkbox squares in
-/// (#609) — in the glyphs' frame.
+/// (#609) — the page's image placements (#999, `[l, t, r, b]` top-left
+/// page points clipped to the page, the cells' frame), and its shapes for the
+/// reading-order separators (#1092, [`PageShapes`]).
 fn page_glyphs_and_inks(
     doc: &Document,
     page_id: lopdf::ObjectId,
     caches: &mut DocCaches,
-) -> (Vec<Glyph>, Vec<crate::checkbox::Ink>) {
+) -> (
+    Vec<Glyph>,
+    Vec<crate::checkbox::Ink>,
+    Vec<[f32; 4]>,
+    PageShapes,
+) {
     let mut out = Vec::new();
     let mut inks = Vec::new();
-    // get_page_content returns the assembled content-stream bytes directly
-    // (an empty Vec when the page has none).
-    let content_bytes = doc.get_page_content(page_id);
+    // The assembled content-stream bytes (an empty Vec when the page has
+    // none), damaged Flate streams read as far as they inflate (#1154).
+    let content_bytes = page_content(doc, page_id);
     let Ok(content) = lopdf::content::Content::decode(&content_bytes) else {
-        return (out, inks);
+        return (out, inks, Vec::new(), PageShapes::default());
     };
+    let mut bitmaps = Vec::new();
+    let mut page_shapes = PageShapes::default();
     if let Some(res) = page_res(doc, page_id) {
         // pdfium's page matrix: user space translated so the display box's
         // lower-left corner is the origin (see [`PageBox`]).
@@ -1730,6 +2296,7 @@ fn page_glyphs_and_inks(
             f: -(pb.b as f64),
             ..Mat::ID
         };
+        let mut shapes = Shapes::default();
         run_content(
             doc,
             res,
@@ -1740,10 +2307,511 @@ fn page_glyphs_and_inks(
             caches,
             &mut out,
             &mut inks,
+            ShapeGs::INIT,
+            &mut shapes,
         );
         out.retain(|g| on_page(g, pb.w, pb.h));
+        drop_overprinted_spaces(&mut out);
+        drop_letter_spacing_spaces(&mut out);
+        drop_shadow_runs(&mut out);
+        let (w, h) = (f64::from(pb.w), f64::from(pb.h));
+        inks.retain(|ink| match *ink {
+            crate::checkbox::Ink::Bitmap { l, b, r, t } => {
+                let (l, r, b, t) = (l.max(0.0), r.min(w), b.max(0.0), t.min(h));
+                if r > l && t > b {
+                    bitmaps.push([l as f32, (h - t) as f32, r as f32, (h - b) as f32]);
+                }
+                false
+            }
+            _ => true,
+        });
+        let top_left =
+            |[l, b, r, t]: [f64; 4]| [l as f32, (h - t) as f32, r as f32, (h - b) as f32];
+        page_shapes.lines = shapes.lines.into_iter().map(top_left).collect();
+        if shapes.boxes.len() <= MAX_SHAPE_BOXES {
+            page_shapes.boxes = connected_boxes(&shapes.boxes)
+                .into_iter()
+                .map(top_left)
+                .collect();
+        } else {
+            docling_core::debug_log!(
+                "textparse: {} painted paths on the page; their boxes are not merged",
+                shapes.boxes.len()
+            );
+        }
     }
-    (out, inks)
+    (out, inks, bitmaps, page_shapes)
+}
+
+/// A page's shapes for the reading-order separators (#1092), in the cells'
+/// frame (`[l, t, r, b]`, top-left page points): docling-parse's
+/// `get_shape_lines` and `get_connected_shape_bounding_boxes`.
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct PageShapes {
+    pub lines: Vec<[f32; 4]>,
+    pub boxes: Vec<[f32; 4]>,
+}
+
+/// Drop a run of glyphs painted again over itself — a text shadow. A word
+/// processor exports a heading with a shadow effect as the same run drawn
+/// twice: the shadow, then the text over it, shifted by a fraction of a point
+/// (0.5–0.8 pt up and left, black under red, in the manuals that showed it).
+/// docling-parse keeps both copies and reads `Safety instructions Safety
+/// instructions`; pdfium's text page, behind docling's pypdfium2 backend,
+/// drops the second, and the page shows the heading once. A deliberate
+/// divergence (`docs/MIGRATION.md` §4 item 25): a glyph that repeats an
+/// earlier one — same character, font and size, its pen shifted from the
+/// earlier pen by at most 0.15 em on each axis, and by less than the earlier
+/// glyph's step to its own successor — starts a copy when the glyphs after it
+/// repeat the earlier one's successors by the same offset and size, and the
+/// whole stretch that keeps the offset is dropped. Two glyphs at least: a lone
+/// mark stamped twice is left alone, and so is the per-glyph re-stamp the
+/// sanitizer already folds (`dp_lines`, the overprint duplicate). Text that
+/// really repeats sits an advance apart or more — a doubled letter (`ll`,
+/// 0.22 em in Helvetica), a word set twice (`very very`), the same text on
+/// the next line or in the next table cell — and is kept, and so is a run of
+/// one character set tighter than a shadow's shift (dot leaders squeezed by
+/// `Tc`): its glyph two on is farther than the next one. A line stamped two
+/// or three times at a small offset to fake bold reads once the same way. The
+/// original must start within the 1024 glyphs before its copy, so a shadowed
+/// block longer than that is not caught; a shadowed heading is drawn right
+/// after itself. A rotated run, whose pen positions are not compared here, is
+/// left alone.
+fn drop_shadow_runs(glyphs: &mut Vec<Glyph>) {
+    // How far back a copy's original may start.
+    const LOOKBACK: usize = 1024;
+    // The largest shift of a copy, per axis, in ems of the glyph's size.
+    const NEAR_EM: f32 = 0.15;
+    // How much the shift and the size may vary along a copy, in ems.
+    const SAME_EM: f32 = 0.01;
+    let pen = |g: &Glyph| if g.quad.is_none() { g.pen } else { None };
+    let n = glyphs.len();
+    let mut keep = vec![true; n];
+    // The glyphs a copy may start on, by character and font, in stream
+    // order: kept (not part of a copy), upright, sized and not whitespace. A
+    // copy repeats both, so a glyph walks only its own list back through the
+    // window; scanning the whole window nearly doubled a `--text-layer-only`
+    // read of pages without a shadow.
+    let mut earlier: HashMap<(char, u64), Vec<usize>> = HashMap::new();
+    let mut j = 0;
+    while j < n {
+        let b = &glyphs[j];
+        // A copy starts where a run starts: not on a glyph that continues
+        // the one drawn just before it (its pen within an em ahead on the
+        // same baseline). `PAT` drawn 0.3 pt off `BAT` repeats its `AT`
+        // at one shift, and lost both letters (#1151); docling-parse keeps
+        // the word, a different text. A shadow's first glyph follows the
+        // original's last one — far ahead of it, or behind.
+        let continues = j > 0
+            && match (pen(b), pen(&glyphs[j - 1])) {
+                (Some([xb, yb, sb]), Some([xp, yp, _])) => {
+                    (yb - yp).abs() <= NEAR_EM * sb && xb > xp && xb - xp <= sb
+                }
+                _ => false,
+            };
+        let start = pen(b).filter(|p| p[2] > 0.0 && !b.ch.is_whitespace() && !continues);
+        let mut copy = 0;
+        if let Some([xj, yj, sj]) = start {
+            let lo = j.saturating_sub(LOOKBACK);
+            let candidates = earlier.entry((b.ch, b.font)).or_default();
+            for &i in candidates.iter().rev().take_while(|&&i| i >= lo) {
+                let Some([xi, yi, si]) = pen(&glyphs[i]) else {
+                    continue;
+                };
+                if (si - sj).abs() > SAME_EM * sj {
+                    continue;
+                }
+                let (dx, dy) = (xj - xi, yj - yi);
+                if dx.abs() > NEAR_EM * sj || dy.abs() > NEAR_EM * sj {
+                    continue;
+                }
+                // A shadow is shifted: the characters one glyph expands to
+                // (a code-like name read as `SM590000`, a decomposed
+                // ligature) share the glyph's pen and are not a copy.
+                if dx.abs() + dy.abs() <= SAME_EM * sj {
+                    continue;
+                }
+                // And it lies over its original, nearer to it than the
+                // original's next glyph is: one character set tighter than
+                // half the largest shift (dot leaders squeezed by `Tc`) meets
+                // its own successors at one offset two glyphs on.
+                if let Some([xn, yn, _]) = glyphs.get(i + 1).and_then(pen) {
+                    let step = (xn - xi).abs().max((yn - yi).abs());
+                    if step > SAME_EM * sj && dx.abs().max(dy.abs()) >= step {
+                        continue;
+                    }
+                }
+                // The copy goes on while each next glyph repeats the
+                // original's next one by the same shift; the original
+                // ends before the copy starts.
+                let mut m = 1;
+                while j + m < n && i + m < j {
+                    let (a, b) = (&glyphs[i + m], &glyphs[j + m]);
+                    let (Some([xa, ya, sa]), Some([xb, yb, sb])) = (pen(a), pen(b)) else {
+                        break;
+                    };
+                    if a.ch != b.ch
+                        || a.font != b.font
+                        || (sa - sb).abs() > SAME_EM * sj
+                        || ((xb - xa) - dx).abs() > SAME_EM * sj
+                        || ((yb - ya) - dy).abs() > SAME_EM * sj
+                    {
+                        break;
+                    }
+                    m += 1;
+                }
+                if m >= 2 {
+                    copy = m;
+                    break;
+                }
+            }
+            if copy == 0 {
+                candidates.push(j);
+            }
+        }
+        if copy > 0 {
+            keep[j..j + copy].iter_mut().for_each(|k| *k = false);
+            j += copy;
+        } else {
+            j += 1;
+        }
+    }
+    let mut it = keep.into_iter();
+    glyphs.retain(|_| it.next().unwrap_or(true));
+}
+
+/// How many marked-content spans may be open for one's `/ActualText` to be
+/// read (see [`apply_actual_text`]); real documents nest a few.
+const MAX_ACTUAL_TEXT_DEPTH: usize = 64;
+
+/// Put a marked-content span's `/ActualText` in place of the glyphs drawn
+/// inside it, as docling-parse does since 7.9 (`apply_actual_text`,
+/// docling-parse#300, on by default; PDF 32000-1 §14.9.4). A writer draws a
+/// glyph cluster whose characters the font cannot spell this way: a base
+/// letter and a zero-advance accent whose code collides with a Latin letter
+/// (`Oreši` read as `OresMi`, docling#3783), or the Arabic marks of a
+/// LibreOffice font subset whose `/ToUnicode` skips them, so the byte reads as
+/// WinAnsi (`منعًا` as `منع8ا`). docling-parse's rules, cell for cell: a span
+/// with no glyphs (over graphics) is left alone, and so is a text implausibly
+/// long for it (more than 8 characters and 4 per cell: `/Alt` written into
+/// the wrong key); an empty text removes the glyphs; as many characters as
+/// cells replace them one by one, keeping each cell's geometry; any other
+/// count puts the whole text on the span's first cell, over the union of the
+/// span's boxes, its baseline running to the cell that reaches furthest along
+/// it (an accent drawn after its base letter trails behind it). Nested spans
+/// apply innermost first, so the outer text wins. docling-parse has a cell per
+/// character code; a code whose `/ToUnicode` spells several characters is
+/// several glyphs here, all on the code's pen, and counts as one cell.
+///
+/// Each `EMC` rewrites the glyphs under its span, so a crafted nest of spans
+/// over the same glyphs would cost glyphs × depth: past
+/// [`MAX_ACTUAL_TEXT_DEPTH`] open spans, a span still pairs with its `EMC` but
+/// its `/ActualText` is not read.
+fn apply_actual_text(out: &mut Vec<Glyph>, begin: usize, text: &str) {
+    let begin = begin.min(out.len());
+    let mut cells: Vec<std::ops::Range<usize>> = Vec::new();
+    for i in begin..out.len() {
+        match cells.last_mut() {
+            Some(cell) if out[i].pen.is_some() && out[i].pen == out[cell.end - 1].pen => {
+                cell.end = i + 1;
+            }
+            _ => cells.push(i..i + 1),
+        }
+    }
+    if cells.is_empty() {
+        return;
+    }
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() > (4 * cells.len()).max(8) {
+        return;
+    }
+    if chars.is_empty() {
+        out.truncate(begin);
+        return;
+    }
+    if chars.len() == cells.len() {
+        // Each cell's first glyph takes its character, the rest of the cell
+        // goes: one pass, writing behind the cells read.
+        for (w, (cell, &ch)) in cells.iter().zip(&chars).enumerate() {
+            out[begin + w] = Glyph {
+                ch,
+                ..out[cell.start].clone()
+            };
+        }
+        out.truncate(begin + cells.len());
+        return;
+    }
+    // The leading edge (quad corners 0 and 3) stays the first cell's; the
+    // trailing one (1 and 2) is the cell's that reaches furthest along the
+    // baseline, projected on it so a rotated run keeps its direction.
+    let quad_of = |g: &Glyph| {
+        g.quad
+            .unwrap_or([g.ll, g.lb, g.lr, g.lb, g.lr, g.lt, g.ll, g.lt])
+    };
+    let mut merged = out[begin].clone();
+    let mut quad = quad_of(&merged);
+    let dir = (quad[2] - quad[0], quad[3] - quad[1]);
+    let along = |q: &[f32; 8]| q[2] * dir.0 + q[3] * dir.1;
+    let mut reach = along(&quad);
+    for g in &out[begin + 1..] {
+        merged.l = merged.l.min(g.l);
+        merged.b = merged.b.min(g.b);
+        merged.r = merged.r.max(g.r);
+        merged.t = merged.t.max(g.t);
+        merged.ll = merged.ll.min(g.ll);
+        merged.lb = merged.lb.min(g.lb);
+        merged.lr = merged.lr.max(g.lr);
+        merged.lt = merged.lt.max(g.lt);
+        let q = quad_of(g);
+        if along(&q) > reach {
+            reach = along(&q);
+            quad[2..6].copy_from_slice(&q[2..6]);
+        }
+    }
+    if merged.quad.is_some() {
+        merged.quad = Some(quad);
+    }
+    out.truncate(begin);
+    // The characters of one cell share its box, as a ligature's do.
+    out.extend(chars.iter().map(|&ch| Glyph {
+        ch,
+        ..merged.clone()
+    }));
+}
+
+/// Drop a space glyph the next glyph is drawn over (#992). A typesetter
+/// that sets a superscript footnote marker as `( 1 )` — space glyphs around
+/// the raised digit — and then cancels each space's advance with a negative
+/// `TJ` offset (Arbortext on EUR-Lex: the `1` starts 0.05 pt *before* its
+/// space begins) renders `(1)`; the spaces exist in the content stream
+/// only. docling-parse keeps them as characters and its line cell reads
+/// `( 1 )`; pdftotext and pdfium, which break words by geometry alone,
+/// read `(1)`, and so does the page. A deliberate divergence
+/// (`docs/MIGRATION.md` §4 item 22): a space whose successor in stream
+/// order sits on the same line and starts within the first 30 % of the
+/// space's advance — the pen went back to (or before) where the space
+/// began, so it left no gap — is not a character of the text. A space
+/// followed by a glyph on another line (a trailing space before the
+/// cursor jumps to the next line's left margin, far to the left of it) or
+/// by one that starts past that mark (a kerned pair, a justified word gap
+/// pulled in a little) is kept; the word-gap rules then see the geometry
+/// as before.
+fn drop_overprinted_spaces(glyphs: &mut Vec<Glyph>) {
+    if glyphs.len() < 2 {
+        return;
+    }
+    let overprinted = |sp: &Glyph, next: &Glyph| {
+        if sp.ch != ' ' || next.ch == ' ' {
+            return false;
+        }
+        // Upright glyphs only: a rotated run's loose boxes are the extents
+        // of its quads, every glyph of a 90° line shares one left edge and
+        // the advance runs along y, so the test below would read every
+        // space of a landscape slide drawn through a 90° `cm` as
+        // overprinted (`Nullammollis`, odf_presentation_02).
+        if sp.quad.is_some() || next.quad.is_some() {
+            return false;
+        }
+        let width = sp.lr - sp.ll;
+        if !width.is_finite() || width <= 0.0 || !next.ll.is_finite() {
+            return false;
+        }
+        // Same line: the loose boxes overlap vertically (a raised digit's box
+        // still overlaps its neighbours' em boxes).
+        let same_line = next.lb < sp.lt && next.lt > sp.lb;
+        same_line && next.ll >= sp.ll - 0.1 * width && next.ll <= sp.ll + 0.3 * width
+    };
+    let mut keep = vec![true; glyphs.len()];
+    for i in 0..glyphs.len() - 1 {
+        if overprinted(&glyphs[i], &glyphs[i + 1]) {
+            keep[i] = false;
+        }
+    }
+    let mut it = keep.into_iter();
+    glyphs.retain(|_| it.next().unwrap_or(true));
+}
+
+/// The share of a space's advance its successor may start at and still have
+/// taken part of the space back ([`drop_letter_spacing_spaces`]): a word
+/// space set at its width, or stretched by justification, is at or past 1.
+const TAKEN_BACK_SPACE: f32 = 0.95;
+
+/// How much wider than its letter spacing a letter-spaced line's word spaces
+/// are, at least ([`drop_letter_spacing_spaces`]). EUR-Lex's headings: 3.
+const WORD_OVER_LETTER_SPACING: f32 = 1.5;
+
+/// Points two letter gaps may differ by and still be one letter spacing —
+/// `dp_lines`' tolerance for a tracking set without space glyphs (#921): a
+/// typesetter spaces a word with one cursor move, which rounding blurs.
+fn letter_spacing_tolerance(gap: f32) -> f32 {
+    (0.08 * gap).max(0.25)
+}
+
+/// Drop the space glyphs a typesetter spaces the letters of a word with
+/// (#1139). Arbortext sets a letter-spaced heading (EUR-Lex: `1.1.1. KPI
+/// bezogen auf den Umsatz (Umsatz-KPI)`) as letter, space glyph, letter, and
+/// moves the pen after each space: back by a fifth of its advance inside a
+/// word, forward by one and a half advances between words. On the page that
+/// is tracking — letters 1.7 pt apart, words 5.1 pt apart — but with a space
+/// glyph at every letter the line read `K P I b e z o g e n a u f …`, one
+/// "word" per letter; pdftotext reads the words. docling-parse keeps every
+/// space glyph as a character, so this is a deliberate divergence like
+/// [`drop_overprinted_spaces`] (`docs/MIGRATION.md`), and as narrow:
+///
+/// * a *chain* is a stretch of the stream where single glyphs and space
+///   glyphs alternate on one line — every glyph stands alone between two
+///   spaces, which no run of words does;
+/// * in it, three or more consecutive spaces between letters, each with part
+///   of its advance taken back (the next letter starts before
+///   [`TAKEN_BACK_SPACE`] of it) and all leaving the same gap in points, are
+///   letter spacing — unless the letters are one character repeated (`C C C
+///   C`, a row of tokens);
+/// * every space of the chain that leaves that gap goes with them (the short
+///   words of the heading, `K P I`, `a u f`; its brackets and hyphen), and
+///   the others stay: they are the word spaces;
+/// * those word spaces, and the spaces between the chain and its neighbours,
+///   have to be plainly wider ([`WORD_OVER_LETTER_SPACING`]). A tightened
+///   line sets `x y z` between two words with the same shrunken space on
+///   either side, and kerning pulls a space in before `A`, `V` or `T`:
+///   there the letters are no closer than the words, and the chain is left
+///   as it is drawn.
+///
+/// The letters then stand apart with no space glyph between them, which is
+/// what `dp_lines::tracked_gaps` reads as tracking inside one word.
+fn drop_letter_spacing_spaces(glyphs: &mut Vec<Glyph>) {
+    let boxed =
+        |g: &Glyph| g.quad.is_none() && [g.ll, g.lb, g.lr, g.lt].iter().all(|v| v.is_finite());
+    let same_line = |a: &Glyph, b: &Glyph| b.lb < a.lt && b.lt > a.lb;
+    // `glyphs[i]`, a space, `glyphs[i + 2]`: two glyphs of one line with one
+    // space glyph between them, the second to the right of the first.
+    let link = |i: usize| -> bool {
+        let (Some(a), Some(sp), Some(b)) = (glyphs.get(i), glyphs.get(i + 1), glyphs.get(i + 2))
+        else {
+            return false;
+        };
+        a.ch != ' '
+            && sp.ch == ' '
+            && b.ch != ' '
+            && boxed(a)
+            && boxed(sp)
+            && boxed(b)
+            && sp.lr > sp.ll
+            && same_line(a, sp)
+            && same_line(a, b)
+            && b.ll >= a.lr
+    };
+    // A glyph with another right before or after it on its line, no space
+    // between: part of a word, not a letter standing alone.
+    let in_word_before = |i: usize| {
+        i > 0
+            && glyphs[i - 1].ch != ' '
+            && boxed(&glyphs[i - 1])
+            && same_line(&glyphs[i - 1], &glyphs[i])
+    };
+    let in_word_after = |i: usize| {
+        glyphs
+            .get(i + 1)
+            .is_some_and(|n| n.ch != ' ' && boxed(n) && same_line(n, &glyphs[i]))
+    };
+
+    // The spaces to drop, by index.
+    let mut dropped: Vec<usize> = Vec::new();
+    let mut i = 0;
+    while i < glyphs.len() {
+        if !link(i) {
+            i += 1;
+            continue;
+        }
+        // The chain's glyphs, `first`, `first + 2`, … `last`.
+        let first = i;
+        let mut last = i;
+        while link(last) {
+            last += 2;
+        }
+        i = last + 1;
+        // Space `k` sits between glyphs `first + 2k` and `first + 2k + 2`.
+        let spaces = (last - first) / 2;
+        let gap = |k: usize| glyphs[first + 2 * k + 2].ll - glyphs[first + 2 * k].lr;
+        let taken_back = |k: usize| {
+            let sp = &glyphs[first + 2 * k + 1];
+            glyphs[first + 2 * k + 2].ll - sp.ll <= TAKEN_BACK_SPACE * (sp.lr - sp.ll)
+        };
+        // The chain's end glyphs may belong to the words beside it; the
+        // spaces next to those are what lies between it and its neighbours.
+        let (lo_k, hi_k) = (
+            usize::from(in_word_before(first)),
+            spaces - usize::from(in_word_after(last)),
+        );
+        if hi_k < lo_k + 3 {
+            continue;
+        }
+        let letter = |k: usize| glyphs[first + 2 * k].ch.is_alphabetic();
+
+        // The letter spacings of the chain: a stretch of three or more spaces
+        // between letters, each taken back, all leaving one gap.
+        let mut spacings: Vec<(f32, f32)> = Vec::new();
+        let mut k = lo_k;
+        while k < hi_k {
+            if !(taken_back(k) && letter(k) && letter(k + 1)) {
+                k += 1;
+                continue;
+            }
+            let (mut lo, mut hi) = (gap(k), gap(k));
+            let mut end = k + 1;
+            while end < hi_k
+                && taken_back(end)
+                && letter(end + 1)
+                && hi.max(gap(end)) - lo.min(gap(end)) <= letter_spacing_tolerance(lo)
+            {
+                lo = lo.min(gap(end));
+                hi = hi.max(gap(end));
+                end += 1;
+            }
+            let one_char = (k..=end).all(|j| glyphs[first + 2 * j].ch == glyphs[first + 2 * k].ch);
+            if end - k >= 3 && !one_char {
+                spacings.push((lo, hi));
+            }
+            k = end.max(k + 1);
+        }
+        if spacings.is_empty() {
+            continue;
+        }
+        let spaced = |k: usize| {
+            (lo_k..hi_k).contains(&k)
+                && taken_back(k)
+                && spacings.iter().any(|&(lo, hi)| {
+                    let tol = letter_spacing_tolerance(lo);
+                    gap(k) >= lo - tol && gap(k) <= hi + tol
+                })
+        };
+        // Every other space of the chain, and the two beside it, is a word
+        // space, and a word space is plainly wider than the letter spacing.
+        // Where one is not, the line has no letter spacing to tell from its
+        // word spacing, and stays as it is drawn.
+        let widest = spacings.iter().map(|s| s.1).fold(0.0, f32::max);
+        if (0..spaces).any(|k| !spaced(k) && gap(k) < WORD_OVER_LETTER_SPACING * widest) {
+            continue;
+        }
+        dropped.extend(
+            (lo_k..hi_k)
+                .filter(|&k| spaced(k))
+                .map(|k| first + 2 * k + 1),
+        );
+    }
+    if dropped.is_empty() {
+        return;
+    }
+    let mut keep = vec![true; glyphs.len()];
+    for at in dropped {
+        keep[at] = false;
+        // The letter after it is as far from its neighbour as before: say
+        // that the gap is letter spacing, for a word left alone on its line
+        // cell (a justified heading's `KPI`, `auf`) has no chain of its own
+        // for the word contraction to recognise it by.
+        glyphs[at + 1].spaced = true;
+    }
+    let mut it = keep.into_iter();
+    glyphs.retain(|_| it.next().unwrap_or(true));
 }
 
 /// Whether a glyph is on the page (#529): docling-parse keeps a character
@@ -1789,6 +2857,8 @@ fn run_content(
     caches: &mut DocCaches,
     out: &mut Vec<Glyph>,
     inks: &mut Vec<crate::checkbox::Ink>,
+    shape_init: ShapeGs,
+    shapes: &mut Shapes,
 ) {
     let fonts = fonts_from_res(doc, res, caches);
     let xobjects = res
@@ -1802,7 +2872,8 @@ fn run_content(
     // *not* the text matrix (that is reset by BT). Saving only the CTM let a Tc
     // set inside a `q…Q` block leak out and drift every later glyph.
     #[allow(clippy::type_complexity)]
-    let mut gstate_stack: Vec<(Mat, f64, f64, f64, f64, f64, f64, Option<&Arc<Font>>)> = Vec::new();
+    let mut gstate_stack: Vec<(Mat, f64, f64, f64, f64, f64, f64, i64, Option<&Arc<Font>>)> =
+        Vec::new();
     let mut ctm = base_ctm;
     let mut tm = Mat::ID;
     let mut tlm = Mat::ID;
@@ -1813,6 +2884,7 @@ fn run_content(
     let mut th = init.th; // horizontal scale (Tz/100)
     let mut tl = init.tl; // leading
     let mut trise = init.trise;
+    let mut tr = init.tr; // rendering mode
 
     let op_f = |operands: &[Object], i: usize| operands.get(i).and_then(num).unwrap_or(0.0);
     // The path under construction, already in page space (a path is built
@@ -1825,17 +2897,64 @@ fn run_content(
     // chart legend's swatch. The initial fill colour is black.
     let mut fill_light = false;
     let mut fill_stack: Vec<bool> = Vec::new();
+    // Open marked-content sequences (`BMC`/`BDC` … `EMC`): where each one's
+    // glyphs start in `out`, and its inline `/ActualText`, if any.
+    let mut marked: Vec<(usize, Option<String>)> = Vec::new();
+    // The reading-order shapes (#1092): docling-parse's view of the path
+    // under construction, its graphics state and the pending clip.
+    let mut shape_gs = shape_init;
+    let mut shape_stack: Vec<ShapeGs> = Vec::new();
+    let mut shape_path: Vec<ShapeSub> = Vec::new();
+    let mut clip_pending = false;
+    let ext_gstates = res
+        .get(b"ExtGState")
+        .ok()
+        .and_then(|o| deref(doc, o))
+        .and_then(|o| o.as_dict().ok());
+    let colorspaces = res
+        .get(b"ColorSpace")
+        .ok()
+        .and_then(|o| deref(doc, o))
+        .and_then(|o| o.as_dict().ok());
 
     for op in &content.operations {
         let operands = &op.operands;
+        let shown = out.len();
         match op.operator.as_str() {
             "q" => {
-                gstate_stack.push((ctm, tc, tw, th, tl, trise, fsize, font));
+                gstate_stack.push((ctm, tc, tw, th, tl, trise, fsize, tr, font));
                 fill_stack.push(fill_light);
+                shape_stack.push(shape_gs.clone());
+            }
+            "BMC" => marked.push((out.len(), None)),
+            // Only an inline property list is read: a named one (`/OC /MC0`)
+            // would need the `/Properties` resource, as in docling-parse.
+            "BDC" => {
+                let actual = operands
+                    .get(1)
+                    .filter(|_| marked.len() < MAX_ACTUAL_TEXT_DEPTH)
+                    .and_then(|o| o.as_dict().ok())
+                    .and_then(|d| d.get(b"ActualText").ok())
+                    .and_then(|o| match o {
+                        Object::String(bytes, _) => Some(crate::info::decode_text(bytes)),
+                        _ => None,
+                    });
+                marked.push((out.len(), actual));
+            }
+            "EMC" => {
+                if let Some((begin, Some(text))) = marked.pop() {
+                    apply_actual_text(out, begin, &text);
+                }
+                // Shows no text: the invisible-mode stamp below has nothing
+                // new to mark, and the span may have shortened `out`.
+                continue;
             }
             "Q" => {
                 fill_light = fill_stack.pop().unwrap_or(false);
-                if let Some((c, a, b, h, l, r, fs, f)) = gstate_stack.pop() {
+                if let Some(gs) = shape_stack.pop() {
+                    shape_gs = gs;
+                }
+                if let Some((c, a, b, h, l, r, fs, mode, f)) = gstate_stack.pop() {
                     ctm = c;
                     tc = a;
                     tw = b;
@@ -1843,6 +2962,7 @@ fn run_content(
                     tl = l;
                     trise = r;
                     fsize = fs;
+                    tr = mode;
                     font = f;
                 }
             }
@@ -1921,6 +3041,7 @@ fn run_content(
             "Tz" => th = op_f(operands, 0) / 100.0,
             "TL" => tl = op_f(operands, 0),
             "Ts" => trise = op_f(operands, 0),
+            "Tr" => tr = op_f(operands, 0) as i64,
             "Tj" | "'" | "\"" => {
                 if op.operator == "'" || op.operator == "\"" {
                     // move to next line first
@@ -1942,11 +3063,14 @@ fn run_content(
                     tc = op_f(operands, 1);
                 }
                 if let (Some(f), Some(Object::String(s, _))) = (font, operands.last()) {
+                    let first = out.len();
                     show_text(f, s, fsize, tc, tw, th, trise, &mut tm, ctm, out);
+                    stamp_clip(&mut out[first..], shape_gs.clip_box);
                 }
             }
             "TJ" => {
                 if let (Some(f), Some(Object::Array(arr))) = (font, operands.first()) {
+                    let first = out.len();
                     for el in arr {
                         match el {
                             Object::String(s, _) => {
@@ -1969,16 +3093,23 @@ fn run_content(
                             }
                         }
                     }
+                    stamp_clip(&mut out[first..], shape_gs.clip_box);
                 }
             }
             "m" => {
                 cur = ctm.apply(op_f(operands, 0), op_f(operands, 1));
                 start = cur;
+                shape_path.push(ShapeSub::at(cur));
             }
             "l" => {
                 let p = ctm.apply(op_f(operands, 0), op_f(operands, 1));
                 path.push(PathPiece::Line(cur, p));
                 cur = p;
+                if let Some(sub) = shape_path.last_mut() {
+                    sub.lines.push((sub.cur, p));
+                    sub.pts.push(p);
+                    sub.cur = p;
+                }
             }
             "c" | "v" | "y" => {
                 let pts: Vec<(f64, f64)> = (0..operands.len() / 2)
@@ -1989,6 +3120,10 @@ fn run_content(
                         std::iter::once(cur).chain(pts.iter().copied()).collect(),
                     ));
                     cur = end;
+                    if let Some(sub) = shape_path.last_mut() {
+                        sub.pts.extend(pts.iter().copied());
+                        sub.cur = end;
+                    }
                 }
             }
             "h" => {
@@ -1996,6 +3131,14 @@ fn run_content(
                     path.push(PathPiece::Line(cur, start));
                 }
                 cur = start;
+                // docling-parse closes the subpath and opens the next one at
+                // its start, where a following `l` continues.
+                if let Some(sub) = shape_path.last_mut() {
+                    sub.closed = true;
+                    sub.pts.push(sub.start);
+                    let at = sub.start;
+                    shape_path.push(ShapeSub::at(at));
+                }
             }
             "re" => {
                 let (x, y, w, h) = (
@@ -2012,6 +3155,21 @@ fn run_content(
                 ]));
                 cur = ctm.apply(x, y);
                 start = cur;
+                // `m` + three `l` + `h`, as docling-parse builds it.
+                let c = [
+                    ctm.apply(x, y),
+                    ctm.apply(x + w, y),
+                    ctm.apply(x + w, y + h),
+                    ctm.apply(x, y + h),
+                ];
+                shape_path.push(ShapeSub {
+                    start: c[0],
+                    cur: c[3],
+                    pts: vec![c[0], c[1], c[2], c[3], c[0]],
+                    lines: vec![(c[0], c[1]), (c[1], c[2]), (c[2], c[3])],
+                    closed: true,
+                });
+                shape_path.push(ShapeSub::at(c[0]));
             }
             "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" => {
                 let op = op.operator.as_str();
@@ -2022,11 +3180,68 @@ fn run_content(
                 let fill = !matches!(op, "S" | "s");
                 paint_path(&path, stroke, fill, fill_light, inks);
                 path.clear();
+                // `s`, `f`, `f*`, `b`, `b*` close the last subpath first.
+                if !matches!(op, "S" | "B" | "B*") {
+                    if let Some(sub) = shape_path.last_mut() {
+                        sub.closed = true;
+                    }
+                }
+                let scale = (ctm.a * ctm.d - ctm.b * ctm.c).abs().sqrt();
+                record_shape(
+                    &shape_path,
+                    stroke,
+                    fill,
+                    &shape_gs,
+                    if scale > 0.0 { scale } else { 1.0 },
+                    shapes,
+                );
+                // A pending `W` takes effect after the painting operator.
+                if std::mem::take(&mut clip_pending) {
+                    capture_clip(&shape_path, &mut shape_gs);
+                }
+                shape_path.clear();
             }
-            "n" => path.clear(),
+            "n" => {
+                path.clear();
+                if std::mem::take(&mut clip_pending) {
+                    capture_clip(&shape_path, &mut shape_gs);
+                }
+                shape_path.clear();
+            }
+            "W" | "W*" => clip_pending = true,
+            "w" => shape_gs.line_width = op_f(operands, 0),
+            "gs" => {
+                let params = operands
+                    .first()
+                    .and_then(|o| o.as_name().ok())
+                    .and_then(|n| ext_gstates?.get(n).ok())
+                    .and_then(|o| deref(doc, o))
+                    .and_then(|o| o.as_dict().ok());
+                if let Some(params) = params {
+                    let get = |k: &[u8]| params.get(k).ok().and_then(num);
+                    if let Some(lw) = get(b"LW") {
+                        shape_gs.line_width = lw;
+                    }
+                    if let Some(a) = get(b"CA") {
+                        shape_gs.stroke_alpha = a;
+                    }
+                    if let Some(a) = get(b"ca") {
+                        shape_gs.fill_alpha = a;
+                    }
+                }
+            }
             // The fill colour, by its components: gray `g`, `rg`, CMYK `k`,
             // and `sc`/`scn` by operand count (a pattern name is not light).
             "g" | "rg" | "k" | "sc" | "scn" => {
+                // docling-parse: a colour resolves a pattern fill; a pattern
+                // name in `scn` makes it one.
+                if matches!(op.operator.as_str(), "scn")
+                    && matches!(operands.last(), Some(Object::Name(_)))
+                {
+                    shape_gs.fill_pattern = true;
+                } else if !operands.is_empty() {
+                    shape_gs.fill_pattern = false;
+                }
                 let v: Vec<f64> = operands
                     .iter()
                     .map(num)
@@ -2039,10 +3254,34 @@ fn run_content(
                     _ => false,
                 };
             }
-            "cs" => fill_light = false,
+            "cs" => {
+                fill_light = false;
+                // A Pattern space carries no colour until `scn` names one.
+                let pattern = match operands.first() {
+                    Some(Object::Name(n)) if n.as_slice() == b"Pattern" => true,
+                    Some(Object::Name(n)) => colorspaces
+                        .and_then(|cs| cs.get(n).ok())
+                        .and_then(|o| deref(doc, o))
+                        .is_some_and(|o| match o {
+                            Object::Name(f) => f.as_slice() == b"Pattern",
+                            Object::Array(a) => a
+                                .first()
+                                .and_then(|f| f.as_name().ok())
+                                .is_some_and(|f| f == b"Pattern"),
+                            _ => false,
+                        }),
+                    _ => false,
+                };
+                if pattern {
+                    shape_gs.fill_pattern = true;
+                }
+            }
+            // An inline image: the unit square under the CTM (#999).
+            "BI" => inks.push(image_ink(ctm)),
             "Do" => {
                 // Invoke a Form XObject: bulk body text in many PDFs lives inside
-                // a form, reached only here. Image XObjects are skipped (no text).
+                // a form, reached only here. An image XObject carries no text,
+                // only its placement (#999).
                 if depth >= 8 {
                     continue;
                 }
@@ -2065,15 +3304,25 @@ fn run_content(
                     .and_then(|o| o.as_name().ok())
                     == Some(b"Form".as_slice());
                 if !is_form {
+                    let is_image = stream
+                        .dict
+                        .get(b"Subtype")
+                        .ok()
+                        .and_then(|o| o.as_name().ok())
+                        == Some(b"Image".as_slice());
+                    if is_image {
+                        inks.push(image_ink(ctm));
+                    }
                     continue;
                 }
-                // Decode the form's content once per document (headers/footers
-                // and bulk body text invoke the same form on every page).
+                // Decode a reused form's content once per document
+                // (headers/footers and bulk body text invoke the same form on
+                // every page); see `DocCaches::forms_seen` for single-use ones.
                 let cached = form_id.and_then(|id| caches.forms.get(&id).cloned());
                 let form_content = match cached {
                     Some(c) => c,
                     None => {
-                        let Ok(data) = stream.decompressed_content() else {
+                        let Some(data) = content_stream_bytes(stream) else {
                             continue;
                         };
                         let Ok(c) = lopdf::content::Content::decode(&data) else {
@@ -2081,7 +3330,9 @@ fn run_content(
                         };
                         let c = Arc::new(c);
                         if let Some(id) = form_id {
-                            caches.forms.insert(id, Arc::clone(&c));
+                            if !caches.forms_seen.insert(id) {
+                                caches.forms.insert(id, Arc::clone(&c));
+                            }
                         }
                         c
                     }
@@ -2120,6 +3371,7 @@ fn run_content(
                     tl,
                     trise,
                     fsize,
+                    tr,
                 };
                 run_content(
                     doc,
@@ -2131,11 +3383,311 @@ fn run_content(
                     caches,
                     out,
                     inks,
+                    shape_gs.clone(),
+                    shapes,
                 );
             }
             _ => {}
         }
+        // Invisible text (`Tr` 3, or 7: clip only) — an OCR layer over a scan
+        // follows the scanned lines, not a typeset baseline (#1005).
+        if matches!(tr, 3 | 7) {
+            for g in &mut out[shown..] {
+                g.invisible = true;
+            }
+        }
     }
+}
+
+/// An image placement's box — the unit square under `ctm`, y-up page
+/// points — as an [`Ink::Bitmap`](crate::checkbox::Ink::Bitmap).
+fn image_ink(ctm: Mat) -> crate::checkbox::Ink {
+    let pts = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)].map(|(x, y)| ctm.apply(x, y));
+    let (mut l, mut b, mut r, mut t) = (
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for (x, y) in pts {
+        (l, b, r, t) = (l.min(x), b.min(y), r.max(x), t.max(y));
+    }
+    crate::checkbox::Ink::Bitmap { l, b, r, t }
+}
+
+/// The page's vector shapes as docling-parse's page decoder reports them to
+/// docling's reading order (#1092): `get_shape_lines` — every stroked,
+/// axis-aligned straight segment, clipped — and the boxes
+/// `get_connected_shape_bounding_boxes` merges — every visible painted path,
+/// its stroke's half width included, clipped. `[l, b, r, t]`, page points,
+/// bottom-left origin, in the frame `run_content` walks (the display box's
+/// lower-left corner at the origin, before `/Rotate`).
+#[derive(Default, Clone, Debug, PartialEq)]
+pub(crate) struct Shapes {
+    pub lines: Vec<[f64; 4]>,
+    pub boxes: Vec<[f64; 4]>,
+}
+
+/// More painted paths than this on a page and their boxes are not merged —
+/// docling-parse's merge is quadratic in them, and a page that dense (a map,
+/// a seat plan, text drawn as outlines) yields no trustworthy rule anyway;
+/// the stroked lines still count.
+const MAX_SHAPE_BOXES: usize = 10_000;
+
+/// One subpath of the shape path under construction, page space: what
+/// docling-parse's `page_item<PAGE_SHAPE>` keeps of it.
+struct ShapeSub {
+    start: (f64, f64),
+    cur: (f64, f64),
+    /// Every point the path passes or is controlled by — a curve's control
+    /// points included, as docling-parse's segment data has them.
+    pts: Vec<(f64, f64)>,
+    /// Its straight segments, in order.
+    lines: Vec<((f64, f64), (f64, f64))>,
+    closed: bool,
+}
+
+impl ShapeSub {
+    fn at(p: (f64, f64)) -> Self {
+        ShapeSub {
+            start: p,
+            cur: p,
+            pts: vec![p],
+            lines: Vec::new(),
+            closed: false,
+        }
+    }
+
+    /// `keep_shape`: two points at least, spanning more than a speck (the
+    /// box diagonal, squared, over 1e-3).
+    fn kept(&self) -> bool {
+        let Some((l, b, r, t)) = bbox_of(&self.pts) else {
+            return false;
+        };
+        self.pts.len() >= 2 && (r - l).powi(2) + (t - b).powi(2) >= 1e-3
+    }
+}
+
+fn bbox_of(pts: &[(f64, f64)]) -> Option<(f64, f64, f64, f64)> {
+    let (&first, rest) = pts.split_first()?;
+    Some(rest.iter().fold(
+        (first.0, first.1, first.0, first.1),
+        |(l, b, r, t), &(x, y)| (l.min(x), b.min(y), r.max(x), t.max(y)),
+    ))
+}
+
+/// The graphics state docling-parse's shapes read: line width (user space),
+/// stroke and fill alpha (`CA` / `ca`), whether the fill colour is a pattern
+/// not yet resolved to a paint, and the clip paths' boxes. Saved and
+/// restored with `q` / `Q`.
+#[derive(Clone)]
+struct ShapeGs {
+    line_width: f64,
+    stroke_alpha: f64,
+    fill_alpha: f64,
+    fill_pattern: bool,
+    clips: Vec<[f64; 4]>,
+    /// The clip in force as one box: the intersection of each capture's
+    /// box (the union of its subpaths' points), an empty intersection a
+    /// zero-size box — docling-parse 7.26's `clip_bbox`, which every glyph
+    /// carries (#1150, [`Glyph::clip`]).
+    clip_box: Option<[f64; 4]>,
+}
+
+impl ShapeGs {
+    const INIT: ShapeGs = ShapeGs {
+        line_width: 1.0,
+        stroke_alpha: 1.0,
+        fill_alpha: 1.0,
+        fill_pattern: false,
+        clips: Vec::new(),
+        clip_box: None,
+    };
+}
+
+/// Give the glyphs a text operator just drew the clip box in force.
+fn stamp_clip(glyphs: &mut [Glyph], clip: Option<[f64; 4]>) {
+    let clip = clip.map(|c| c.map(|v| v as f32));
+    for g in glyphs {
+        g.clip = clip;
+    }
+}
+
+/// docling-parse's `bbox_intersects`: the boxes share area (a degenerate box
+/// lying inside the other counts).
+fn boxes_intersect(a: [f64; 4], b: [f64; 4]) -> bool {
+    a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
+}
+
+/// `clipped_bbox`: a box cut to every clip path's box in turn; `None` once
+/// one of them misses it.
+fn clipped(mut bbox: [f64; 4], clips: &[[f64; 4]]) -> Option<[f64; 4]> {
+    for c in clips {
+        if !boxes_intersect(bbox, *c) {
+            return None;
+        }
+        bbox = [
+            bbox[0].max(c[0]),
+            bbox[1].max(c[1]),
+            bbox[2].min(c[2]),
+            bbox[3].min(c[3]),
+        ];
+    }
+    Some(bbox)
+}
+
+/// `get_shape_lines`' `maybe_add_line` + `clip_axis_aligned_segment`: a
+/// straight segment that is horizontal or vertical within 1e-3 (not both: a
+/// point), cut to every clip path's box along its axis and dropped when one
+/// misses it.
+fn shape_line(a: (f64, f64), z: (f64, f64), clips: &[[f64; 4]], out: &mut Vec<[f64; 4]>) {
+    const TOL: f64 = 1e-3;
+    let horizontal = (z.1 - a.1).abs() <= TOL;
+    let vertical = (z.0 - a.0).abs() <= TOL;
+    if horizontal == vertical {
+        return;
+    }
+    let mut bbox = [a.0.min(z.0), a.1.min(z.1), a.0.max(z.0), a.1.max(z.1)];
+    for c in clips {
+        if horizontal {
+            if a.1 < c[1] - TOL || a.1 > c[3] + TOL {
+                return;
+            }
+            bbox[0] = bbox[0].max(c[0]);
+            bbox[2] = bbox[2].min(c[2]);
+            if bbox[0] > bbox[2] + TOL {
+                return;
+            }
+        } else {
+            if a.0 < c[0] - TOL || a.0 > c[2] + TOL {
+                return;
+            }
+            bbox[1] = bbox[1].max(c[1]);
+            bbox[3] = bbox[3].min(c[3]);
+            if bbox[1] > bbox[3] + TOL {
+                return;
+            }
+        }
+    }
+    out.push(bbox);
+}
+
+/// `capture_pending_clip`: each subpath of the clipping path with a segment
+/// (two points or more) bounds what later operators paint — appended, which
+/// approximates the intersection the spec asks for, as docling-parse does.
+///
+/// The capture's box as a whole — every point of its subpaths — narrows
+/// the clip box ([`ShapeGs::clip_box`], docling-parse's
+/// `intersect_clip_bbox`).
+fn capture_clip(subs: &[ShapeSub], gs: &mut ShapeGs) {
+    let mut group: Option<[f64; 4]> = None;
+    for sub in subs.iter().filter(|s| s.pts.len() >= 2) {
+        if let Some((l, b, r, t)) = bbox_of(&sub.pts) {
+            gs.clips.push([l, b, r, t]);
+            group = Some(match group {
+                None => [l, b, r, t],
+                Some(g) => [g[0].min(l), g[1].min(b), g[2].max(r), g[3].max(t)],
+            });
+        }
+    }
+    if let Some(g) = group {
+        gs.clip_box = Some(match gs.clip_box {
+            None => g,
+            Some(c) => {
+                let (x0, y0) = (c[0].max(g[0]), c[1].max(g[1]));
+                // An empty intersection clips everything: a zero-size box.
+                [x0, y0, c[2].min(g[2]).max(x0), c[3].min(g[3]).max(y0)]
+            }
+        });
+    }
+}
+
+/// docling-parse's `register_paths` for the reading-order geometry: a painted
+/// path's kept subpaths become shape lines (when its stroke shows) and a
+/// shape box (when anything of it shows). A fill whose colour is an
+/// unresolved pattern paints nothing, so a fill-only path is no shape and a
+/// fill-and-stroke one keeps its stroke. `scale` maps the user-space line
+/// width to page space (the CTM's `sqrt|det|`; a hairline stays 0).
+fn record_shape(
+    subs: &[ShapeSub],
+    stroke: bool,
+    fill: bool,
+    gs: &ShapeGs,
+    scale: f64,
+    shapes: &mut Shapes,
+) {
+    let kept: Vec<&ShapeSub> = subs.iter().filter(|s| s.kept()).collect();
+    if kept.is_empty() {
+        return;
+    }
+    let fill = fill && !gs.fill_pattern;
+    if gs.fill_pattern && !stroke {
+        return;
+    }
+    let strokes_visible = stroke && gs.stroke_alpha > 0.0;
+    let visible = strokes_visible || (fill && gs.fill_alpha > 0.0);
+    if strokes_visible {
+        for sub in &kept {
+            for &(a, z) in &sub.lines {
+                shape_line(a, z, &gs.clips, &mut shapes.lines);
+            }
+            if sub.closed {
+                shape_line(sub.cur, sub.start, &gs.clips, &mut shapes.lines);
+            }
+        }
+    }
+    if visible {
+        let pts: Vec<(f64, f64)> = kept.iter().flat_map(|s| s.pts.iter().copied()).collect();
+        if let Some((l, b, r, t)) = bbox_of(&pts) {
+            let pad = if strokes_visible {
+                (gs.line_width * scale).max(0.0) * 0.5
+            } else {
+                0.0
+            };
+            if let Some(bbox) = clipped([l - pad, b - pad, r + pad, t + pad], &gs.clips) {
+                shapes.boxes.push(bbox);
+            }
+        }
+    }
+}
+
+/// `get_connected_shape_bounding_boxes`: each box in turn (unless already
+/// taken) grows by every untaken box its growing union touches, until none
+/// does — docling-parse's greedy pass, so a component finished early keeps a
+/// box a later one would also have reached. Tolerance 0, as docling calls
+/// it: two `re` that meet in the file meet here because [`real`] reads their
+/// operands as the doubles docling-parse reads.
+fn connected_boxes(boxes: &[[f64; 4]]) -> Vec<[f64; 4]> {
+    let touches =
+        |a: [f64; 4], b: [f64; 4]| a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+    let mut taken = vec![false; boxes.len()];
+    let mut out = Vec::new();
+    for i in 0..boxes.len() {
+        if taken[i] {
+            continue;
+        }
+        taken[i] = true;
+        let mut component = boxes[i];
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for j in 0..boxes.len() {
+                if !taken[j] && touches(component, boxes[j]) {
+                    let b = boxes[j];
+                    component = [
+                        component[0].min(b[0]),
+                        component[1].min(b[1]),
+                        component[2].max(b[2]),
+                        component[3].max(b[3]),
+                    ];
+                    taken[j] = true;
+                    changed = true;
+                }
+            }
+        }
+        out.push(component);
+    }
+    out
 }
 
 /// One piece of a path under construction, page space (see `run_content`).
@@ -2243,7 +3795,7 @@ fn show_text(
     out: &mut Vec<Glyph>,
 ) {
     for code in codes(font, bytes) {
-        let (text, w) = font.decode_code(code);
+        let (text, w, blank) = font.decode_code(code);
         let w0 = w / 1000.0; // advance in text-space (em) units
                              // The glyph→user transform: scale glyph space by font size, then Tm, CTM.
         let scale = Mat {
@@ -2256,11 +3808,27 @@ fn show_text(
         };
         let trm = scale.then(*tm).then(ctm);
         // Box in glyph space (1000-unit em): x 0..w, y descent..ascent.
-        let (desc, asc) = (font.descent / 1000.0, font.ascent / 1000.0);
+        // A blank unmapped glyph keeps its advance but no ink height
+        // (docling-parse collapses its ascent and descent).
+        let (desc, asc) = if blank {
+            (0.0, 0.0)
+        } else if let Some(&(lo, hi)) = font.ink_y.get(&code) {
+            (lo / 1000.0, hi / 1000.0)
+        } else {
+            (font.descent / 1000.0, font.ascent / 1000.0)
+        };
         let (x0, y0) = trm.apply(0.0, desc);
         let (x1, y1) = trm.apply(w0, desc);
         let (x2, y2) = trm.apply(w0, asc);
         let (x3, y3) = trm.apply(0.0, asc);
+        let exact = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            [x0, y0, x1, y1, x2, y2, x3, y3]
+                .map(f64::to_bits)
+                .hash(&mut h);
+            h.finish()
+        };
         // Upright = the baseline runs left-to-right along +x. Only then is the
         // loose box the rectangle spanned by the baseline's x and the em's y
         // (a synthetic oblique's skew is ignored, as it always was). A rotated
@@ -2305,42 +3873,17 @@ fn show_text(
         } else {
             None
         };
-        // Whether the code put any glyph on the text layer: a code that
-        // decodes to nothing or only to NUL (a base-encoding slot below the
-        // printable range) is invisible to the text cells either way.
-        let visible = text
+        // A code with no ToUnicode that the font program names, decoding to
+        // nothing or only to NUL (a base-encoding slot below the printable
+        // range): the text cells skip it, as they always did, but
+        // `formula_text` reads the name — kept for the formula layer alone
+        // (the cell builders drop it). Every other code is text, a NUL from
+        // the `/ToUnicode` included (docling#5070: U+FFFD).
+        let nul_only = text
             .as_deref()
-            .is_some_and(|s| s.chars().any(|c| c != '\u{0}'));
-        if let Some(s) = text.filter(|_| visible) {
-            // A run may map one code to multiple chars (ligature/fraction); share box.
-            for ch in s.chars() {
-                if ch != '\u{0}' {
-                    out.push(Glyph {
-                        ch,
-                        l: left as f32,
-                        b: bot as f32,
-                        r: right as f32,
-                        t: top as f32,
-                        ll: left as f32,
-                        lb: bot as f32,
-                        lr: right as f32,
-                        lt: top as f32,
-                        font: font.hash,
-                        quad,
-                        pen,
-                        math_font: font.math,
-                        face: font.face,
-                        unmapped_math,
-                        program_name: program_name.clone(),
-                        formula_only: false,
-                    });
-                }
-            }
-        } else if let Some(name) = program_name.clone().filter(|_| unmapped_math) {
-            // Nothing decodes (no ToUnicode, a name — `u1D707` — the text
-            // layer does not read): the text cells skip the glyph as they
-            // always did, but `formula_text` reads the name, so keep it for
-            // the formula layer alone (the cell builders drop it).
+            .is_none_or(|s| s.chars().all(|c| c == '\u{0}'));
+        let formula_only_name = program_name.clone().filter(|_| unmapped_math && nul_only);
+        if let Some(name) = formula_only_name {
             out.push(Glyph {
                 ch: char::REPLACEMENT_CHARACTER,
                 l: left as f32,
@@ -2359,7 +3902,41 @@ fn show_text(
                 unmapped_math,
                 program_name: Some(name),
                 formula_only: true,
+                invisible: false,
+                spaced: false,
+                clip: None,
+                exact,
             });
+        } else if let Some(s) = text {
+            // A run may map one code to multiple chars (ligature/fraction); share box.
+            for ch in s.chars() {
+                // A NUL from the `/ToUnicode` is an unmapped glyph too
+                // (docling#5070): U+FFFD.
+                let ch = if ch == '\u{0}' { '\u{FFFD}' } else { ch };
+                out.push(Glyph {
+                    ch,
+                    l: left as f32,
+                    b: bot as f32,
+                    r: right as f32,
+                    t: top as f32,
+                    ll: left as f32,
+                    lb: bot as f32,
+                    lr: right as f32,
+                    lt: top as f32,
+                    font: font.hash,
+                    quad,
+                    pen,
+                    math_font: font.math,
+                    face: font.face,
+                    unmapped_math,
+                    program_name: program_name.clone(),
+                    formula_only: false,
+                    invisible: false,
+                    spaced: false,
+                    clip: None,
+                    exact,
+                });
+            }
         }
         // Advance the text matrix. Word spacing applies to single-byte code 32.
         let is_space = !font.two_byte && code == 32;
@@ -2377,8 +3954,9 @@ fn show_text(
 }
 
 /// Build a simple font's code→char table from its `/Encoding`: the base
-/// encoding (WinAnsi / MacRoman) plus any `/Differences` overrides (glyph names
-/// resolved through a small Adobe-glyph-name subset).
+/// encoding (WinAnsi / MacRoman / Standard / MacExpert) plus any
+/// `/Differences` overrides (glyph names resolved through the Adobe Glyph
+/// List).
 fn simple_encoding_table(doc: &Document, fdict: &Dictionary) -> HashMap<u8, char> {
     let enc = fdict.get(b"Encoding").ok().and_then(|o| deref(doc, o));
     let base_name = match enc {
@@ -2391,8 +3969,25 @@ fn simple_encoding_table(doc: &Document, fdict: &Dictionary) -> HashMap<u8, char
             .unwrap_or_default(),
         _ => Vec::new(),
     };
+    let face = || {
+        let font_name = sanitizer_font_name(doc, fdict, false);
+        let base = fdict.get(b"BaseFont").ok().and_then(|o| o.as_name().ok());
+        let names: Vec<&[u8]> = std::iter::once(font_name.as_slice()).chain(base).collect();
+        crate::symbol_fonts::symbol_face(&names)
+    };
     let mut m = if base_name == b"MacRomanEncoding" {
         macroman_table()
+    } else if base_name == b"StandardEncoding" || base_name == b"MacExpertEncoding" {
+        // Read as WinAnsi before #1152: StandardEncoding's `quoteright` /
+        // `quoteleft` / `fi` / `fl` / `AE` codes came out `'`/`` ` ``/`®`/`¯`/`á`.
+        named_table(crate::encodings::by_name(&base_name).unwrap_or_default())
+    } else if let Some(face) = base_name.is_empty().then(face).flatten() {
+        // A font matched to Symbol or ZapfDingbats that names no encoding:
+        // the face's own (docling-parse's base-font AFM, a "FontSpecific"
+        // scheme), never the Latin tables — a non-embedded ZapfDingbats'
+        // `l` is `●` (docling-parse#431, #1113). An embedded program's
+        // builtin encoding still comes first ([`Font::builtin`]).
+        crate::symbol_fonts::face_table(face)
     } else if base_name.is_empty() {
         // No PDF /Encoding at all: the font's *built-in* encoding applies. For
         // the standard TeX math fonts that is their fixed TeX layout — falling
@@ -2400,10 +3995,57 @@ fn simple_encoding_table(doc: &Document, fdict: &Dictionary) -> HashMap<u8, char
         // `∈` as `2` (2203's `{ahn,…}` author line). The font program (often
         // CFF, which this parser does not read) carries the same mapping;
         // docling-parse decodes it from there.
-        tex_math_builtin(fdict).unwrap_or_else(winansi_table)
+        // Otherwise a nonsymbolic Type 1 font's built-in encoding is
+        // StandardEncoding (9.6.6.1; a non-embedded Core 14 Helvetica's, its
+        // AFM's), as pdfium and docling-parse read it (#1152) — a WinAnsi
+        // reading put `®` where the program draws `fi`. A TrueType or
+        // symbolic face without an encoding keeps the WinAnsi stand-in.
+        tex_math_builtin(fdict).unwrap_or_else(|| {
+            if implied_standard_encoding(doc, fdict) {
+                named_table(crate::encodings::STANDARD)
+            } else {
+                winansi_table()
+            }
+        })
+    } else if base_name == b"WinAnsiEncoding" {
+        let mut m = winansi_table();
+        // PDF 32000-1:2008 Annex D.2, note 3 to the Latin set: "In
+        // WinAnsiEncoding, all unused codes greater than 40 [octal] map to the
+        // bullet character" — pdfium and pdf.js read them so. ReportLab draws
+        // its default list bullet as `\177` in a non-embedded WinAnsi
+        // Helvetica, which read U+FFFD before (#1102). Only a font that names
+        // WinAnsiEncoding gets them: the no-/Encoding fallback above stands
+        // in for a built-in encoding, where these codes stay undefined.
+        for b in [0x7Fu8, 0x81, 0x8D, 0x8F, 0x90, 0x9D] {
+            m.insert(b, '\u{2022}');
+        }
+        m
     } else {
         winansi_table()
     };
+    // docling-parse#370: a font matched to Symbol or ZapfDingbats that
+    // declares a Latin base encoding reads a code through that encoding only
+    // where the face has the glyph the encoding names there; elsewhere its
+    // own (AFM `FontSpecific`) code applies. Symbol + WinAnsi `a×b` reads
+    // `α×β` — `multiply` is a Symbol glyph, `a` and `b` are not — and
+    // MacRoman's `bullet` stays `•`.
+    if let Some(latin) = crate::encodings::by_name(&base_name) {
+        if let Some(face) = face() {
+            let face_glyphs = match face {
+                crate::symbol_fonts::SymbolFace::Symbol => crate::encodings::SYMBOL,
+                crate::symbol_fonts::SymbolFace::ZapfDingbats => crate::encodings::ZAPF_DINGBATS,
+            };
+            let has = |n: &str| face_glyphs.iter().any(|&(_, g)| g == n);
+            for code in 0..=255u8 {
+                if crate::encodings::lookup(latin, code).is_some_and(has) {
+                    continue;
+                }
+                if let Some(ch) = crate::symbol_fonts::face_text(face, code) {
+                    m.insert(code, ch);
+                }
+            }
+        }
+    }
     // Apply /Differences: `code /glyphname /glyphname ... code ...`.
     if let Some(Object::Dictionary(d)) = enc {
         if let Some(Object::Array(diffs)) = d.get(b"Differences").ok().and_then(|o| deref(doc, o)) {
@@ -2423,6 +4065,32 @@ fn simple_encoding_table(doc: &Document, fdict: &Dictionary) -> HashMap<u8, char
         }
     }
     m
+}
+
+/// A code → glyph-name encoding ([`crate::encodings`]) read as text.
+fn named_table(table: &[(u8, &str)]) -> HashMap<u8, char> {
+    table
+        .iter()
+        .filter_map(|&(c, n)| glyph_name_to_char(n.as_bytes()).map(|ch| (c, ch)))
+        .collect()
+}
+
+/// A Type 1 font (`Type1` / `MMType1`) whose descriptor, if any, does not
+/// flag it symbolic: StandardEncoding is its built-in encoding.
+fn implied_standard_encoding(doc: &Document, fdict: &Dictionary) -> bool {
+    let type1 = matches!(
+        fdict.get(b"Subtype").ok().and_then(|o| o.as_name().ok()),
+        Some(b"Type1" | b"MMType1")
+    );
+    let symbolic = fdict
+        .get(b"FontDescriptor")
+        .ok()
+        .and_then(|o| as_dict(doc, o))
+        .and_then(|fd| fd.get(b"Flags").ok())
+        .and_then(|o| deref(doc, o))
+        .and_then(num)
+        .is_some_and(|f| (f as i64) & 4 != 0);
+    type1 && !symbolic
 }
 
 /// The fixed built-in encodings of the standard TeX math fonts (TeXbook
@@ -2698,16 +4366,77 @@ const AGL_LATIN: &[(&str, char)] = &[
     ("zdotaccent", '\u{017C}'),
 ];
 
+/// docling-parse 7.25's reading text of a PostScript glyph name in a
+/// program's builtin encoding (`builtin_font_encoding::glyph_name_to_utf8`,
+/// #1113): `.notdef` and an index-style name (`g12`, `gid00012`, `cid12`,
+/// `index12`) carry none; a stylistic `.suffix` is dropped; then the glyph
+/// tables (the symbol fonts' names, [`glyph_name_to_char`]'s), a `uniXXXX`
+/// sequence (a ligature's code points), a `uXXXX`–`uXXXXXX` name.
+pub(crate) fn builtin_glyph_text(name: &str) -> Option<String> {
+    if name.is_empty() || name == ".notdef" {
+        return None;
+    }
+    let name = match name.find('.') {
+        Some(dot) if dot > 0 => &name[..dot],
+        _ => name,
+    };
+    let lower = name.to_ascii_lowercase();
+    let index_name = ["gid", "glyph", "g", "cid", "index"].iter().any(|p| {
+        lower
+            .strip_prefix(p)
+            .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
+    });
+    if index_name {
+        return None;
+    }
+    if let Some(c) = crate::symbol_fonts::symbol_glyph_char(name) {
+        return Some(c.to_string());
+    }
+    let hex_points = |hex: &str, width: usize| -> Option<String> {
+        (!hex.is_empty()
+            && hex.len().is_multiple_of(width)
+            && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| {
+            (0..hex.len())
+                .step_by(width)
+                .map(|i| {
+                    u32::from_str_radix(&hex[i..i + width], 16)
+                        .ok()
+                        .and_then(char::from_u32)
+                })
+                .collect::<Option<String>>()
+        })
+        .flatten()
+    };
+    if let Some(hex) = name.strip_prefix("uni") {
+        if let Some(t) = hex_points(hex, 4) {
+            return Some(t);
+        }
+    }
+    if let Some(hex) = name.strip_prefix('u') {
+        if (4..=6).contains(&hex.len()) {
+            if let Some(t) = hex_points(hex, hex.len()) {
+                return Some(t);
+            }
+        }
+    }
+    glyph_name_to_char(name.as_bytes()).map(String::from)
+}
+
 /// Resolve an Adobe glyph name to Unicode: `uniXXXX`, single ASCII letters, the
 /// digit/punctuation names from the Adobe Glyph List, and common typographic
 /// names. A `.suffix` (`one.taboldstyle`, `a.sc`) is stripped and the base name
 /// retried — docling renders these as the base character.
 pub(crate) fn glyph_name_to_char(name: &[u8]) -> Option<char> {
     let s = std::str::from_utf8(name).ok()?;
-    if let Some(hex) = s.strip_prefix("uni") {
-        if let Ok(cp) = u32::from_str_radix(hex.get(0..4)?, 16) {
-            return char::from_u32(cp);
-        }
+    // `uniXXXX`. A name that merely starts with `uni` (`union`) goes on to
+    // the tables: it used to end here, unresolved, for want of four digits.
+    if let Some(cp) = s
+        .strip_prefix("uni")
+        .and_then(|hex| hex.get(0..4))
+        .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+    {
+        return char::from_u32(cp);
     }
     // Single ASCII letter names (`A`, `m`) map to themselves.
     if s.len() == 1 {
@@ -2864,6 +4593,22 @@ pub(crate) fn glyph_name_to_char(name: &[u8]) -> Option<char> {
             if let Ok(i) = AGL_LATIN.binary_search_by_key(&s, |(n, _)| n) {
                 return Some(AGL_LATIN[i].1);
             }
+            // The math names the arms above leave out (#1121): the TeX math
+            // fonts' own (`parenleftbig`, `radicalbig`, `integraldisplay`,
+            // `prime`), then the Symbol font's — Glyph List names such as
+            // `universal`, `existential`, `arrowup`, which a Latin Modern
+            // math font's `/Differences` uses. The arms above keep their
+            // readings where docling-parse's lists differ (`Delta` is the
+            // Greek letter here, the Glyph List's `∆` increment sign there).
+            // Last, the Adobe Glyph List in full (the `glyph-list` feature):
+            // every name none of the above reads — the `afii` names of a
+            // Cyrillic, Hebrew or Arabic font, the rest of the symbols.
+            if let Some(ch) = crate::glyph_names::lookup(s)
+                .or_else(|| crate::symbol_fonts::symbol_glyph_char(s))
+                .or_else(|| crate::adobe_glyph_list::lookup(s))
+            {
+                return Some(ch);
+            }
             // Strip an AGL `.suffix` (oldstyle/small-cap variant) and retry.
             if let Some((base, _)) = s.split_once('.') {
                 if !base.is_empty() {
@@ -2905,8 +4650,9 @@ fn winansi_table() -> HashMap<u8, char> {
         // The rest of Windows-1252's 0x80–0x9F row. Left out, the German
         // opening quote `„` (0x84) vanished from the text layer while its
         // closing `“` (0x93) stayed (#922); `€ ‚ ƒ † ‡ ˆ ‰ Š ‹ Œ Ž ˜ ™ š › œ ž Ÿ`
-        // were lost the same way. 0x81/0x8D/0x8F/0x90/0x9D stay unmapped
-        // (PDF's WinAnsi leaves them undefined).
+        // were lost the same way. 0x81/0x8D/0x8F/0x90/0x9D (and 0x7F) are
+        // unused; a font naming WinAnsiEncoding reads them as bullets
+        // (`simple_encoding_table`, #1102).
         (0x80, '\u{20AC}'),
         (0x82, '\u{201A}'),
         (0x83, '\u{0192}'),
@@ -3040,6 +4786,68 @@ mod glyph_names {
         assert_eq!(tu.get(&35), None);
         assert_eq!(tu.get(&65), None);
     }
+
+    /// #1121: a ToUnicode value that says nothing — empty, a NUL, U+FFFD, a
+    /// noncharacter — yields to the `/Differences` name (docling-parse's
+    /// `has_to_unicode`). 1503.04203's embedded figure maps its re-encoded
+    /// TeX glyphs to `<0000>`: `/minus` and `/Delta` at code 33. A value that
+    /// says something stays, and so does one whose name does not resolve.
+    #[test]
+    fn a_tounicode_value_that_says_nothing_yields_to_differences() {
+        use lopdf::Object;
+        use std::collections::HashMap;
+        let name = |n: &str| Object::Name(n.as_bytes().to_vec());
+        let mut tu: HashMap<u32, String> = HashMap::new();
+        tu.insert(33, "\u{0}".into());
+        tu.insert(34, "\u{FFFD}".into());
+        tu.insert(35, "\u{FFFF}".into());
+        tu.insert(36, String::new());
+        tu.insert(37, "\u{0}".into()); // the name is unknown: left alone
+        tu.insert(38, "\u{0}\u{0}".into()); // not a single code point
+        tu.insert(39, "−".into()); // says something
+        let diffs = vec![
+            Object::Integer(33),
+            name("minus"),
+            name("Delta"),
+            name("radicalbig"),
+            name("parenleftbig"),
+            name("nosuchglyphname"),
+            name("plus"),
+            name("hyphen"),
+        ];
+        super::reconcile_stale_tounicode(&mut tu, &diffs);
+        let got = |c: u32| tu.get(&c).map(String::as_str);
+        assert_eq!(got(33), Some("−"));
+        assert_eq!(got(34), Some("Δ"));
+        assert_eq!(got(35), Some("√"));
+        assert_eq!(got(36), Some("("));
+        assert_eq!(got(37), Some("\u{0}"));
+        assert_eq!(got(38), Some("\u{0}\u{0}"));
+        assert_eq!(got(39), Some("−"));
+    }
+
+    /// #1121: the TeX delimiter and operator names resolve through the glyph
+    /// rules, the Symbol font's Glyph List names through its table; the
+    /// names this resolver already knew keep their reading, and a name that
+    /// only starts with `uni` is no `uniXXXX`.
+    #[test]
+    fn tex_glyph_names_resolve() {
+        let c = |n: &str| super::glyph_name_to_char(n.as_bytes());
+        assert_eq!(c("parenleftbig"), Some('('));
+        assert_eq!(c("parenrightBigg"), Some(')'));
+        assert_eq!(c("integraldisplay"), Some('∫'));
+        assert_eq!(c("trianglerightsld"), Some('▶'));
+        assert_eq!(c("prime"), Some('′'));
+        assert_eq!(c("universal"), Some('∀'));
+        assert_eq!(c("existential"), Some('∃'));
+        assert_eq!(c("arrowup"), Some('↑'));
+        assert_eq!(c("union"), Some('∪'));
+        assert_eq!(c("uni2212"), Some('−'));
+        assert_eq!(c("minus"), Some('−'));
+        assert_eq!(c("Delta"), Some('Δ'), "the Greek letter, not the list's ∆");
+        assert_eq!(c("angbracketleft"), Some('⟨'));
+        assert_eq!(c("nosuchglyphname"), None);
+    }
 }
 
 #[cfg(test)]
@@ -3091,14 +4899,20 @@ mod page_box_frame {
 
     /// One page whose `/Contents` is an array of separate streams.
     fn pdf_content_streams(contents: &[&[u8]]) -> Vec<u8> {
+        pdf_with_streams(
+            contents
+                .iter()
+                .map(|content| lopdf::Stream::new(Dictionary::new(), content.to_vec()))
+                .collect(),
+        )
+    }
+
+    /// [`pdf_content_streams`] with the streams' dictionaries spelled out.
+    fn pdf_with_streams(contents: Vec<lopdf::Stream>) -> Vec<u8> {
         let mut doc = Document::with_version("1.5");
         let streams = contents
-            .iter()
-            .map(|content| {
-                Object::Reference(
-                    doc.add_object(lopdf::Stream::new(Dictionary::new(), content.to_vec())),
-                )
-            })
+            .into_iter()
+            .map(|stream| Object::Reference(doc.add_object(stream)))
             .collect::<Vec<_>>();
         let font_id = doc.add_object(dictionary! {
             "Type" => "Font",
@@ -3210,6 +5024,41 @@ mod page_box_frame {
         assert_eq!(text(&glyphs), "Second stream text");
     }
 
+    /// A FlateDecode stream whose data breaks off mid-way (a truncated or
+    /// corrupted download) — #1154. qpdf and pdfium keep what inflated
+    /// before the damage; lopdf's `decompressed_content` fails and its
+    /// `get_page_content` then spliced the *compressed* bytes into the
+    /// content, which tokenized as garbage. The prefix reads, alone or
+    /// between intact streams.
+    #[test]
+    fn a_damaged_flate_stream_keeps_its_inflated_prefix() {
+        use std::io::Write as _;
+        // A sync-flushed deflate of the text, then bytes that are no valid
+        // deflate block: flate2 fails inside the one read that would have
+        // returned the text, so lopdf's decoder ends up with nothing.
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        z.write_all(b"BT /F1 14 Tf 40 200 Td (Partial) Tj ET\n")
+            .expect("deflate");
+        z.flush().expect("sync flush");
+        let mut data = z.get_ref().clone();
+        data.extend_from_slice(b"\x07garbage\n");
+        let damaged =
+            || lopdf::Stream::new(dictionary! { "Filter" => "FlateDecode" }, data.clone());
+        let plain = |s: &[u8]| lopdf::Stream::new(Dictionary::new(), s.to_vec());
+
+        let (_, alone) = only_page(&pdf_with_streams(vec![damaged()]));
+        assert!(text(&alone).starts_with("Partial"), "{:?}", text(&alone));
+
+        let (_, glyphs) = only_page(&pdf_with_streams(vec![
+            plain(b"BT /F1 14 Tf 40 300 Td (Before) Tj ET"),
+            damaged(),
+            plain(b"BT /F1 14 Tf 40 100 Td (After) Tj ET"),
+        ]));
+        let t = text(&glyphs);
+        assert!(t.starts_with("Before") && t.ends_with("After"), "{t:?}");
+        assert!(t.contains("Partial"), "{t:?}");
+    }
+
     /// The containment test is docling-parse's: the whole char box (advance
     /// × the font's ascent / descent) inside the display box, edges
     /// included — a Helvetica `W` at 50 pt (47.2 wide) ending exactly on the
@@ -3255,6 +5104,129 @@ mod page_box_frame {
         // Reversed corners normalize.
         let (pb, _) = only_page(&pdf("/MediaBox[500 700 0 0]", 10.0, 10.0));
         assert_eq!((pb.l, pb.b, pb.w, pb.h), (0.0, 0.0, 500.0, 700.0));
+    }
+}
+
+/// #1130: `/Resources` inherited from the page tree (ISO 32000-1 7.7.3.4) —
+/// above all an *inline* dictionary on a `/Pages` node, which lopdf's
+/// `get_page_resources` never returns (it collects an ancestor's only when it
+/// is a reference). The R&OS php pdf writer files in Govdocs1 (448692.pdf)
+/// carry their one font that way; the text layer read as empty and the wasm
+/// `DigitalConverter` refused the file as a scan.
+#[cfg(test)]
+mod inherited_resources {
+    use super::*;
+    use lopdf::dictionary;
+
+    /// Root `/Pages` (holding `root_res` inline and the MediaBox) → an
+    /// intermediate `/Pages` (holding `mid_res`, if any) → one page with only
+    /// `/Type`, `/Parent`, `/Contents` and, optionally, its own resources.
+    fn pdf(root_res: Object, mid_res: Option<Object>, page_res: Option<Object>) -> Vec<u8> {
+        let mut doc = Document::with_version("1.3");
+        let content = doc.add_object(lopdf::Stream::new(
+            Dictionary::new(),
+            b"BT /F1 12 Tf 72 700 Td (Inherited resources) Tj ET".to_vec(),
+        ));
+        let root_id = doc.new_object_id();
+        let mid_id = doc.new_object_id();
+        let mut page = dictionary! {
+            "Type" => "Page",
+            "Parent" => Object::Reference(mid_id),
+            "Contents" => vec![Object::Reference(content)],
+        };
+        if let Some(r) = page_res {
+            page.set("Resources", r);
+        }
+        let page_id = doc.add_object(page);
+        let mut mid = dictionary! {
+            "Type" => "Pages",
+            "Parent" => Object::Reference(root_id),
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        };
+        if let Some(r) = mid_res {
+            mid.set("Resources", r);
+        }
+        doc.objects.insert(mid_id, Object::Dictionary(mid));
+        doc.objects.insert(
+            root_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(mid_id)],
+                "Count" => 1,
+                "Resources" => root_res,
+                "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+            }),
+        );
+        let catalog = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => Object::Reference(root_id),
+        });
+        doc.trailer.set("Root", Object::Reference(catalog));
+        let mut out = Vec::new();
+        doc.save_to(&mut out).expect("save synthetic PDF");
+        out
+    }
+
+    fn fonts(base: &str) -> Object {
+        Object::Dictionary(dictionary! {
+            "Font" => dictionary! { "F1" => dictionary! {
+                "Type" => "Font", "Subtype" => "Type1", "BaseFont" => base,
+            }},
+        })
+    }
+
+    fn page_text(bytes: &[u8]) -> String {
+        let pages = pdf_text_pages(bytes);
+        assert_eq!(pages.len(), 1);
+        pages[0]
+            .cells
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[test]
+    fn inline_resources_on_an_ancestor_pages_node_are_inherited() {
+        let bytes = pdf(fonts("Helvetica"), None, None);
+        assert_eq!(page_text(&bytes), "Inherited resources");
+    }
+
+    /// The nearest node that sets `/Resources` wins: the page's own over the
+    /// intermediate node's over the root's — and one that does not resolve to
+    /// a dictionary is passed over for the next ancestor's.
+    #[test]
+    fn the_nearest_resources_dictionary_wins() {
+        let doc_of = |b: &[u8]| load_document(b).expect("load");
+        let font_of = |bytes: &[u8]| {
+            let doc = doc_of(bytes);
+            let pid = *doc.get_pages().values().next().unwrap();
+            let res = page_res(&doc, pid).expect("resources");
+            let f1 = res
+                .get(b"Font")
+                .ok()
+                .and_then(|o| o.as_dict().ok())
+                .and_then(|f| f.get(b"F1").ok())
+                .and_then(|o| o.as_dict().ok())
+                .and_then(|f| f.get(b"BaseFont").ok())
+                .and_then(|o| o.as_name().ok())
+                .map(|n| String::from_utf8_lossy(n).into_owned());
+            f1.unwrap_or_default()
+        };
+        assert_eq!(font_of(&pdf(fonts("Root"), None, None)), "Root");
+        assert_eq!(
+            font_of(&pdf(fonts("Root"), Some(fonts("Mid")), None)),
+            "Mid"
+        );
+        assert_eq!(
+            font_of(&pdf(fonts("Root"), Some(fonts("Mid")), Some(fonts("Page")))),
+            "Page"
+        );
+        assert_eq!(
+            font_of(&pdf(fonts("Root"), Some(Object::Null), None)),
+            "Root"
+        );
     }
 }
 
@@ -3434,7 +5406,7 @@ mod base14_fonts {
     }
 
     /// A one-page A4 PDF drawing `content` with `fontdict` as `/F1`.
-    fn pdf_with_content(fontdict: &[u8], content: &[u8]) -> Vec<u8> {
+    pub(super) fn pdf_with_content(fontdict: &[u8], content: &[u8]) -> Vec<u8> {
         pdf_with_fonts(&[fontdict], content)
     }
 
@@ -3480,7 +5452,7 @@ mod base14_fonts {
     }
 
     /// The parsed cells of the only page.
-    fn cells(pdf: &[u8]) -> Vec<crate::pdfium_backend::TextCell> {
+    pub(super) fn cells(pdf: &[u8]) -> Vec<crate::pdfium_backend::TextCell> {
         super::pdf_textlines(pdf)
             .into_iter()
             .flat_map(|(_, _, c)| c)
@@ -3717,6 +5689,328 @@ mod base14_fonts {
         );
     }
 
+    /// WinAnsiEncoding's unused codes above octal 40 are bullets (PDF
+    /// 32000-1 Annex D.2) — ReportLab's default list bullet is `\177` in a
+    /// non-embedded WinAnsi Helvetica and read U+FFFD (#1102). A font
+    /// without an `/Encoding` keeps them undefined.
+    #[test]
+    fn winansi_unused_codes_are_bullets() {
+        let read = |fontdict: &[u8], text: &[u8]| -> String {
+            cells(&pdf_with_font(fontdict, text))
+                .iter()
+                .map(|c| c.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let winansi = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>";
+        assert_eq!(read(winansi, b"\\177 Cut costs"), "\u{2022} Cut costs");
+        for code in [0x7Fu8, 0x81, 0x8D, 0x8F, 0x90, 0x9D] {
+            assert_eq!(
+                read(winansi, &[b'x', code, b'x']),
+                "x\u{2022}x",
+                "{code:#x}"
+            );
+        }
+        let dict = b"<</Type/Font/Subtype/TrueType/BaseFont/Arial\
+                     /Encoding<</Type/Encoding/BaseEncoding/WinAnsiEncoding>>>>";
+        assert_eq!(read(dict, b"\\177 Cut costs"), "\u{2022} Cut costs");
+        let bare = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>";
+        assert!(!read(bare, b"x\\177x").contains('\u{2022}'));
+    }
+
+    /// Unmapped glyphs read U+FFFD (#1003, docling#5070): a ToUnicode NUL —
+    /// docling's `test_threaded_page_backend_replaces_nul_with_replacement_char`
+    /// case, `mg.mL \x00 1` — and a bare glyph-index `/Differences` name,
+    /// while an unknown code-like name keeps its text without the slash
+    /// (docling-parse 7.24's `SM590000`).
+    #[test]
+    fn unmapped_glyphs_read_as_the_replacement_char() {
+        let cmap = b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n\
+            1 begincodespacerange <00> <FF> endcodespacerange\n\
+            1 beginbfchar <7e> <0000> endbfchar\n\
+            endcmap CMapName currentdict /CMap defineresource pop end end";
+        let stream = [
+            format!("<</Length {}>>stream\n", cmap.len()).as_bytes(),
+            cmap.as_slice(),
+            b"\nendstream",
+        ]
+        .concat();
+        let pdf = pdf_with_fonts(
+            &[
+                b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica/ToUnicode 6 0 R\
+                   /Encoding<</Type/Encoding/Differences[1/g115 2/SM590000]>>>>",
+                &stream,
+            ],
+            b"BT /F1 12 Tf 72 700 Td (mg.mL ~ 1 \x01 x \x02 y) Tj ET\n",
+        );
+        let text: String = cells(&pdf)
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(text, "mg.mL \u{FFFD} 1 \u{FFFD} x SM590000 y");
+    }
+
+    /// redp5110's subset font names every glyph by index (`/g115/g3 /g40…`):
+    /// the painted ones read U+FFFD, the blank `/g3` program is a space, so
+    /// the line keeps its words (docling-parse 7.24's line cell).
+    #[cfg(feature = "render")]
+    #[test]
+    fn a_blank_glyph_program_is_a_space() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/pdf/sources/redp5110_sampled.pdf");
+        let Ok(bytes) = std::fs::read(path) else {
+            return;
+        };
+        let lines: Vec<String> = super::pdf_textlines(&bytes)
+            .into_iter()
+            .flat_map(|(_, _, c)| c)
+            .map(|c| c.text)
+            .collect();
+        let want = "\u{FFFD} \u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD} \
+                    \u{FFFD}\u{FFFD}\u{FFFD} ";
+        assert!(
+            lines.iter().any(|l| l.starts_with(want)),
+            "no `{want}` line in {:?}",
+            lines
+                .iter()
+                .filter(|l| l.contains('\u{FFFD}'))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// 2305.03393's figure-caption font (`SFRM0900`) declares `/Ascent 0
+    /// /Descent 0`, which docling-parse 7.24 rejects: its glyphs are boxed by
+    /// their outline, so the underscores of `"PMC2807444_006_00.png"` — ink
+    /// under the baseline — are line cells of their own, as docling-parse's
+    /// are (same boxes to 0.01 pt), not part of the file name.
+    #[cfg(feature = "render")]
+    #[test]
+    fn an_invalid_metric_font_is_boxed_by_its_ink() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/pdf/sources/2305.03393v1.pdf");
+        let Ok(bytes) = std::fs::read(path) else {
+            return;
+        };
+        let pages = super::pdf_textlines(&bytes);
+        let line = |text: &str| {
+            pages[9]
+                .2
+                .iter()
+                .find(|c| c.text == text)
+                .unwrap_or_else(|| panic!("no `{text}` line cell"))
+                .clone()
+        };
+        let name = line("\"PMC2807444");
+        let under: Vec<_> = pages[9].2.iter().filter(|c| c.text == "_").collect();
+        assert_eq!(under.len(), 2, "two `_` cells");
+        for u in under {
+            assert!(
+                u.t > name.b,
+                "`_` under the digits' ink: {:?} vs {:?}",
+                u,
+                name
+            );
+            assert!(
+                (u.b - u.t - 0.403).abs() < 0.01,
+                "an outline-tight box: {u:?}"
+            );
+        }
+    }
+
+    /// docling-parse's descriptor checks (`init_ascent_and_descent`): metrics
+    /// that do not straddle the baseline give way to a valid `/FontBBox` and
+    /// mark the font for outline boxes; an implausible one is ignored for its
+    /// `/FontBBox` edge; plain metrics are kept.
+    #[test]
+    fn descriptor_metrics_follow_docling_parse() {
+        use lopdf::{dictionary, Object};
+        let font = |asc: Option<i64>, desc: Option<i64>, bbox: bool| {
+            let mut fd = dictionary! { "Type" => "FontDescriptor", "FontName" => "X" };
+            if let Some(a) = asc {
+                fd.set("Ascent", a);
+            }
+            if let Some(d) = desc {
+                fd.set("Descent", d);
+            }
+            if bbox {
+                let b: Vec<Object> = [-196, -322, 1502, 937].map(Object::from).to_vec();
+                fd.set("FontBBox", b);
+            }
+            let f = dictionary! {
+                "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "X",
+                "FontDescriptor" => fd,
+            };
+            super::font_ascent_descent(&lopdf::Document::with_version("1.5"), &f, false)
+        };
+        assert_eq!(font(Some(0), Some(0), true), (937.0, -322.0, true));
+        assert_eq!(font(Some(700), Some(200), true), (937.0, -322.0, true));
+        assert_eq!(font(Some(90000), Some(-250), true), (937.0, -250.0, true));
+        assert_eq!(font(Some(718), Some(-207), true), (718.0, -207.0, false));
+        assert_eq!(font(Some(0), Some(0), false), (750.0, -250.0, false));
+        assert_eq!(font(None, None, true), (750.0, -250.0, false));
+    }
+
+    /// docling-parse boxes a glyph between the descent and the ascent scaled
+    /// by `CapHeight / Ascent` (`pdf_state<TEXT>`'s `ratio`, taken in
+    /// 0.05..=1): the box tops out at the capitals. For Arial that is a
+    /// fifth off; for Cambria's regular face, whose descriptor claims 3117 /
+    /// -2464, it is the difference between a 5.6 em box around every line and
+    /// docling-parse's 1.19 em — its line cells on the page of #1129 are
+    /// 11.9 pt tall at 10 pt, and so are ours. A cap height above the ascent
+    /// or next to nothing is no ratio, and a descriptor without one leaves
+    /// the metrics as they are.
+    #[test]
+    fn the_char_box_is_scaled_by_cap_height_over_ascent() {
+        use lopdf::dictionary;
+        let font = |asc: i64, desc: i64, cap: Option<i64>| {
+            let mut fd = dictionary! {
+                "Type" => "FontDescriptor", "FontName" => "X",
+                "Ascent" => asc, "Descent" => desc,
+            };
+            if let Some(c) = cap {
+                fd.set("CapHeight", c);
+            }
+            let f = dictionary! {
+                "Type" => "Font", "Subtype" => "TrueType", "BaseFont" => "X",
+                "FontDescriptor" => fd,
+            };
+            let (a, d, invalid) =
+                super::font_ascent_descent(&lopdf::Document::with_version("1.5"), &f, false);
+            assert!(!invalid);
+            ((a * 10.0).round() / 10.0, (d * 10.0).round() / 10.0)
+        };
+        assert_eq!(font(905, -212, Some(716)), (716.0, -167.7));
+        assert_eq!(font(3117, -2464, Some(667)), (667.0, -527.3));
+        assert_eq!(font(1047, -299, Some(667)), (667.0, -190.5));
+        assert_eq!(font(905, -212, None), (905.0, -212.0));
+        assert_eq!(font(905, -212, Some(1200)), (905.0, -212.0));
+        assert_eq!(font(905, -212, Some(10)), (905.0, -212.0));
+        assert_eq!(font(905, -212, Some(0)), (905.0, -212.0));
+    }
+
+    /// redp5110 p. 14 draws its navigation arrows in `SymbolMT`, whose
+    /// `/ToUnicode` maps them into the private-use symbol charset
+    /// (`U+F0AE`): read through Symbol's encoding they are `→`, as
+    /// docling-parse 7.25 reads them (#1113).
+    #[test]
+    fn symbol_private_use_values_read_as_the_glyphs() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/pdf/sources/redp5110_sampled.pdf");
+        let Ok(bytes) = std::fs::read(path) else {
+            return;
+        };
+        let lines: Vec<String> = super::pdf_textlines(&bytes)
+            .into_iter()
+            .flat_map(|(_, _, c)| c)
+            .map(|c| c.text)
+            .collect();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.ends_with("click Schemas → HR_SCHEMA→")),
+            "{:?}",
+            lines
+                .iter()
+                .filter(|l| l.contains("Schemas"))
+                .collect::<Vec<_>>()
+        );
+        assert!(lines.iter().all(|l| !l.contains('\u{F0AE}')));
+    }
+
+    /// 2203.01017's p. 4 table marks its datasets with an embedded Type 1
+    /// `Dingbats` — symbolic, no `/Encoding`, no `/ToUnicode` — whose
+    /// program encodes code `3` as `/a19` and `7` as `/a23`: `✓` and `✗`
+    /// through the builtin encoding, as docling-parse 7.25 reads them
+    /// (#1113), where the Latin tables read the digits.
+    #[cfg(feature = "render")]
+    #[test]
+    fn a_symbolic_font_reads_through_its_builtin_encoding() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/pdf/sources/2203.01017v2.pdf");
+        let Ok(bytes) = std::fs::read(path) else {
+            return;
+        };
+        let pages = super::pdf_textlines(&bytes);
+        let text: Vec<&str> = pages[3].2.iter().map(|c| c.text.as_str()).collect();
+        let page = text.join("\n");
+        assert_eq!(page.matches('✓').count(), 11, "{text:?}");
+        assert_eq!(page.matches('✗').count(), 1, "{text:?}");
+        assert!(text.contains(&"✓ ✗ 145k JPEG"), "{text:?}");
+    }
+
+    /// docling-parse 7.25's `glyph_name_to_utf8`.
+    #[test]
+    fn builtin_glyph_names_read_as_docling_parse() {
+        let t = |n: &str| super::builtin_glyph_text(n);
+        assert_eq!(t("a19").as_deref(), Some("✓"));
+        assert_eq!(t("arrowright").as_deref(), Some("→"));
+        assert_eq!(t("A").as_deref(), Some("A"));
+        assert_eq!(t("one.oldstyle").as_deref(), Some("1"), "suffix dropped");
+        assert_eq!(t("uni00660069").as_deref(), Some("fi"), "a uni sequence");
+        assert_eq!(t("u1F600").as_deref(), Some("😀"));
+        assert_eq!(t("g12"), None, "an index name");
+        assert_eq!(t("GID00012"), None);
+        assert_eq!(t("cid7"), None);
+        assert_eq!(t(".notdef"), None);
+        assert_eq!(t(""), None);
+        assert_eq!(t("nosuchglyphname"), None);
+    }
+
+    /// The page's image placements reach the cells (#999): the scan under
+    /// the #999 fixture's one native word is the whole page.
+    #[test]
+    fn image_placements_are_the_pages_bitmaps() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../docling/tests/fixtures/partial_text_layer/scan_with_native_word.pdf");
+        let bytes = std::fs::read(path).expect("fixture");
+        let mut parser = super::PageTextParser::open(&bytes).expect("parser");
+        let page = parser.cells(0);
+        assert_eq!(page.bitmaps, vec![[0.0, 0.0, 612.0, 792.0]]);
+        assert_eq!(page.words.len(), 1);
+        assert!(page.checkboxes.is_empty());
+    }
+
+    /// A `bfrange` whose destination is a surrogate pair steps its last code
+    /// unit (#1003: equations.pdf's `H𝛂`, `<1d59> <1d5a> <d835dec2>`); a
+    /// single-unit base keeps counting in code points.
+    #[test]
+    fn surrogate_pair_bfrange_maps_each_code() {
+        let map = super::parse_tounicode(
+            b"1 beginbfrange <1d59> <1d5a> <d835dec2> endbfrange\n\
+              1 beginbfrange <0010> <0011> <0041> endbfrange",
+        );
+        assert_eq!(map.get(&0x1d59).map(String::as_str), Some("\u{1D6C2}"));
+        assert_eq!(map.get(&0x1d5a).map(String::as_str), Some("\u{1D6C3}"));
+        assert_eq!(map.get(&0x11).map(String::as_str), Some("B"));
+    }
+
+    /// Which unknown glyph names are text and which are bare indexes
+    /// (docling-parse's `resolve_unknown_name`; Skia's hexadecimal `g%X`
+    /// since 7.25, #1113).
+    #[test]
+    fn unknown_glyph_names_follow_docling_parse() {
+        for name in [
+            "g115", "gid00043", "Glyph7", "cid42", "index9", "g3.alt", "g15C", "gA1", "G1F",
+        ] {
+            assert_eq!(super::unknown_name_text(name), None, "{name}");
+            assert!(
+                super::is_gid_name(name.split('.').next().unwrap().as_bytes()),
+                "{name}"
+            );
+        }
+        assert!(!super::is_gid_name(b"glyphs"), "not hexadecimal");
+        assert!(!super::is_gid_name(b"uni0041"));
+        assert_eq!(
+            super::unknown_name_text("SM590000").as_deref(),
+            Some("SM590000")
+        );
+        assert_eq!(
+            super::unknown_name_text("SM590000.sc").as_deref(),
+            Some("SM590000")
+        );
+    }
+
     /// An explicit `/Widths` array always wins over the built-in metrics, and a
     /// non-standard face without `/Widths` stays as before (no invented boxes).
     #[test]
@@ -3759,6 +6053,477 @@ mod base14_fonts {
         let text: String = cs.iter().map(|c| c.text.as_str()).collect();
         assert!(text.contains("Mystery"), "text still decodes: {cs:?}");
     }
+
+    /// #1121: a TeX math font names its glyphs at the low char codes —
+    /// `/parenleftbig` at 0, `/parenrightbig` at 1 in Latin Modern's math
+    /// extension font (1805.06723) — with no ToUnicode. The names are not
+    /// Adobe Glyph List names; unresolved, the codes read U+FFFD
+    /// (`rt�A(M)�`). They read as docling-parse reads them, and a font whose
+    /// CMap maps the code to NUL reads its `/Differences` name.
+    #[test]
+    fn tex_math_glyphs_at_low_codes_decode() {
+        let font = b"<</Type/Font/Subtype/Type1/BaseFont/ABCDEF+LMMathExtension10-Regular\
+            /FirstChar 0/LastChar 90/Widths[458 458 0 0 0 0 0 0 0 0 0 0 0 0 0 0 597 597 \
+            0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 \
+            0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 472]\
+            /Encoding<</Type/Encoding/Differences[0/parenleftbig/parenrightbig \
+            16/parenleftBig/parenrightBig 90/integraldisplay]>>>>";
+        let text = |bytes: &[u8]| -> String {
+            cells(&pdf_with_font(font, bytes))
+                .iter()
+                .map(|c| c.text.as_str())
+                .collect()
+        };
+        assert_eq!(text(b"\\000\\001"), "()");
+        assert_eq!(text(b"\\020\\021Z"), "()∫");
+        assert!(!text(b"\\000\\001\\020\\021Z").contains('\u{FFFD}'));
+    }
+
+    /// The Adobe Glyph List in full (the `glyph-list` feature): a Cyrillic
+    /// font re-encoded with `/Differences` and no ToUnicode names its glyphs
+    /// `afii10017`, `afii10018`, …. Unresolved, each read the Latin letter of
+    /// the base encoding at its code — plausible text in the wrong script.
+    #[cfg(feature = "glyph-list")]
+    #[test]
+    fn glyph_list_names_decode_a_reencoded_cyrillic_font() {
+        let font = b"<</Type/Font/Subtype/Type1/BaseFont/ABCDEF+SchoolBookC\
+            /FirstChar 65/LastChar 68/Widths[700 650 650 600]\
+            /Encoding<</Type/Encoding/BaseEncoding/WinAnsiEncoding\
+            /Differences[65/afii10017/afii10018/afii10019/afii10020]>>>>";
+        let text: String = cells(&pdf_with_font(font, b"ABCD"))
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect();
+        assert_eq!(text, "АБВГ");
+    }
+
+    /// #1153: a simple font with no `/Widths` and no embedded program,
+    /// outside the standard-14 names, advanced 0 per glyph and its line was
+    /// dropped. docling-parse reads such faces by their AFM.
+    #[test]
+    fn widthless_fonts_outside_the_core_14_names_keep_their_text() {
+        // #1153: no `/Widths`, no embedded program. The Monotype PostScript
+        // names take the standard-14 metrics they substitute …
+        let line = |base: &str, descriptor: &str| {
+            let font = format!(
+                "<</Type/Font/Subtype/TrueType/BaseFont/{base}/Encoding/WinAnsiEncoding{descriptor}>>"
+            );
+            let cs = cells(&pdf_with_font(font.as_bytes(), b"Hello World"));
+            assert_eq!(cs.len(), 1, "{base}: {cs:?}");
+            assert_eq!(cs[0].text, "Hello World", "{base}");
+            cs[0].r - cs[0].l
+        };
+        // Helvetica's advances at 12 pt: docling-parse's ArialMT line is
+        // 64.2 pt wide (10.0..74.2 at 10 pt scales the same way).
+        let arial = line("ArialMT", "");
+        assert!((arial - line("Arial", "")).abs() < 1e-3, "{arial}");
+        for base in [
+            "TimesNewRomanPSMT",
+            "TimesNewRomanPS-BoldMT",
+            "CourierNewPSMT",
+        ] {
+            line(base, "");
+        }
+        // … any other face a descriptor's `/AvgWidth`, else 500 units.
+        let georgia = line("Georgia", "");
+        assert!((georgia - 11.0 * 6.0).abs() < 0.5, "{georgia}");
+        let avg = line(
+            "Tahoma",
+            "/FontDescriptor<</Type/FontDescriptor/FontName/Tahoma/Flags 32/AvgWidth 400\
+             /FontBBox[0 -200 1000 800]/Ascent 800/Descent -200/CapHeight 700>>",
+        );
+        assert!((avg - 11.0 * 4.8).abs() < 0.5, "{avg}");
+    }
+
+    /// A non-embedded ZapfDingbats or Symbol that names no encoding reads
+    /// through the face's own (docling-parse's base-font AFM; its
+    /// `annots_01`: `l` is `●`, #1113) and advances by its AFM widths — no
+    /// Latin letters, no zero-width cells.
+    #[test]
+    fn non_embedded_symbol_faces_read_through_their_encoding() {
+        let dingbats = pdf_with_font(
+            b"<</Type/Font/Subtype/Type1/BaseFont/ZapfDingbats/Name/F3>>",
+            b"l",
+        );
+        let cs = cells(&dingbats);
+        assert_eq!(cs.len(), 1, "{cs:?}");
+        assert_eq!(cs[0].text, "●");
+        assert!(
+            (cs[0].r - cs[0].l - 791.0 * 12.0 / 1000.0).abs() < 0.1,
+            "{cs:?}"
+        );
+        let symbol = pdf_with_font(b"<</Type/Font/Subtype/Type1/BaseFont/Symbol>>", b"abg");
+        let text: String = cells(&symbol).iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(text, "αβγ");
+        let symbol = pdf_with_font(b"<</Type/Font/Subtype/Type1/BaseFont/Symbol>>", b"a\xd7b");
+        let text: String = cells(&symbol).iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(text, "α⋅β");
+    }
+
+    /// docling-parse#370 (#1152): a Symbol face that declares a Latin base
+    /// encoding reads a code through it only where the face has the glyph
+    /// it names — WinAnsi's `multiply` is a Symbol glyph, its `a` and `b`
+    /// are not, so `a×b` reads `α×β`; MacRoman `ab` reads `αβ`, and
+    /// MacRoman's `bullet` (0xA5, multi_page's list bullet) stays `•`.
+    /// docling-parse's `test_symbol_follows_declared_winansi_where_it_has_the_glyph`
+    /// and `test_unit_truetype_macroman.py`'s Symbol cases.
+    #[test]
+    fn a_symbol_face_follows_its_declared_encoding_where_it_has_the_glyph() {
+        let read = |enc: &str, text: &[u8]| -> String {
+            let font = format!("<</Type/Font/Subtype/Type1/BaseFont/Symbol/Encoding/{enc}>>");
+            let pdf = pdf_with_font(font.as_bytes(), text);
+            cells(&pdf).iter().map(|c| c.text.as_str()).collect()
+        };
+        assert_eq!(read("WinAnsiEncoding", b"a\xd7b"), "α×β");
+        assert_eq!(read("MacRomanEncoding", b"ab"), "αβ");
+        assert_eq!(read("MacRomanEncoding", b"\xa5"), "•");
+    }
+
+    /// #1152: StandardEncoding — named, as a `/BaseEncoding`, or implied by
+    /// a nonsymbolic Type 1 with no `/Encoding` — and MacExpertEncoding have
+    /// their own tables; both read as WinAnsi before (`x'`®¯áñ¤Ðy`). The
+    /// cells read pdfium's `x’‘fiflÆæ⁄—y`; docling-parse's `x''fiflÆæ⁄-y` is
+    /// the same after the ASCII folding assembly applies to both.
+    #[test]
+    fn standard_and_mac_expert_encodings_have_their_own_tables() {
+        let read = |font: &[u8], text: &[u8]| -> String {
+            cells(&pdf_with_font(font, text))
+                .iter()
+                .map(|c| c.text.as_str())
+                .collect()
+        };
+        let codes = b"x'`\xae\xaf\xe1\xf1\xa4\xd0y";
+        for font in [
+            b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/StandardEncoding>>".as_slice(),
+            b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+            b"<</Type/Font/Subtype/Type1/BaseFont/Times-Roman/Encoding\
+              <</Type/Encoding/BaseEncoding/StandardEncoding/Differences[200/zero]>>>>",
+        ] {
+            assert_eq!(
+                read(font, codes),
+                "x’‘fiflÆæ⁄—y",
+                "{}",
+                String::from_utf8_lossy(font)
+            );
+        }
+        let expert = b"<</Type/Font/Subtype/Type1/BaseFont/ArialMT/Encoding/MacExpertEncoding>>";
+        assert_eq!(read(expert, b"WX"), "fifl");
+        // A TrueType face without an encoding keeps the WinAnsi stand-in.
+        let tt = b"<</Type/Font/Subtype/TrueType/BaseFont/Helvetica>>";
+        assert_eq!(read(tt, b"x\xe1y"), "xáy");
+    }
+
+    /// docling-parse 7.26's duplicate passes (docling-parse#367, #1151):
+    /// its `test_unit_overprinted_text.py` cases with docling-parse 7.27's
+    /// line cells. Exact copies go wherever they fall, near copies on their
+    /// own line within `min(0.5, 0.5 × width)`, and a word or line drawn
+    /// again after other text within `min(0.5, 0.1 × its size)`; a copy 1 pt
+    /// off its line — `shift1pt` — is the documented exception: docling-parse
+    /// keeps both, the shadow pass ([`drop_shadow_runs`]) drops it.
+    #[test]
+    fn overprinted_text_reads_once() {
+        const H: &[u8] =
+            b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>";
+        const HB: &[u8] =
+            b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold/Encoding/WinAnsiEncoding>>";
+        const A: &str = "ALPHA BETA GAMMA";
+        const D: &str = "DELTA EPSILON ZETA";
+        let lines = |fonts: &[&[u8]], content: &str| -> Vec<String> {
+            cells(&pdf_with_fonts(fonts, content.as_bytes()))
+                .into_iter()
+                .map(|c| c.text)
+                .collect()
+        };
+        let draws = |ds: &[(f32, f32, &str)]| -> String {
+            ds.iter()
+                .map(|(x, y, t)| format!("BT /F1 12 Tf {x} {y} Td ({t}) Tj ET\n"))
+                .collect()
+        };
+        let cases: [(&str, String, Vec<&str>); 13] = [
+            ("line3x", draws(&[(72.0, 700.0, A); 3]), vec![A]),
+            ("exact2", draws(&[(72.0, 700.0, A); 2]), vec![A]),
+            (
+                "block3x",
+                draws(&[(72.0, 700.0, A), (72.0, 660.0, D)].repeat(3)),
+                vec![A, D],
+            ),
+            (
+                "two_positions",
+                draws(&[(72.0, 700.0, A), (72.0, 660.0, A)]),
+                vec![A, A],
+            ),
+            (
+                "nearby2",
+                draws(&[(72.0, 700.0, A), (72.3, 700.0, A)]),
+                vec![A],
+            ),
+            (
+                "shift1pt",
+                draws(&[(72.0, 700.0, A), (73.0, 700.0, A)]),
+                vec![A],
+            ),
+            (
+                "bat_pat",
+                draws(&[(72.0, 700.0, "BAT"), (72.0, 660.0, D), (72.3, 700.0, "PAT")]),
+                vec!["BAT", D, "PAT"],
+            ),
+            (
+                "shifted_after",
+                draws(&[(72.0, 700.0, A), (72.0, 660.0, D), (72.01, 700.01, A)]),
+                vec![A, D],
+            ),
+            (
+                "block_shift001",
+                draws(&[
+                    (72.0, 700.0, A),
+                    (72.0, 660.0, D),
+                    (72.01, 700.01, A),
+                    (72.01, 660.01, D),
+                ]),
+                vec![A, D],
+            ),
+            (
+                "token_alpha_beta",
+                draws(&[
+                    (72.0, 700.0, "TOKEN ALPHA"),
+                    (72.0, 660.0, D),
+                    (72.01, 700.01, "TOKEN BETA"),
+                ]),
+                vec!["TOKEN ALPHA", D, "TOKEN BETA"],
+            ),
+            (
+                "rotated",
+                "BT /F1 12 Tf 0 1 -1 0 300 200 Tm (ALPHA BETA) Tj ET\n\
+                 BT /F1 12 Tf 0 1 -1 0 320 200 Tm (OTHER LINE) Tj ET\n\
+                 BT /F1 12 Tf 0 1 -1 0 300.01 200.01 Tm (ALPHA BETA) Tj ET\n"
+                    .to_string(),
+                vec!["ALPHA BETA", "OTHER LINE"],
+            ),
+            (
+                "small_partial",
+                "BT /F1 1 Tf 72 700 Td (WORD) Tj ET\nBT /F1 12 Tf 72 660 Td (OTHER LINE) Tj ET\n\
+                 BT /F1 1 Tf 72.25 700.25 Td (WORD) Tj ET\n"
+                    .to_string(),
+                vec!["WORD", "OTHER LINE", "WORD"],
+            ),
+            (
+                "fonts",
+                "BT /F1 12 Tf 72 700 Td (.) Tj ET\nBT /F1 12 Tf 72 660 Td (OTHER LINE) Tj ET\n\
+                 BT /F2 12 Tf 72.01 700.01 Td (.) Tj ET\n"
+                    .to_string(),
+                vec![".", "OTHER LINE", "."],
+            ),
+        ];
+        for (name, content, want) in cases {
+            assert_eq!(lines(&[H, HB], &content), want, "{name}");
+        }
+    }
+
+    /// docling-parse 7.26's clip boundary (docling-parse#443, #1150): its
+    /// `test_unit_clipped_cell_text.py` cases, word and line cells as
+    /// docling-parse 7.27 lists them. A producer fits text into a table cell
+    /// by clipping it there; the hidden end runs under the next column and
+    /// read on into it (`AB-1001-XYZReplacement of …`).
+    #[test]
+    fn a_clip_that_cuts_a_glyph_separates_words_and_lines() {
+        const HELV: &[u8] = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>";
+        let read = |content: &str| -> (Vec<String>, Vec<String>) {
+            let pdf = pdf_with_content(HELV, content.as_bytes());
+            let words = super::pdf_words(&pdf)
+                .into_iter()
+                .flat_map(|(_, _, c)| c)
+                .map(|c| c.text)
+                .collect();
+            let lines = cells(&pdf).into_iter().map(|c| c.text).collect();
+            (words, lines)
+        };
+        // The table of docling-parse#404, every cell's text in its own clip.
+        let rows = [
+            ["Code", "Description", "Unit", "Amount"],
+            [
+                "AB-1001-XYZ",
+                "Replacement of the ventilation unit, roof level",
+                "pcs",
+                "1",
+            ],
+            ["AB-1002", "Gutter cleaning", "m", "120"],
+            [
+                "AB-1003-LONG",
+                "Repainting of window frames and fascia boards",
+                "m2",
+                "85",
+            ],
+        ];
+        let columns = [72.0, 122.0, 252.0, 302.0, 372.0];
+        let (top, row_h) = (720.0, 22.0);
+        let mut table = String::from("0.5 w\n");
+        for i in 0..=rows.len() {
+            let y = top - i as f64 * row_h;
+            table += &format!("{} {y} m {} {y} l S\n", columns[0], columns[4]);
+        }
+        for x in columns {
+            table += &format!("{x} {top} m {x} {} l S\n", top - rows.len() as f64 * row_h);
+        }
+        for (r, row) in rows.iter().enumerate() {
+            for (c, text) in row.iter().enumerate() {
+                let (x0, x1) = (columns[c], columns[c + 1]);
+                let y1 = top - r as f64 * row_h;
+                let y0 = y1 - row_h;
+                table += &format!(
+                    "q {x0} {y0} {} {} re W n BT /F1 9 Tf {} {} Td ({text}) Tj ET Q\n",
+                    x1 - x0,
+                    y1 - y0,
+                    x0 + 3.0,
+                    y1 - 15.0
+                );
+            }
+        }
+        let (words, lines) = read(&table);
+        let split = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
+        let want_words: Vec<String> = rows.iter().flatten().flat_map(|t| split(t)).collect();
+        assert_eq!(words, want_words);
+        // Row 2 overflows nothing: neither clip cuts a glyph, and its code
+        // and description stay one line across the two clips.
+        assert_eq!(
+            lines,
+            [
+                "Code",
+                "Description",
+                "Unit",
+                "Amount",
+                "AB-1001-XYZ",
+                "Replacement of the ventilation unit, roof level",
+                "pcs",
+                "1",
+                "AB-1002 Gutter cleaning",
+                "m",
+                "120",
+                "AB-1003-LONG",
+                "Repainting of window frames and fascia boards",
+                "m2",
+                "85",
+            ]
+        );
+
+        // Each run in its own clip, (text, x, clip width): Helvetica 10 pt.
+        let runs = |rs: &[(&str, f64, f64)]| -> String {
+            rs.iter()
+                .map(|(t, x, w)| {
+                    format!("q {x} 697 {w} 12 re W n BT /F1 10 Tf {x} 700 Td ({t}) Tj ET Q\n")
+                })
+                .collect()
+        };
+        // Clips that cut nothing: the runs still join.
+        let (words, lines) = read(&runs(&[
+            ("Hel", 100.0, 15.0),
+            ("lo", 115.0, 7.78),
+            ("World", 125.56, 26.11),
+        ]));
+        assert_eq!(
+            (words, lines),
+            (
+                vec!["Hello".into(), "World".into()],
+                vec!["Hello World".into()]
+            )
+        );
+        // `Hello` clipped short, its hidden `lo` under `World`'s clip.
+        for visible in [12.0, 20.0] {
+            let (words, lines) = read(&runs(&[("Hello", 100.0, visible), ("World", 115.0, 26.11)]));
+            assert_eq!(words, ["Hello", "World"], "{visible}");
+            assert_eq!(lines, ["Hello", "World"], "{visible}");
+        }
+        // Only the overflowing glyph clipped: the unclipped ones lie inside
+        // its box, and the word stays whole.
+        let (words, lines) = read(
+            "BT /F1 10 Tf 100 700 Td (Montclai) Tj ET\n\
+             q 100 697 38 12 re W n BT /F1 10 Tf 137.23 700 Td (r) Tj ET Q\n",
+        );
+        assert_eq!(
+            (words, lines),
+            (vec!["Montclair".into()], vec!["Montclair".into()])
+        );
+        // A clip around a hyphen's ink is no cell: it hides less than a
+        // fifth of the em.
+        let mut x = 100.0;
+        let mut content = String::new();
+        for (t, adv) in [
+            ("a", 5.56),
+            ("u", 5.56),
+            ("f", 2.78),
+            ("g", 5.56),
+            ("e", 5.56),
+            ("-", 3.33),
+        ] {
+            let clip = if t == "-" {
+                format!("{} 697 2.0 12 re W n ", x + 0.6)
+            } else {
+                format!("{x} 697 {adv} 12 re W n ")
+            };
+            content += &format!("q {clip}BT /F1 10 Tf {x} 700 Td ({t}) Tj ET Q\n");
+            x += adv;
+        }
+        let (words, lines) = read(&content);
+        assert_eq!(
+            (words, lines),
+            (vec!["aufge-".into()], vec!["aufge-".into()])
+        );
+        // A glyph repainted under a sliver clip: a box that cannot hold a
+        // glyph is no cell either.
+        let (_, lines) = read(
+            "BT /F1 10 Tf 100 700 Td (d) Tj ET\n\
+             q 105.3 697 0.3 12 re W n BT /F1 10 Tf 100 700 Td (d) Tj ET Q\n\
+             BT /F1 10 Tf 105.56 700 Td (en) Tj ET\n",
+        );
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        // The same token in two clips is two tokens (the duplicate pass,
+        // #1151, compares clips).
+        let (_, lines) = read(
+            "q 0 0 300 792 re W n BT /F1 12 Tf 72 700 Td (TOKEN) Tj ET Q\n\
+             BT /F1 12 Tf 72 660 Td (OTHER LINE) Tj ET\n\
+             q 0 0 400 792 re W n BT /F1 12 Tf 72.01 700.01 Td (TOKEN) Tj ET Q\n",
+        );
+        assert_eq!(lines, ["TOKEN", "OTHER LINE", "TOKEN"]);
+    }
+
+    /// docling-parse's `test_small_text_keeps_repeated_letters`: a line at
+    /// 12, 2, 1, 0.8 and 0.5 pt, drawn once or twice (`1 Tr` then `0 Tr`,
+    /// fake bold), reads its letters once each — the doubled `mm` / `tt` /
+    /// `ee` of `Committee` included, which a fixed 0.5 pt near-copy window
+    /// took for re-stamps in the smallest sizes (#1151). The word spaces
+    /// at ≤ 2 pt are docling-parse#437's em-based gap, not ported; only the
+    /// letters are compared there.
+    #[test]
+    fn small_text_keeps_repeated_letters() {
+        const T: &[u8] =
+            b"<</Type/Font/Subtype/Type1/BaseFont/Times-Roman/Encoding/WinAnsiEncoding>>";
+        const TEXT: &str = "Committee Participant benefits illegible";
+        for size in ["12", "2", "1", "0.8", "0.5"] {
+            for copies in [1, 2] {
+                let run = format!("/F1 {size} Tf 50 400 Td ({TEXT}) Tj");
+                let mut content = format!("BT 0 Tr {run} ET\n");
+                if copies == 2 {
+                    content = format!("BT 1 Tr {run} ET\n{content}");
+                }
+                let text: String = cells(&pdf_with_content(T, content.as_bytes()))
+                    .iter()
+                    .map(|c| c.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if size == "12" {
+                    assert_eq!(text, TEXT, "{size} pt × {copies}");
+                } else {
+                    let letters =
+                        |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+                    assert_eq!(
+                        letters(&text),
+                        letters(TEXT),
+                        "{size} pt × {copies}: {text:?}"
+                    );
+                }
+            }
+        }
+    }
+
     /// #728: one face bound under two resource keys — `/F1` Helvetica in
     /// WinAnsi, `/F2` the same Helvetica re-encoded so code 0x81 is the `fi`
     /// glyph — with every fi-word drawn in `/F2` right after an `/F1` run.
@@ -3812,6 +6577,464 @@ mod base14_fonts {
         };
         assert_eq!(lines(crate::dp_lines::WordGap::Legacy), ["Total:", "42"]);
         assert_eq!(lines(crate::dp_lines::WordGap::Adaptive), ["Total:42"]);
+    }
+
+    /// #992: a space glyph whose advance the next `TJ` offset takes back —
+    /// EUR-Lex's superscript footnote marker `( 1 )`, set with spaces the
+    /// digit is then drawn over — is not a character of the text: the page
+    /// shows `(1)`, pdftotext and pdfium read `(1)`, and so does the line
+    /// cell here (docling-parse keeps the spaces, `( 1 )`). A space the next
+    /// glyph only kerns into (−100/1000 em, well past the space's start) is
+    /// a real gap and stays, as does one before a jump to the next line.
+    #[test]
+    fn a_space_the_next_glyph_is_drawn_over_is_not_a_character() {
+        let f1 = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>";
+        let lines = |content: &[u8]| {
+            let pdf = pdf_with_content(f1, content);
+            super::PageTextParser::open(&pdf)
+                .expect("opens")
+                .cells(0)
+                .prose
+                .into_iter()
+                .map(|c| c.text)
+                .collect::<Vec<_>>()
+        };
+        // Helvetica's space is 278/1000 em: an offset of 300 moves the pen
+        // back past where the space began, 100 leaves two thirds of it.
+        assert_eq!(
+            lines(b"BT /F1 12 Tf 72 700 Td [(EG \\() ( ) 300 (1) ( ) 300 (\\) erf)] TJ ET\n"),
+            ["EG (1) erf"]
+        );
+        assert_eq!(
+            lines(b"BT /F1 12 Tf 72 700 Td [(EG \\() ( ) 100 (1) ( ) 100 (\\) erf)] TJ ET\n"),
+            ["EG ( 1 ) erf"]
+        );
+        // A trailing space, then the next line starts at the left margin.
+        assert_eq!(
+            lines(b"BT /F1 12 Tf 72 700 Td (first line ) Tj 0 -14 Td (second) Tj ET\n"),
+            ["first line", "second"]
+        );
+        // A line drawn rotated 90° (a landscape slide on a portrait page,
+        // #528): its glyphs' loose boxes stack on one left edge, which is
+        // not an overprint — the space stays.
+        assert_eq!(
+            lines(b"BT 0 1 -1 0 300 100 Tm /F1 12 Tf (Nullam mollis) Tj ET\n"),
+            ["Nullam mollis"]
+        );
+    }
+
+    /// One line of 7.5 pt Helvetica set the way Arbortext letter-spaces a
+    /// heading (#1139): every glyph its own string, a space glyph after it,
+    /// and a `TJ` offset after the space — `within` between the letters of a
+    /// word, `between` between words (thousandths of an em, positive pulls
+    /// the next glyph back). The line cells' words, in order.
+    fn letter_spaced(words: &[&str], within: i32, between: i32) -> Vec<String> {
+        letter_spaced_under(crate::dp_lines::WordGap::Adaptive, words, within, between)
+    }
+
+    /// [`letter_spaced`] under the word-gap rule `gap`.
+    fn letter_spaced_under(
+        gap: crate::dp_lines::WordGap,
+        words: &[&str],
+        within: i32,
+        between: i32,
+    ) -> Vec<String> {
+        let f1 = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>";
+        let mut tj = String::new();
+        for (wi, word) in words.iter().enumerate() {
+            for (ci, ch) in word.chars().enumerate() {
+                if wi + ci > 0 {
+                    let offset = if ci == 0 { between } else { within };
+                    tj.push_str(&format!("( ) {offset} "));
+                }
+                match ch {
+                    '(' | ')' => tj.push_str(&format!("(\\{ch}) ")),
+                    _ => tj.push_str(&format!("({ch}) ")),
+                }
+            }
+        }
+        let content = format!("BT /F1 7.5 Tf 1 0 0 1 72 700 Tm [{tj}] TJ ET\n");
+        let pdf = pdf_with_content(f1, content.as_bytes());
+        let mut parser = super::PageTextParser::open(&pdf).expect("opens");
+        parser.set_word_gap(Some(gap));
+        parser
+            .cells(0)
+            .prose
+            .iter()
+            .flat_map(|c| c.text.split(' ').map(str::to_owned).collect::<Vec<_>>())
+            .collect()
+    }
+
+    /// #1139: Arbortext letter-spaces a heading with a space glyph after
+    /// every letter, taking a fifth of the space back inside a word and
+    /// adding one and a half between words (EUR-Lex 02021R2178, Annex I:
+    /// `1.1.1. KPI bezogen auf den Umsatz (Umsatz-KPI)`). The page shows
+    /// tracking, pdftotext reads the words, and so does the line cell —
+    /// where every letter was a word of its own (docling-parse keeps the
+    /// space glyphs). Helvetica's space is 278/1000 em: an offset of 50
+    /// leaves 0.82 of it, -400 makes it 2.44.
+    #[test]
+    fn letters_set_apart_with_space_glyphs_are_one_word() {
+        let heading = ["KPI", "bezogen", "auf", "den", "Umsatz", "(Umsatz-KPI)"];
+        assert_eq!(letter_spaced(&heading, 50, -400), heading);
+        // A justified heading: its words 45 pt apart, each a line cell of
+        // its own. `KPI` and `auf` have no chain of three letter gaps there
+        // for the word contraction to know tracking by — the parser says so
+        // (`Glyph::spaced`).
+        assert_eq!(letter_spaced(&heading, 50, -6000), heading);
+        // One word alone on its line.
+        assert_eq!(letter_spaced(&["INHALT"], 50, 0), ["INHALT"]);
+        // A fixed factor keeps the words too: the gaps are settled before
+        // any threshold is asked.
+        assert_eq!(
+            letter_spaced_under(crate::dp_lines::WordGap::Factor(0.2), &heading, 50, -400),
+            heading
+        );
+        // docling-parse ≤ 6's contraction (`pdf_word_gap=legacy`) knows no
+        // tracking: it cuts at every letter gap, as it does for a tracking
+        // set without space glyphs (#921).
+        let legacy = letter_spaced_under(crate::dp_lines::WordGap::Legacy, &heading, 50, -400);
+        assert_eq!(legacy[..3], ["K", "P", "I"], "{legacy:?}");
+    }
+
+    /// What the rule of #1139 leaves as it is drawn: a line whose letters are
+    /// no closer than its words has no letter spacing to tell from its word
+    /// spacing.
+    #[test]
+    fn single_letters_between_spaces_are_not_always_letter_spacing() {
+        let each = |words: &[&str]| -> Vec<String> {
+            words
+                .iter()
+                .flat_map(|w| w.chars().map(String::from))
+                .collect()
+        };
+        let heading = ["KPI", "bezogen", "auf"];
+        // Spaces at their own width, or stretched: single letters, as set.
+        assert_eq!(letter_spaced(&heading, 0, -400), each(&heading));
+        assert_eq!(letter_spaced(&heading, -100, -400), each(&heading));
+        // Word spaces not plainly wider than the letter spacing (0.82 of a
+        // space against a whole one): no telling which is which.
+        assert_eq!(letter_spaced(&heading, 50, 0), each(&heading));
+        // A tightened line: `a b c d` between two words, every space pulled
+        // in alike — its neighbours are as close as its letters.
+        let f1 = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>";
+        let line = |content: &[u8]| -> Vec<String> {
+            super::PageTextParser::open(&pdf_with_content(f1, content))
+                .expect("opens")
+                .cells(0)
+                .prose
+                .into_iter()
+                .map(|c| c.text)
+                .collect()
+        };
+        assert_eq!(
+            line(
+                b"BT /F1 10 Tf 72 700 Td \
+                  [(von) ( ) 50 (a) ( ) 50 (b) ( ) 50 (c) ( ) 50 (d) ( ) 50 (bis)] TJ ET\n"
+            ),
+            ["von a b c d bis"]
+        );
+        // One character repeated is a row of tokens, and a row of digits is
+        // no word either.
+        assert_eq!(letter_spaced(&["CCCCC"], 50, 0), each(&["CCCCC"]));
+        assert_eq!(letter_spaced(&["12345"], 50, 0), each(&["12345"]));
+    }
+
+    /// A text shadow: a word processor exports a heading with a shadow
+    /// effect as the same run drawn twice — the shadow in black, then the
+    /// text in colour over it, shifted up and left by a fraction of a point.
+    /// pdfium's text page reads the heading once and so does the line cell
+    /// here (docling-parse reads `Safety instructions Safety instructions`).
+    /// #1092: docling-parse's view of a page's shapes — a stroked straight
+    /// rule is a shape line and a shape box, a thin filled box only a box, a
+    /// curve or a diagonal no line, a path outside the clip nothing, and a
+    /// fill in an unresolved Pattern space nothing at all. In the cells'
+    /// frame: top-left, on the 595 × 842 test page.
+    #[test]
+    fn the_page_shapes_follow_docling_parse() {
+        let f1 = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>";
+        let shapes = |content: &[u8]| {
+            let pdf = pdf_with_content(f1, content);
+            super::PageTextParser::open(&pdf)
+                .expect("opens")
+                .cells(0)
+                .shapes
+        };
+        let s = shapes(b"2 w 72 400 m 540 400 l S\n");
+        assert_eq!(s.lines, vec![[72.0, 442.0, 540.0, 442.0]]);
+        // The stroke's half width pads the box.
+        assert_eq!(s.boxes, vec![[71.0, 441.0, 541.0, 443.0]]);
+
+        let s = shapes(b"72 300 468 1 re f\n");
+        assert!(s.lines.is_empty(), "a fill strokes no line");
+        assert_eq!(s.boxes, vec![[72.0, 541.0, 540.0, 542.0]]);
+
+        // A stroked rectangle: four edges, `h`'s closing one included.
+        let s = shapes(b"100 100 200 50 re S\n");
+        assert_eq!(s.lines.len(), 4);
+
+        let s = shapes(b"72 400 m 100 450 l 200 300 300 500 400 400 c S\n");
+        assert!(s.lines.is_empty(), "neither a diagonal nor a curve");
+        assert_eq!(s.boxes.len(), 1);
+
+        let s = shapes(b"q 0 0 300 842 re W n 72 400 m 540 400 l S 400 100 m 400 700 l S Q\n");
+        assert_eq!(
+            s.lines,
+            vec![[72.0, 442.0, 300.0, 442.0]],
+            "cut to the clip"
+        );
+        assert_eq!(s.boxes.len(), 1, "the vertical rule is clipped away");
+
+        let s = shapes(b"/Pattern cs /P0 scn 72 300 468 1 re f\n");
+        assert!(s.lines.is_empty() && s.boxes.is_empty());
+
+        // Two touching boxes merge into one component.
+        let s = shapes(b"72 300 100 1 re f 172 300 100 1 re f 400 600 10 10 re f\n");
+        assert_eq!(
+            s.boxes,
+            vec![[72.0, 541.0, 272.0, 542.0], [400.0, 232.0, 410.0, 242.0]]
+        );
+
+        // A table rule a word processor draws piece by piece, cell borders
+        // and their corner squares: `90.144 + 1.44` is `91.584` in the file
+        // and in docling-parse's doubles, not in lopdf's `f32` reals cast to
+        // `f64`, where every such joint missed by a hair and the rule fell
+        // into pieces: `real` reads the operands as the file wrote them. A
+        // gap the producer left (`147.5 + 159.86` = 307.36, then 307.37)
+        // still parts two components, as in docling-parse.
+        let s = shapes(
+            b"56.64 690.22 33.504 1.44 re f 90.144 690.22 1.44 1.44 re f \
+              91.584 690.22 54.48 1.44 re f 146.06 690.22 1.44 1.44 re f \
+              147.5 690.22 159.86 1.44 re f 307.37 690.22 1.44 1.44 re f \
+              308.81 690.22 50.304 1.44 re f\n",
+        );
+        let spans: Vec<(f32, f32)> = s.boxes.iter().map(|b| (b[0], b[2])).collect();
+        assert_eq!(spans, vec![(56.64, 307.36), (307.37, 359.114)]);
+    }
+
+    /// A transparent stroke or fill is no shape (`CA` / `ca` 0).
+    #[test]
+    fn transparent_paths_are_no_shapes() {
+        let rule = |closed| super::ShapeSub {
+            start: (0.0, 0.0),
+            cur: (100.0, 0.0),
+            pts: vec![(0.0, 0.0), (100.0, 0.0)],
+            lines: vec![((0.0, 0.0), (100.0, 0.0))],
+            closed,
+        };
+        let gs = |stroke_alpha, fill_alpha| super::ShapeGs {
+            stroke_alpha,
+            fill_alpha,
+            ..super::ShapeGs::INIT
+        };
+        let mut shapes = super::Shapes::default();
+        super::record_shape(&[rule(false)], true, false, &gs(0.0, 1.0), 1.0, &mut shapes);
+        assert_eq!(shapes, super::Shapes::default());
+        super::record_shape(&[rule(true)], false, true, &gs(1.0, 0.0), 1.0, &mut shapes);
+        assert_eq!(shapes, super::Shapes::default());
+        super::record_shape(&[rule(false)], true, false, &gs(0.5, 0.0), 1.0, &mut shapes);
+        assert_eq!(shapes.lines.len(), 1);
+    }
+
+    /// Text that really repeats sits an advance apart or more and stays: a
+    /// word set twice, a doubled letter, the same words on the next line.
+    #[test]
+    fn a_run_drawn_again_over_itself_is_read_once() {
+        let f1 = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold/Encoding/WinAnsiEncoding>>";
+        let lines = |content: &[u8]| {
+            let pdf = pdf_with_content(f1, content);
+            super::PageTextParser::open(&pdf)
+                .expect("opens")
+                .cells(0)
+                .prose
+                .into_iter()
+                .map(|c| c.text)
+                .collect::<Vec<_>>()
+        };
+        // The shadow, then the text 0.5 pt up and left of it, at 18 pt.
+        assert_eq!(
+            lines(
+                b"BT 0 g /F1 18 Tf 1 0 0 1 72 720 Tm (Safety instructions) Tj ET\n\
+                  BT 0.8 0 0 rg /F1 18 Tf 1 0 0 1 71.5 720.5 Tm (Safety instructions) Tj ET\n"
+            ),
+            ["Safety instructions"]
+        );
+        // 0.8 pt at 14 pt, and the line under it untouched.
+        assert_eq!(
+            lines(
+                b"BT /F1 14 Tf 1 0 0 1 72 656 Tm (Maintenance) Tj ET\n\
+                  BT /F1 14 Tf 1 0 0 1 71.2 656.8 Tm (Maintenance) Tj ET\n\
+                  BT /F1 11 Tf 1 0 0 1 72 632 Tm (Clean the filter) Tj ET\n"
+            ),
+            ["Maintenance", "Clean the filter"]
+        );
+        // A word set twice, a doubled letter, the same words a line apart.
+        assert_eq!(
+            lines(b"BT /F1 12 Tf 72 700 Td (very very small) Tj ET\n"),
+            ["very very small"]
+        );
+        assert_eq!(
+            lines(b"BT /F1 12 Tf 72 700 Td (Hello, all) Tj ET\n"),
+            ["Hello, all"]
+        );
+        assert_eq!(
+            lines(b"BT /F1 12 Tf 72 700 Td (Total) Tj 0 -14 Td (Total) Tj ET\n"),
+            ["Total", "Total"]
+        );
+        // Dot leaders squeezed by `Tc` to 0.05, 0.07 and 0.1 em: two dots on,
+        // a dot sits within a shadow's shift and the dots after it repeat by
+        // the same offset, but the next dot is nearer still.
+        for tc in ["-2.28", "-2.08", "-1.78"] {
+            let content = format!(
+                "BT /F1 10 Tf 72 700 Td (Contents) Tj {tc} Tc (..........) Tj 0 Tc ( 5) Tj ET\n"
+            );
+            assert_eq!(
+                lines(content.as_bytes()),
+                ["Contents.......... 5"],
+                "Tc {tc}"
+            );
+        }
+    }
+
+    /// docling-parse's `test_unit_actual_text.py` (docling-parse#300): a
+    /// marked-content span's `/ActualText` replaces the glyphs drawn in it.
+    #[test]
+    fn actual_text_replaces_the_glyphs_of_its_span() {
+        let helvetica = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>";
+        // A non-embedded TrueType whose only code, 0x4D (`M` in WinAnsi), is a
+        // zero-advance caron: drawn after `s` it makes `š`.
+        let caron = b"<</Type/Font/Subtype/TrueType/BaseFont/SynthCaron/FirstChar 77/LastChar 77\
+            /Widths[0]/Encoding/WinAnsiEncoding/FontDescriptor<</Type/FontDescriptor\
+            /FontName/SynthCaron/Flags 32/FontBBox[-540 -200 0 800]/ItalicAngle 0/Ascent 800\
+            /Descent -200/CapHeight 700/StemV 80>>>>";
+        // Code 1 is the `fi` ligature: two glyphs on one pen, one cell.
+        let ligature = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica\
+            /Encoding<</Type/Encoding/BaseEncoding/WinAnsiEncoding/Differences[1/fi]>>>>";
+        let text = |content: &str| {
+            let pdf = pdf_with_fonts(&[helvetica, caron, ligature], content.as_bytes());
+            super::PageTextParser::open(&pdf)
+                .expect("opens")
+                .cells(0)
+                .prose
+                .into_iter()
+                .map(|c| c.text)
+                .collect::<String>()
+        };
+        // Unmarked, the caron reads as its WinAnsi letter.
+        assert_eq!(
+            text("BT /F1 24 Tf 40 50 Td (Ore) Tj (s) Tj /F2 24 Tf <4D> Tj /F1 24 Tf (i) Tj ET"),
+            "OresMi"
+        );
+        // Two cells, one character: the accent composes onto its base letter.
+        assert_eq!(
+            text(
+                "BT /F1 24 Tf 40 50 Td (Ore) Tj /Span <</ActualText <FEFF0161>>> BDC \
+                  (s) Tj /F2 24 Tf <4D> Tj EMC /F1 24 Tf (i) Tj ET"
+            ),
+            "Oreši"
+        );
+        // As many characters as cells: one for one.
+        assert_eq!(
+            text("BT /F1 24 Tf 40 50 Td /Span <</ActualText (ab)>> BDC (xy) Tj EMC (z) Tj ET"),
+            "abz"
+        );
+        // A cell of two glyphs takes one character.
+        assert_eq!(
+            text("BT /F3 24 Tf 40 50 Td <01> Tj /F1 24 Tf (a) Tj ET"),
+            "fia"
+        );
+        assert_eq!(
+            text(
+                "BT /F3 24 Tf 40 50 Td /Span <</ActualText (XY)>> BDC <01> Tj \
+                  /F1 24 Tf (a) Tj EMC (z) Tj ET"
+            ),
+            "XYz"
+        );
+        // An empty text declares the glyphs not text (a visual line-break
+        // hyphen); its advance may still read as a gap.
+        let hyphen = text(
+            "BT /F1 24 Tf 40 50 Td (exam) Tj /Span <</ActualText <FEFF>>> BDC (-) Tj EMC \
+             (ple) Tj ET",
+        );
+        assert!(!hyphen.contains('-'), "{hyphen}");
+        assert_eq!(hyphen.replace(' ', ""), "example");
+        // `/Alt` written into the wrong key: implausibly long, ignored.
+        assert_eq!(
+            text(
+                "BT /F1 24 Tf 40 50 Td /Span <</ActualText (A long description that belongs \
+                  in Alt not here)>> BDC (ab) Tj EMC ET"
+            ),
+            "ab"
+        );
+        // Over graphics only: nothing to replace.
+        assert_eq!(
+            text(
+                "BT /F1 24 Tf 40 50 Td (x) Tj ET /Span <</ActualText (ghost)>> BDC \
+                  10 10 50 50 re f EMC"
+            ),
+            "x"
+        );
+        // A named property list is not resolved.
+        assert_eq!(
+            text("BT /F1 24 Tf 40 50 Td /OC /MC0 BDC (ok) Tj EMC ET"),
+            "ok"
+        );
+        // Nested spans: the outer text describes the whole run.
+        assert_eq!(
+            text(
+                "BT /F1 24 Tf 40 50 Td /Span <</ActualText (AB)>> BDC (a) Tj \
+                  /Span <</ActualText (Z)>> BDC (b) Tj EMC EMC ET"
+            ),
+            "AB"
+        );
+        // A span nested past the depth limit keeps its glyphs.
+        let nested = |depth: usize| {
+            text(&format!(
+                "BT /F1 24 Tf 40 50 Td {}/Span <</ActualText (z)>> BDC (a) Tj EMC{} ET",
+                "/X BMC ".repeat(depth),
+                " EMC".repeat(depth)
+            ))
+        };
+        assert_eq!(nested(super::MAX_ACTUAL_TEXT_DEPTH - 1), "z");
+        assert_eq!(nested(super::MAX_ACTUAL_TEXT_DEPTH), "a");
+    }
+
+    /// One for one, each character keeps its cell's box, and a cell of
+    /// several glyphs on one pen (a ligature's) becomes its first glyph.
+    #[test]
+    fn actual_text_one_for_one_keeps_each_cells_box() {
+        let glyph = |ch, x: f32, pen: f32| super::Glyph {
+            ch,
+            l: x,
+            b: 0.0,
+            r: x + 5.0,
+            t: 10.0,
+            ll: x,
+            lb: -2.0,
+            lr: x + 5.0,
+            lt: 10.0,
+            font: 0,
+            quad: None,
+            pen: Some([pen, 0.0, 10.0]),
+            math_font: false,
+            face: Default::default(),
+            unmapped_math: false,
+            program_name: None,
+            formula_only: false,
+            invisible: false,
+            spaced: false,
+            clip: None,
+            exact: 0,
+        };
+        let mut out = vec![
+            glyph('o', 0.0, 0.0),
+            glyph('f', 10.0, 10.0),
+            glyph('i', 15.0, 10.0),
+            glyph('a', 20.0, 20.0),
+        ];
+        super::apply_actual_text(&mut out, 1, "XY");
+        let got: Vec<(char, f32)> = out.iter().map(|g| (g.ch, g.l)).collect();
+        assert_eq!(got, [('o', 0.0), ('X', 10.0), ('Y', 20.0)]);
     }
 
     /// The identity follows docling-parse's precedence: a `/FontDescriptor/FontName`
@@ -3907,6 +7130,86 @@ mod overpainted {
         super::drop_overpainted_cells(&mut cells);
         assert_eq!(cells.len(), 4);
     }
+
+    /// #1129: a face that declares an ascent of 3117 and a descent of -2464
+    /// (Cambria's regular, read without its cap height) puts each of its
+    /// lines in a box 5.6 em tall that overlaps the next line by four
+    /// fifths. A short line under a long one was "one cell inside another on
+    /// the same band" — paint — and both went: these are the issue page's
+    /// cells, of whose 44 lines 7 were left. Lines one pitch apart are
+    /// lines; the stacked logo, at one height, still goes.
+    #[test]
+    fn lines_of_a_tall_box_font_are_not_paint() {
+        let mut cells = vec![
+            cell(
+                "17. Carefully pour off the supernatant from both tubes. Invert the",
+                72.0,
+                77.1,
+                514.4,
+                132.7,
+            ),
+            cell(
+                "tubes and tap them gently on the surface of a clean paper towel.",
+                72.0,
+                88.8,
+                453.0,
+                144.4,
+            ),
+            cell("“Evidence A” DNA*", 77.6, 412.5, 150.6, 462.7),
+            cell("“Evidence B” DNA*", 77.6, 423.0, 150.5, 473.2),
+            cell("enzyme mixture*", 77.6, 444.1, 143.9, 494.4),
+            // The same face painting a mark: two glyph runs at one height.
+            cell("\"", 72.7, 600.0, 86.4, 655.6),
+            cell("==", 59.4, 600.0, 99.6, 655.6),
+        ];
+        super::drop_overpainted_cells(&mut cells);
+        let texts: Vec<&str> = cells.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(texts.len(), 5, "{texts:?}");
+        assert!(
+            !texts.contains(&"==") && !texts.contains(&"\""),
+            "{texts:?}"
+        );
+    }
+
+    /// The same through the parser: a paragraph and its short last line in a
+    /// font whose descriptor declares an ascent of 3117 and a descent of
+    /// -2464 and no cap height to scale them by ([`super::font_ascent_descent`]
+    /// — with Cambria's `/CapHeight 667` the boxes are docling-parse's
+    /// 1.19 em and the question does not arise). Every line and every word of
+    /// the text-layer page (the browser's and `convert_text_layer`'s) is
+    /// there; before, the page came back empty.
+    #[test]
+    fn a_tall_box_font_keeps_its_lines_on_the_text_layer_page() {
+        let widths = "500 ".repeat(91);
+        let font = format!(
+            "<</Type/Font/Subtype/TrueType/BaseFont/Cambria/Encoding/WinAnsiEncoding\
+             /FirstChar 32/LastChar 122/Widths[{widths}]\
+             /FontDescriptor<</Type/FontDescriptor/FontName/Cambria/Flags 32\
+             /FontBBox[-1475 -2464 2868 3117]/Ascent 3117/Descent -2464\
+             /ItalicAngle 0/StemV 80>>>>"
+        );
+        let content = b"BT /F1 10 Tf 72 700 Td \
+            (Carefully pour off the supernatant from both of the tubes) Tj \
+            0 -12 Td (and tap them gently on the surface of a clean towel) Tj \
+            0 -12 Td (to drain them.) Tj ET\n";
+        let pdf = super::base14_fonts::pdf_with_content(font.as_bytes(), content);
+        let page = super::pdf_text_pages(&pdf).remove(0);
+        assert!(
+            page.cells.iter().all(|c| c.b - c.t > 50.0),
+            "the boxes are the font's 5.6 em: {:?}",
+            page.cells
+        );
+        let lines: Vec<&str> = page.cells.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(
+            lines,
+            [
+                "Carefully pour off the supernatant from both of the tubes",
+                "and tap them gently on the surface of a clean towel",
+                "to drain them.",
+            ]
+        );
+        assert_eq!(page.word_cells.len(), 24, "{:?}", page.word_cells);
+    }
 }
 
 #[cfg(test)]
@@ -3953,5 +7256,214 @@ mod vestigial_layer {
             "Do not distribute",
         ])];
         assert!(!super::text_layer_is_vestigial(&one_pager));
+    }
+}
+
+/// #994: decoded Form XObject content is cached per document only from a
+/// form's second sighting, so one-form-per-page documents do not hold every
+/// page's decoded form until the document ends.
+#[cfg(test)]
+mod form_cache {
+    use lopdf::content::{Content, Operation};
+    use lopdf::{dictionary, Document, Object, Stream};
+
+    fn form(doc: &mut Document, text: &str) -> lopdf::ObjectId {
+        let ops = vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Td", vec![40.into(), 500.into()]),
+            Operation::new("Tj", vec![Object::string_literal(text)]),
+            Operation::new("ET", vec![]),
+        ];
+        let data = Content { operations: ops }.encode().unwrap();
+        doc.add_object(Stream::new(
+            dictionary! { "Type" => "XObject", "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 595.into(), 842.into()] },
+            data,
+        ))
+    }
+
+    #[test]
+    fn single_use_forms_are_not_retained_shared_ones_are() {
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let font = doc.add_object(
+            dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" },
+        );
+        let header = form(&mut doc, "Header");
+        let mut kids = Vec::new();
+        let mut own_forms = Vec::new();
+        for p in 0..3 {
+            let own = form(&mut doc, &format!("Body{p}"));
+            own_forms.push(own);
+            let content = doc.add_object(Stream::new(
+                dictionary! {},
+                b"q /Hd Do Q q /Fx Do Q".to_vec(),
+            ));
+            kids.push(Object::Reference(doc.add_object(dictionary! {
+                "Type" => "Page", "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+                "Contents" => content,
+                "Resources" => dictionary! {
+                    "Font" => dictionary! { "F1" => font },
+                    "XObject" => dictionary! { "Hd" => header, "Fx" => own },
+                },
+            })));
+        }
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => 3 }),
+        );
+        let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog);
+
+        let mut caches = super::DocCaches::default();
+        let mut pages: Vec<_> = doc.get_pages().into_iter().collect();
+        pages.sort_by_key(|(n, _)| *n);
+        for (i, (_, pid)) in pages.iter().enumerate() {
+            let text: String = super::page_glyphs_cached(&doc, *pid, &mut caches)
+                .iter()
+                .map(|g| g.ch)
+                .collect();
+            // Both forms' text is still read, cached or not.
+            assert!(text.contains("Header"), "page {i}: {text:?}");
+            assert!(text.contains(&format!("Body{i}")), "page {i}: {text:?}");
+        }
+        // The shared header form is cached from its second page on; the
+        // per-page forms, each used once, are not held.
+        assert!(caches.forms.contains_key(&header));
+        for own in &own_forms {
+            assert!(!caches.forms.contains_key(own));
+        }
+        assert_eq!(caches.forms.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod cid_collections {
+    use super::base14_fonts::{cells, pdf_with_content};
+
+    fn type0(encoding: &str) -> Vec<u8> {
+        format!(
+            "<</Type/Font/Subtype/Type0/BaseFont/Test-Font-Light/Encoding/{encoding}\
+             /DescendantFonts[<</Type/Font/Subtype/CIDFontType0/BaseFont/Test-Font-Light\
+             /CIDSystemInfo<</Registry(Adobe)/Ordering(Japan1)/Supplement 7>>/DW 1000>>]>>"
+        )
+        .into_bytes()
+    }
+
+    fn text(fontdict: &[u8], hex: &str) -> String {
+        let content = format!("BT /F1 12 Tf 72 700 Td <{hex}> Tj ET\n");
+        cells(&pdf_with_content(fontdict, content.as_bytes()))
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect()
+    }
+
+    #[test]
+    #[cfg(feature = "cid-collections")]
+    fn identity_codes_read_through_the_collection() {
+        assert_eq!(text(&type0("Identity-H"), "0CD40E8A07A0"), "日本語");
+    }
+
+    #[test]
+    fn unicode_keyed_cmaps_read_the_code() {
+        assert_eq!(text(&type0("UniJIS-UCS2-H"), "65E5672C8A9E"), "日本語");
+    }
+
+    #[test]
+    #[cfg(feature = "cid-collections")]
+    fn collection_ranges_keep_supplementary_characters() {
+        assert_eq!(text(&type0("Identity-H"), "0CD44507450807A0"), "日𢭏𢭐語");
+        let text = |o: &[u8], cid| super::collection_text(super::collection_table(o).unwrap(), cid);
+        assert_eq!(text(b"Japan1", 0x2714).as_deref(), Some("🄐"));
+        assert_eq!(text(b"CNS1", 0x3a32).as_deref(), Some("𡤃"));
+    }
+
+    #[test]
+    #[cfg(feature = "cid-collections")]
+    fn collection_entries_are_plain_characters() {
+        assert_eq!(text(&type0("Identity-H"), "046D"), "逢");
+        let text = |o: &[u8], cid| super::collection_text(super::collection_table(o).unwrap(), cid);
+        assert_eq!(text(b"Korea1", 8752), None);
+        assert_eq!(text(b"KR", 11704), None);
+        assert_eq!(text(b"Japan1", 0x1ffd).as_deref(), Some("sec"));
+    }
+
+    #[test]
+    fn tounicode_ranges_increment_the_utf16_string() {
+        let map = super::parse_tounicode(
+            b"3 beginbfrange\n\
+              <01> <02> <d842dfb7>\n\
+              <03> <04> <00660069>\n\
+              <05> <06> <0061>\n\
+              endbfrange",
+        );
+        assert_eq!(map[&1], "𠮷");
+        assert_eq!(map[&2], "𠮸");
+        assert_eq!(map[&3], "fi");
+        assert_eq!(map[&4], "fj");
+        assert_eq!(map[&5], "a");
+        assert_eq!(map[&6], "b");
+    }
+
+    #[test]
+    fn tounicode_skips_lone_surrogates_overflows_and_huge_ranges() {
+        let map = super::parse_tounicode(
+            b"2 beginbfchar\n<01> <d842>\n<02> <0041>\nendbfchar\n\
+              4 beginbfrange\n\
+              <10> <11> [<dc00> <0042>]\n\
+              <20> <22> <0041fffe>\n\
+              <30> <31> <d842dfff>\n\
+              <00010000> <ffffffff> <>\n\
+              endbfrange",
+        );
+        assert!(!map.contains_key(&0x01));
+        assert_eq!(map[&0x02], "A");
+        assert!(!map.contains_key(&0x10));
+        assert_eq!(map[&0x11], "B");
+        assert_eq!(map[&0x20], "A\u{fffe}");
+        assert_eq!(map[&0x21], "A\u{ffff}");
+        assert!(!map.contains_key(&0x22));
+        assert_eq!(map[&0x30], "\u{20bff}");
+        assert!(!map.contains_key(&0x31));
+        assert_eq!(map[&0x1ffff], "");
+        assert_eq!(map.len(), 5 + 0x10000);
+    }
+
+    #[test]
+    fn utf16_pairs_are_one_glyph_and_one_advance() {
+        let font = type0("UniJIS-UTF16-H");
+        assert_eq!(text(&font, "65E5D842DFB78A9E"), "日𠮷語");
+        let content = b"BT /F1 12 Tf 72 700 Td <65E5D842DFB78A9E> Tj ET\n";
+        let pdf = pdf_with_content(&font, content);
+        let doc = lopdf::Document::load_mem(&pdf).unwrap();
+        let glyphs = super::page_glyphs(&doc, doc.get_pages()[&1]);
+        assert_eq!(glyphs.len(), 3);
+        assert!((glyphs[2].l - glyphs[0].l - 24.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn utf16_codes_preserve_tounicode_keys_and_identity_cids() {
+        use lopdf::{dictionary, Document};
+        let doc = Document::with_version("1.4");
+        let dict = dictionary! {"Subtype" => "Type0", "Encoding" => "UniJIS-UTF16-H"};
+        let mut font = super::parse_font(&doc, b"F1", &dict);
+        assert_eq!(
+            super::codes(&font, &[0xd8, 0x42, 0xdf, 0xb7]),
+            vec![0xd842dfb7]
+        );
+        font.to_unicode.insert(0xd842dfb7, "override".into());
+        assert_eq!(font.decode_code(0xd842dfb7).0.as_deref(), Some("override"));
+        assert_eq!(
+            super::codes(&font, &[0xd8, 0x42, 0x65, 0xe5]),
+            vec![0xd842, 0x65e5]
+        );
+        let dict = dictionary! {"Subtype" => "Type0", "Encoding" => "Identity-H"};
+        let font = super::parse_font(&doc, b"F1", &dict);
+        assert_eq!(
+            super::codes(&font, &[0xd8, 0x42, 0xdf, 0xb7]),
+            vec![0xd842, 0xdfb7]
+        );
     }
 }

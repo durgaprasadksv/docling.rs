@@ -1,6 +1,6 @@
 {
   "schema_name": "DoclingDocument",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "name": "caption_partial_link",
   "origin": {
     "mimetype": "text/html",
@@ -18,9 +18,6 @@
     "self_ref": "#/body",
     "children": [
       {
-        "$ref": "#/texts/0"
-      },
-      {
         "$ref": "#/pictures/0"
       }
     ],
@@ -33,14 +30,14 @@
     {
       "self_ref": "#/texts/0",
       "parent": {
-        "$ref": "#/body"
+        "$ref": "#/pictures/0"
       },
       "children": [],
       "content_layer": "body",
       "label": "caption",
       "prov": [],
-      "orig": "Female mallard in Cornwall , England",
-      "text": "Female mallard in Cornwall , England"
+      "orig": "Female mallard in Cornwall, England",
+      "text": "Female mallard in Cornwall, England"
     }
   ],
   "pictures": [
@@ -49,7 +46,11 @@
       "parent": {
         "$ref": "#/body"
       },
-      "children": [],
+      "children": [
+        {
+          "$ref": "#/texts/0"
+        }
+      ],
       "content_layer": "body",
       "label": "picture",
       "prov": [],

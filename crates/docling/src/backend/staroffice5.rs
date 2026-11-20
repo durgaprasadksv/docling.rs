@@ -298,6 +298,7 @@ fn convert_draw(d: &[u8], name: &str) -> Result<DoclingDocument, ConversionError
                     marker: None,
                     location: None,
                     spans: None,
+                    split: None,
                     dclx: None,
                     href: None,
                     layer: None,

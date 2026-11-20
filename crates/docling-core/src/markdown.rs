@@ -636,6 +636,11 @@ fn strict_text(text: &str, strict: bool) -> String {
     if !strict {
         return text.to_string();
     }
+    // A list item's leading GFM task box (`[ ] todo`, a docling-JSON check
+    // list item, #1033) is markup, not a stray space inside brackets.
+    if let Some(rest) = text.strip_prefix("[ ] ") {
+        return format!("[ ] {}", strict_text(rest, strict));
+    }
     text.replace("\\_", "_")
         .replace(" ,", ",")
         .replace(" .", ".")
@@ -1007,6 +1012,7 @@ fn render_list_run(items: &[Node], blocks: &mut Vec<String>, ctx: &Ctx) {
             marker: orig_marker,
             location: _,
             dclx: _,
+            split: _,
             href: _,
             layer,
             ..
@@ -1148,11 +1154,13 @@ fn render_one(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
         | Node::CommentSection { .. }
         | Node::PictureChildren(_)
         | Node::Commented { .. }
+        | Node::ScriptText { .. }
         | Node::Located { .. }
         | Node::Prov { .. }
         | Node::Track { .. }
         | Node::PageBreak
         | Node::PageInfo { .. }
+        | Node::ProvContinuation { .. }
         | Node::DoclangOnly(_) => {}
         _ if !ctx.layer_visible() => return,
         _ => {}
@@ -1194,8 +1202,11 @@ fn render_item(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
             });
         }
         Node::CheckboxItem { checked, text } => {
-            let mark = if *checked { "- [x] " } else { "- [ ] " };
-            blocks.push(ctx.breaks(&ctx.text(&format!("{mark}{text}"))));
+            // docling-core#955: the box needs a space after it, unless the
+            // text brings its own (a DocLang `<checkbox/> y` reads `" y"`).
+            let mark = if *checked { "- [x]" } else { "- [ ]" };
+            let sep = if text.starts_with(' ') { "" } else { " " };
+            blocks.push(ctx.breaks(&ctx.text(&format!("{mark}{sep}{text}"))));
         }
         Node::Code {
             language,
@@ -1225,23 +1236,24 @@ fn render_item(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
                 code_fence(lang, body)
             });
         }
-        // A CodeFormula-decoded display formula renders as docling's `$$…$$`
-        // (the un-enriched pipeline emits a placeholder paragraph instead).
-        // … and an undecoded one (empty LaTeX: the layout model found a formula
-        // the enrichment did not read) is docling's placeholder comment.
-        Node::Formula { latex, orig, .. } if latex.is_empty() => {
-            if ctx.formula_text_fallback {
-                // The glyphs' own text, flattened but readable; nothing at
-                // all when the formula had no text (drawn as outlines).
+        // A decoded display formula renders as docling's `$$…$$`. Without
+        // decoded text docling-core's `MarkdownTextSerializer` prints the
+        // placeholder when the item has source text (`orig`: a PDF formula
+        // region converted without formula enrichment, #1120) and nothing
+        // when it has neither. The `llm` export prints that source text
+        // instead of the placeholder: flattened, but the content.
+        Node::Formula { latex, orig, .. } => {
+            if !latex.is_empty() {
+                blocks.push(format!("$${latex}$$"));
+            } else if ctx.formula_text_fallback {
                 let text = orig.split_whitespace().collect::<Vec<_>>().join(" ");
                 if !text.is_empty() {
                     blocks.push(ctx.text(&text));
                 }
-            } else {
-                blocks.push("<!-- formula-not-decoded -->".to_string())
+            } else if !orig.is_empty() {
+                blocks.push(FORMULA_NOT_DECODED.to_string());
             }
         }
-        Node::Formula { latex, .. } => blocks.push(format!("$${latex}$$")),
         Node::Table(table) => {
             // docling renders a table's caption as a text line before the grid.
             // `caption` is already escaped (backend convention), like a paragraph.
@@ -1257,6 +1269,11 @@ fn render_item(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
             };
             if !rendered.is_empty() {
                 blocks.push(rendered);
+            }
+            // docling-core#675: the footnotes follow the grid, one paragraph
+            // each (`serialize_footnotes` with a `\n\n` delimiter).
+            for note in table.footnotes.iter().filter(|n| !n.is_empty()) {
+                blocks.push(ctx.text(note));
             }
         }
         // Classification predictions don't affect docling's Markdown output;
@@ -1282,13 +1299,22 @@ fn render_item(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
                 .as_ref()
                 .filter(|d| d.is_alt_text() && ctx.alt_text && !d.text.is_empty());
             let marker = picture_marker(image.as_ref(), ctx, alt.map(|d| d.text.as_str()));
-            if let Some(desc) = description {
+            // A docling-native `meta.description` (docling#5015) is the
+            // item's meta, which docling-core's serializer appends *after*
+            // the item; the legacy-annotation kinds precede the image.
+            let native = description
+                .as_ref()
+                .filter(|d| d.is_docling_meta() && !d.text.is_empty());
+            if let Some(desc) = description.as_ref().filter(|d| !d.is_docling_meta()) {
                 let shown = !desc.is_alt_text() || (ctx.alt_text && !marker.starts_with("!["));
                 if !desc.text.is_empty() && shown {
                     blocks.push(ctx.breaks(&ctx.text(&desc.text)));
                 }
             }
             blocks.push(marker);
+            if let Some(desc) = native {
+                blocks.push(ctx.breaks(&ctx.text(&desc.text)));
+            }
         }
         // A chart renders as docling's picture-with-meta markdown: the caption,
         // the placeholder, the humanized classification ("line_chart" ->
@@ -1389,6 +1415,9 @@ fn render_item(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
             }
         }
         Node::Commented { inner, .. } => render_one(inner, blocks, ctx),
+        // The item's text is already the runs' text (docling's Markdown of
+        // its inline group: the runs joined, no markup — `H2O`).
+        Node::ScriptText { inner, .. } => render_one(inner, blocks, ctx),
         // Layout provenance is DocLang-only; render the wrapped node.
         Node::Located { inner, .. }
         | Node::Spanned { inner, .. }
@@ -1397,7 +1426,7 @@ fn render_item(node: &Node, blocks: &mut Vec<String>, ctx: &mut Ctx) {
         // Page breaks are DocLang-only; docling omits them from Markdown.
         Node::PageBreak => {}
         // Page markers feed the JSON export only.
-        Node::PageInfo { .. } => {}
+        Node::PageInfo { .. } | Node::ProvContinuation { .. } => {}
         // A link destination (#852) feeds the JSON export only.
         Node::Anchor { .. } => {}
         // Runs of adjacent list items are merged by `render`; a stray single
@@ -1652,6 +1681,10 @@ fn flatten_header_rows(header_rows: &[Vec<String>], num_cols: usize) -> Vec<Stri
         .collect()
 }
 
+/// docling-core's Markdown for a formula item whose text was never decoded
+/// (a PDF formula region converted without formula enrichment).
+pub(crate) const FORMULA_NOT_DECODED: &str = "<!-- formula-not-decoded -->";
+
 pub(crate) fn render_table(table: &Table, compact: bool) -> String {
     if table.rows.is_empty() {
         return String::new();
@@ -1785,6 +1818,41 @@ mod tests {
     use super::*;
     use crate::{PictureImage, TableCell, TableStructure};
 
+    /// docling-core's formula Markdown (#1120): `$$…$$` for decoded text, the
+    /// placeholder for an undecoded formula that has source text, nothing
+    /// for one with neither — never an empty `$$$$`. The chunker prints the
+    /// same, and an empty formula still takes its item slot.
+    #[test]
+    fn an_undecoded_formula_prints_the_placeholder() {
+        let formula = |latex: &str, orig: &str| Node::Formula {
+            latex: latex.into(),
+            orig: orig.into(),
+            location: None,
+        };
+        let mut doc = DoclingDocument::new("t");
+        doc.nodes = vec![
+            formula("E = mc^2", "E = mc 2"),
+            formula("", "E = mc 2"),
+            formula("", ""),
+            Node::Paragraph {
+                text: "After.".into(),
+            },
+        ];
+        assert_eq!(
+            doc.export_to_markdown().trim(),
+            "$$E = mc^2$$\n\n<!-- formula-not-decoded -->\n\nAfter."
+        );
+        let chunks: Vec<String> = crate::chunker::HierarchicalChunker
+            .chunk(&doc)
+            .into_iter()
+            .map(|c| c.text)
+            .collect();
+        assert_eq!(
+            chunks,
+            ["$$E = mc^2$$", "<!-- formula-not-decoded -->", "After."]
+        );
+    }
+
     /// #385: where one list ends and the next begins is the backend's call
     /// (`first_in_list`), never the serializer's. An ordered run `1.` → `5.`
     /// is one list (an AsciiDoc numbered list around a nested one), and so are
@@ -1801,6 +1869,7 @@ mod tests {
             marker: None,
             location: None,
             spans: None,
+            split: None,
             dclx: None,
             href: None,
             layer: None,
@@ -1854,6 +1923,7 @@ mod tests {
             marker: None,
             location: None,
             spans: None,
+            split: None,
             dclx: None,
             href: None,
             layer: None,
@@ -1867,6 +1937,7 @@ mod tests {
             marker: None,
             location: None,
             spans: None,
+            split: None,
             dclx: None,
             href: None,
             layer: None,
@@ -1897,6 +1968,7 @@ mod tests {
             marker: None,
             location: None,
             spans: None,
+            split: None,
             dclx: None,
             href: None,
             layer: None,
@@ -2308,6 +2380,7 @@ mod tests {
         // the padded GitHub serializer (covered by the regression fixtures).
         doc.compact_tables = true;
         doc.push(Node::Table(Table {
+            footnotes: Vec::new(),
             rows: vec![vec!["a".into(), "b".into()], vec!["1".into(), "2".into()]],
             location: None,
             structure: None,
@@ -2316,6 +2389,7 @@ mod tests {
             caption: None,
             caption_parent: Default::default(),
             caption_location: None,
+            document_index: false,
         }));
         let md = doc.export_to_markdown();
         assert_eq!(md, "| a | b |\n| - | - |\n| 1 | 2 |\n");
@@ -2325,6 +2399,7 @@ mod tests {
     fn renders_padded_github_table_by_default() {
         let mut doc = DoclingDocument::new("t");
         doc.push(Node::Table(Table {
+            footnotes: Vec::new(),
             rows: vec![vec!["a".into(), "b".into()], vec!["1".into(), "2".into()]],
             location: None,
             structure: None,
@@ -2333,6 +2408,7 @@ mod tests {
             caption: None,
             caption_parent: Default::default(),
             caption_location: None,
+            document_index: false,
         }));
         let md = doc.export_to_markdown();
         // Numeric data columns are right-aligned; columns padded to header+2.
@@ -2353,6 +2429,7 @@ mod tests {
             marker: None,
             location: None,
             spans: None,
+            split: None,
             dclx: None,
             href: None,
             layer: None,
@@ -2426,6 +2503,7 @@ mod tests {
             marker: None,
             location: None,
             spans: None,
+            split: None,
             dclx: None,
             href: None,
             layer: None,
@@ -2439,6 +2517,7 @@ mod tests {
             marker: None,
             location: None,
             spans: None,
+            split: None,
             dclx: None,
             href: None,
             layer: None,
@@ -2450,6 +2529,7 @@ mod tests {
             pretty: None,
         });
         doc.push(Node::Table(Table {
+            footnotes: Vec::new(),
             rows: vec![vec!["a".into(), "b".into()], vec!["1".into(), "2".into()]],
             location: None,
             structure: None,
@@ -2458,6 +2538,7 @@ mod tests {
             caption: None,
             caption_parent: Default::default(),
             caption_location: None,
+            document_index: false,
         }));
         doc.push(Node::Picture {
             caption: Some("Fig 1".into()),
@@ -2801,6 +2882,7 @@ mod tests {
             marker: None,
             location: None,
             spans: None,
+            split: None,
             dclx: None,
             href: None,
             layer: Some(ContentLayer::Furniture),
@@ -3144,6 +3226,7 @@ mod tests {
             marker: None,
             location: None,
             spans: None,
+            split: None,
             dclx: None,
             href: None,
             layer: None,

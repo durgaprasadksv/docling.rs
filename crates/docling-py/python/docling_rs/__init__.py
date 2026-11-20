@@ -51,6 +51,7 @@ from .options import (
     DocumentStream,
     HeadingHierarchyOptions,
     InputFormat,
+    ScriptPositionOptions,
     PdfFormatOption,
     PdfPipelineOptions,
     TableFormerMode,
@@ -138,6 +139,7 @@ __all__ = [
     "PdfPipelineOptions",
     "PdfFormatOption",
     "TableStructureOptions",
+    "ScriptPositionOptions",
     "TableFormerMode",
     "AcceleratorOptions",
     "AcceleratorDevice",
@@ -217,7 +219,14 @@ class ConversionResult:
     to read the input — ``[{"kind": "stream_length", "object": [4, 0],
     "offset": 202, "declared": 5, "recovered": 3}]``, ``[]`` for a
     well-formed file — when the converter was built with
-    ``pdf_report_repairs=True`` and the input is a PDF, else ``None``."""
+    ``pdf_report_repairs=True`` and the input is a PDF, else ``None``.
+    ``.ocr_status`` (#1210) says whether the conversion had the OCR it
+    needed: ``"available"``, ``"unavailable"`` — the OCR models could not be
+    loaded (install them with :func:`download_models`) and the conversion
+    went on without them, so scanned pages and text inside images are
+    missing although the status is ``SUCCESS`` — or ``None`` when nothing
+    asked for OCR. ``.ocr_unavailable_reason`` is the load error behind an
+    ``"unavailable"``."""
 
     def __init__(
         self,
@@ -229,6 +238,8 @@ class ConversionResult:
         metadata: Optional[Dict[str, Any]] = None,
         confidence: Optional[ConfidenceReport] = None,
         pdf_repairs: Optional[List[Dict[str, Any]]] = None,
+        ocr_status: Optional[str] = None,
+        ocr_unavailable_reason: Optional[str] = None,
     ):
         self.status = ConversionStatus(status)
         self.document = document
@@ -238,6 +249,8 @@ class ConversionResult:
         self.metadata = dict(metadata) if metadata is not None else None
         self.confidence = confidence if confidence is not None else ConfidenceReport()
         self.pdf_repairs = list(pdf_repairs) if pdf_repairs is not None else None
+        self.ocr_status = ocr_status
+        self.ocr_unavailable_reason = ocr_unavailable_reason
 
 
 # Imported here because datamodel re-exports ConversionResult from this module.
@@ -284,6 +297,10 @@ class DocumentConverter:
       assembly (docling's ``HeadingHierarchyModel``, #302 — bookmarks >
       numbering > font style). Also accepted docling-shaped, via
       ``pipeline_options.heading_hierarchy_options.enabled``.
+    * ``script_positions`` — PDF: mark superscript and subscript text as
+      ``formatting.script`` runs (docling's ``ScriptPositionModel``, #1005);
+      off by default. Also accepted docling-shaped, via
+      ``pipeline_options.script_position_options.enabled``.
     * ``fetch_images`` — resolve remote/local ``<img src>`` for HTML/EPUB
       (the alias of ``image_sources="remote"``; #646).
     * ``image_sources`` — which image references resolve (#646): ``"none"``
@@ -491,6 +508,11 @@ class DocumentConverter:
       (docling only renders images then; without either, crops keep the
       engine's 2.0 px/pt render). Every picture's ``image.dpi`` is
       72·scale (#519).
+    * ``use_embedded_picture_images`` — docling's option of that name
+      (#1007, docling#5143; also read off ``PdfPipelineOptions``): a PDF
+      picture whose region holds exactly one embedded image with nothing
+      drawn over it gets that bitmap at native resolution (``dpi`` 72)
+      instead of the render crop.
     * ``artifacts_path`` — override the model cache dir (docling's
       ``artifacts_path``); defaults to ``~/.cache/docling.rs``.
     """
@@ -503,8 +525,10 @@ class DocumentConverter:
         do_ocr: bool = True,
         do_table_structure: bool = True,
         force_full_page_ocr: bool = False,
+        replace_broken_text_layer: bool = False,
         no_text_panels: bool = False,
         heading_hierarchy: bool = False,
+        script_positions: bool = False,
         do_picture_classification: bool = False,
         do_code_enrichment: bool = False,
         do_formula_enrichment: bool = False,
@@ -570,6 +594,7 @@ class DocumentConverter:
         page_range: Optional[Tuple[int, int]] = None,
         images_scale: Optional[float] = None,
         generate_page_images: bool = False,
+        use_embedded_picture_images: bool = False,
         text_layer_only: Union[bool, str] = False,
         list_attachments: bool = False,
         ebcdic_layout: Optional[str] = None,
@@ -606,10 +631,22 @@ class DocumentConverter:
             ) or getattr(
                 getattr(pdf_opts, "ocr_options", None), "force_full_page_ocr", False
             )
+            # docling's OcrOptions.replace_broken_text_layer (#1006); the
+            # direct field is accepted too.
+            replace_broken_text_layer = getattr(
+                pdf_opts, "replace_broken_text_layer", replace_broken_text_layer
+            ) or getattr(
+                getattr(pdf_opts, "ocr_options", None),
+                "replace_broken_text_layer",
+                False,
+            )
             no_text_panels = getattr(pdf_opts, "no_text_panels", no_text_panels)
             hh = getattr(pdf_opts, "heading_hierarchy_options", None)
             if hh is not None:
                 heading_hierarchy = bool(getattr(hh, "enabled", heading_hierarchy))
+            sp = getattr(pdf_opts, "script_position_options", None)
+            if sp is not None:
+                script_positions = bool(getattr(sp, "enabled", script_positions))
             do_picture_classification = getattr(
                 pdf_opts, "do_picture_classification", do_picture_classification
             )
@@ -670,6 +707,12 @@ class DocumentConverter:
                 scale = getattr(pdf_opts, "images_scale", None)
                 if scale is not None:
                     images_scale = float(scale)
+            # docling's use_embedded_picture_images (#1007, docling#5143).
+            use_embedded_picture_images = bool(
+                getattr(
+                    pdf_opts, "use_embedded_picture_images", use_embedded_picture_images
+                )
+            )
             # Map docling's ocr_options.lang (a list of language ids) onto the
             # engine's en/ch recognition-model switch. First entry wins;
             # anything that isn't recognisably English/Chinese is ignored with
@@ -779,8 +822,10 @@ class DocumentConverter:
             min_image_bytes=min_image_bytes,
             do_ocr=do_ocr,
             force_full_page_ocr=force_full_page_ocr,
+            replace_broken_text_layer=replace_broken_text_layer,
             no_text_panels=no_text_panels,
             heading_hierarchy=heading_hierarchy,
+            script_positions=script_positions,
             do_table_structure=do_table_structure,
             use_web_browser=use_web_browser,
             do_picture_classification=do_picture_classification,
@@ -839,6 +884,7 @@ class DocumentConverter:
             page_range=_page_range(page_range),
             images_scale=images_scale,
             generate_page_images=generate_page_images,
+            use_embedded_picture_images=use_embedded_picture_images,
             text_layer_only=text_layer_only,
             list_attachments=list_attachments,
             ebcdic_layout=ebcdic_layout,
@@ -1383,4 +1429,6 @@ def _wrap(native) -> ConversionResult:
             else ConfidenceReport()
         ),
         json.loads(pdf_repairs_json) if pdf_repairs_json is not None else None,
+        getattr(native, "ocr_status", None),
+        getattr(native, "ocr_unavailable_reason", None),
     )

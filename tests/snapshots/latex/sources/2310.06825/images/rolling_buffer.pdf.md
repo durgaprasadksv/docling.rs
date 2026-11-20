@@ -2,11 +2,11 @@ This is an example of ...
 
 Mistral is a good ...
 
+The cat sat on the mat ...
+
 This
 
 Mistral
-
-The cat sat on the mat ...
 
 The Timestep i Timestep i + 1
 
@@ -26,12 +26,24 @@ IS
 
 This
 
-Mistral the a
+Mistral
 
-IS
+the cat
+
+a
+
+sat IS
 
 an
 
 IS
 
-example of Mistral on the a cat sat mat example good sat on on
+example of
+
+on Mistral the mat
+
+a
+
+sat example good on
+
+on

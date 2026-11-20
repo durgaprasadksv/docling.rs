@@ -69,12 +69,16 @@ impl Pipeline {
             code_cells: Vec::new(),
             checkboxes: Vec::new(),
             math: Default::default(),
+            bitmaps: Vec::new(),
+            shapes: Default::default(),
             word_cells: Vec::new(),
             image_layout: None,
             image: image.clone(),
             links: Vec::new(),
             rotation: 0,
             keep_typography: false,
+            #[cfg(feature = "render")]
+            embedded_images: Vec::new(),
             #[cfg(feature = "ml")]
             pending_image: None,
             #[cfg(feature = "ml")]

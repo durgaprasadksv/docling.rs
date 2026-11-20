@@ -1209,6 +1209,13 @@ impl<'a> Redactor<'a> {
     }
 
     fn redact_node(&mut self, node: &mut Node) {
+        // A marked PDF item (#1005) is redacted as its plain item: the runs
+        // split a name across a script boundary (`Smith²`) where a pattern
+        // would miss it, and each value is counted once.
+        if let Node::ScriptText { inner, .. } = node {
+            let plain = std::mem::replace(inner.as_mut(), Node::PageBreak);
+            *node = plain;
+        }
         match node {
             Node::Heading { text, .. }
             | Node::Paragraph { text }
@@ -1221,12 +1228,18 @@ impl<'a> Redactor<'a> {
                 text,
                 marker,
                 dclx,
+                split,
                 href,
                 ..
             } => {
                 self.redact_text(text);
                 self.redact_opt(marker);
                 self.redact_opt(href);
+                if let Some(s) = split.as_mut() {
+                    self.redact_text(&mut s.orig);
+                    self.redact_text(&mut s.text);
+                    self.redact_text(&mut s.marker);
+                }
                 if let Some(d) = dclx.as_mut() {
                     self.redact_text(&mut d.text);
                     self.redact_opt(&mut d.marker);
@@ -1278,6 +1291,8 @@ impl<'a> Redactor<'a> {
                 self.redact_runs(runs);
                 self.redact_text(md_text);
             }
+            // Replaced by its plain item above.
+            Node::ScriptText { .. } => {}
             Node::Furniture { inner, .. }
             | Node::Commented { inner, .. }
             | Node::Located { inner, .. }
@@ -1310,7 +1325,10 @@ impl<'a> Redactor<'a> {
                 self.redact_text(text);
             }
             Node::PictureChildren(children) => self.redact_nodes(children),
-            Node::PageBreak | Node::PageInfo { .. } | Node::Anchor { .. } => {}
+            Node::PageBreak
+            | Node::PageInfo { .. }
+            | Node::ProvContinuation { .. }
+            | Node::Anchor { .. } => {}
         }
     }
 

@@ -1,6 +1,6 @@
 {
   "schema_name": "DoclingDocument",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "name": "data_uri_images",
   "origin": {
     "mimetype": "text/plain",
@@ -19,12 +19,6 @@
     "children": [
       {
         "$ref": "#/texts/0"
-      },
-      {
-        "$ref": "#/texts/2"
-      },
-      {
-        "$ref": "#/texts/7"
       }
     ],
     "content_layer": "body",
@@ -129,7 +123,7 @@
     {
       "self_ref": "#/texts/2",
       "parent": {
-        "$ref": "#/body"
+        "$ref": "#/pictures/0"
       },
       "children": [],
       "content_layer": "body",
@@ -159,8 +153,8 @@
       "content_layer": "body",
       "label": "text",
       "prov": [],
-      "orig": "An HTML",
-      "text": "An HTML"
+      "orig": "An HTML ",
+      "text": "An HTML "
     },
     {
       "self_ref": "#/texts/5",
@@ -187,13 +181,13 @@
       "content_layer": "body",
       "label": "text",
       "prov": [],
-      "orig": "tag goes through the same policy:",
-      "text": "tag goes through the same policy:"
+      "orig": " tag goes through the same policy:",
+      "text": " tag goes through the same policy:"
     },
     {
       "self_ref": "#/texts/7",
       "parent": {
-        "$ref": "#/body"
+        "$ref": "#/pictures/1"
       },
       "children": [],
       "content_layer": "body",
@@ -211,8 +205,8 @@
       "content_layer": "body",
       "label": "text",
       "prov": [],
-      "orig": "A relative path never resolves without the",
-      "text": "A relative path never resolves without the"
+      "orig": "A relative path never resolves without the ",
+      "text": "A relative path never resolves without the "
     },
     {
       "self_ref": "#/texts/9",
@@ -239,8 +233,8 @@
       "content_layer": "body",
       "label": "text",
       "prov": [],
-      "orig": "tier:",
-      "text": "tier:"
+      "orig": " tier:",
+      "text": " tier:"
     },
     {
       "self_ref": "#/texts/11",
@@ -273,7 +267,11 @@
       "parent": {
         "$ref": "#/texts/0"
       },
-      "children": [],
+      "children": [
+        {
+          "$ref": "#/texts/2"
+        }
+      ],
       "content_layer": "body",
       "label": "picture",
       "prov": [],
@@ -291,7 +289,11 @@
       "parent": {
         "$ref": "#/texts/0"
       },
-      "children": [],
+      "children": [
+        {
+          "$ref": "#/texts/7"
+        }
+      ],
       "content_layer": "body",
       "label": "picture",
       "prov": [],

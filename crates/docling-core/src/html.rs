@@ -34,9 +34,9 @@
 //! encoding="TeX">` source and upstream's `<pre>` fallback for LaTeX the
 //! library rejects. Escaping follows Python's `html.escape`: `&<>`
 //! everywhere, plus `"` and `'` where upstream calls it with `quote=True`
-//! (captions, table cells, the title, meta names); the raw (unescaped)
-//! source upstream writes inside `<pre><code>` for a code item and into a
-//! formula's MathML is reproduced as upstream does it.
+//! (captions, table cells, the title, meta names); code and formula source
+//! is escaped too (docling-core 2.106, #894) — only the Markdown backend's
+//! raw HTML blocks stay markup.
 
 use serde_json::Value;
 
@@ -311,6 +311,22 @@ fn escape(s: &str, quote: bool) -> String {
         }
     }
     out
+}
+
+/// docling-core's `_escape_attr_value`: `html.escape(quote=False)` plus
+/// `"` → `&quot;`, for a double-quoted attribute (`'` stays, so a CSS
+/// string keeps its quotes readable).
+fn escape_attr(s: &str) -> String {
+    escape(s, false).replace('"', "&quot;")
+}
+
+/// docling-core's `_escape_css_string`: a list marker kept inside the
+/// single-quoted CSS string of `list-style-type`.
+fn escape_css_string(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('\r', "")
+        .replace('\n', "\\A ")
 }
 
 /// docling-core's `get_text_direction`: `rtl` when the first character is a
@@ -648,6 +664,21 @@ impl<'a> Serializer<'a> {
         let part = if Self::is_group(item) {
             match Self::label(item) {
                 "list" => self.list_group(item, inline),
+                // #1040: in the Markdown backend's HTML detour a paragraph's
+                // inline group is the paragraph — written as docling's
+                // `<span class='inline-group'>`, two neighbouring paragraphs
+                // were two adjacent spans, which the HTML backend reads back
+                // as *one* paragraph (`**2.1** First.**2.2** Second.`).
+                // Upstream does exactly that (a lossy merge, a documented
+                // divergence); a block-level group is a `<p>` here instead.
+                "inline" if !inline && self.picture_ref_prefix.is_some() => {
+                    let parts = self.parts(item, true);
+                    if parts.is_empty() {
+                        String::new()
+                    } else {
+                        format!("<p>{}</p>", parts.concat())
+                    }
+                }
                 "inline" => self.inline_group(item),
                 _ => self.parts(item, inline).join("\n"),
             }
@@ -690,8 +721,16 @@ impl<'a> Serializer<'a> {
     }
 
     /// Upstream's `post_process`: formatting wrappers in a fixed order, then
-    /// the hyperlink around it all.
+    /// the hyperlink around it all — with the run's edge whitespace hoisted
+    /// outside the whole stack (`hoist_decoration_whitespace`, #997), and a
+    /// whitespace-only run returned undecorated.
     fn post_process(text: String, fmt: Fmt, hyperlink: Option<&str>) -> String {
+        crate::inline::hoist(&text, |core| {
+            Self::decorate(core.to_string(), fmt, hyperlink)
+        })
+    }
+
+    fn decorate(text: String, fmt: Fmt, hyperlink: Option<&str>) -> String {
         let mut res = text;
         if fmt.bold {
             res = format!("<strong>{res}</strong>");
@@ -746,20 +785,19 @@ impl<'a> Serializer<'a> {
                 let raw = Self::text(item);
                 if is_code {
                     match self.raw_code_marker {
-                        // The Markdown backend's HTML detour: only a raw HTML
-                        // block (its markers around it) is meant as markup;
-                        // any other code is escaped, so an inline `<img>`
-                        // stays the text it is instead of becoming a
-                        // picture.
-                        Some(marker) if !raw.starts_with(marker) => escape(raw, false),
-                        // Upstream writes a code item's source raw (no
-                        // `html.escape`); reproduced for parity — see the
-                        // module docs.
-                        _ => raw.to_string(),
+                        // The Markdown backend's HTML detour: a raw HTML
+                        // block (its markers around it) is meant as markup
+                        // and stays raw.
+                        Some(marker) if raw.starts_with(marker) => raw.to_string(),
+                        // docling-core 2.106 (docling-core#894): code is
+                        // `html.escape`d like any text, its newlines kept
+                        // (no `<br>` inside `<pre>`).
+                        _ => escape(raw, false),
                     }
                 } else if is_formula {
-                    // Nor is a formula's LaTeX: it feeds `latex2mathml` and
-                    // the `<annotation>` / `<pre>` fallback verbatim.
+                    // A formula's LaTeX feeds `latex2mathml` as is;
+                    // [`Self::formula`] escapes it for the `<annotation>`
+                    // and the fallbacks.
                     raw.to_string()
                 } else {
                     escape(raw, false).replace('\n', "<br>")
@@ -783,7 +821,7 @@ impl<'a> Serializer<'a> {
             let level = (level + 1).min(6);
             text = format!("<h{level}>{text}</h{level}>");
         } else if is_formula {
-            text = Self::formula(&text, inline);
+            text = Self::formula(&text, inline, has_inline_repr);
         } else if is_code {
             text = if inline {
                 format!("<code>{text}</code>")
@@ -815,7 +853,10 @@ impl<'a> Serializer<'a> {
                 } else {
                     format!(
                         "<li style=\"{}\">{text}</li>",
-                        escape(&format!("list-style-type: '{marker} ';"), false)
+                        escape_attr(&format!(
+                            "list-style-type: '{} ';",
+                            escape_css_string(marker)
+                        ))
                     )
                 };
             }
@@ -837,7 +878,51 @@ impl<'a> Serializer<'a> {
                 };
             }
         }
+        // A code item is docling's one floating text item (docling-core#675):
+        // its captions, then its footnotes, follow the code, and either wraps
+        // the whole in a `<figure>` — `<figcaption>` is only valid there.
+        if is_code {
+            let cap = self.captions(item, "figcaption");
+            let notes = self.footnotes(item);
+            if !cap.is_empty() || !notes.is_empty() {
+                text = format!("<figure>{text}{cap}{notes}</figure>");
+            }
+        }
         text
+    }
+
+    /// docling-core#675's `serialize_footnotes`: one `<div class="footnote">`
+    /// per footnote text item the floating item lists, its text escaped.
+    fn footnotes(&mut self, item: &'a Value) -> String {
+        let mut out = String::new();
+        for r in item
+            .get("footnotes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(note) = r
+                .get("$ref")
+                .and_then(Value::as_str)
+                .and_then(|c| self.resolve(c))
+            else {
+                continue;
+            };
+            if !Self::self_ref(note).starts_with("#/texts/") || self.excluded(note) {
+                continue;
+            }
+            let text = Self::text(note);
+            let dir = if text_direction(text) == "rtl" {
+                " dir=\"rtl\""
+            } else {
+                ""
+            };
+            out.push_str(&format!(
+                "<div class=\"footnote\"{dir}>{}</div>",
+                escape(text, true)
+            ));
+        }
+        out
     }
 
     /// Upstream's `_process_formula`: `latex2mathml` (see [`crate::mathml`])
@@ -846,12 +931,15 @@ impl<'a> Serializer<'a> {
     /// for LaTeX the library rejects; the `formula-not-decoded` placeholders
     /// for an empty formula. The image fallbacks (a formula crop from a
     /// stored page image) are not reproduced: the documents this serializer
-    /// is scored on carry none.
-    fn formula(text: &str, inline: bool) -> String {
+    /// is scored on carry none. The fallback text is HTML-escaped unless it
+    /// already is HTML — a formula wrapping an inline group,
+    /// `text_is_html` (docling-core#894).
+    fn formula(text: &str, inline: bool, text_is_html: bool) -> String {
         if !text.is_empty() {
             match crate::mathml::formula_to_mathml(text, inline) {
                 Ok(mathml) => mathml,
-                Err(_) => format!("<pre>{text}</pre>"),
+                Err(_) if text_is_html => format!("<pre>{text}</pre>"),
+                Err(_) => format!("<pre>{}</pre>", escape(text, false)),
             }
         } else if inline {
             "<span class=\"formula-not-decoded\">Formula not decoded</span>".to_string()
@@ -879,13 +967,14 @@ impl<'a> Serializer<'a> {
         format!("<{tag}>\n{}\n</{tag}>", parts.join("\n"))
     }
 
-    /// `HTMLInlineSerializer`: the parts joined by one space.
+    /// `HTMLInlineSerializer`: the parts concatenated as they are — the runs
+    /// carry their own whitespace (#997).
     fn inline_group(&mut self, item: &'a Value) -> String {
         let parts = self.parts(item, true);
         if parts.is_empty() {
             return String::new();
         }
-        format!("<span class='inline-group'>{}</span>", parts.join(" "))
+        format!("<span class='inline-group'>{}</span>", parts.concat())
     }
 
     /// Upstream's `serialize_captions`: each caption text item as
@@ -983,11 +1072,13 @@ impl<'a> Serializer<'a> {
             }
         }
         let text = res_parts.concat();
-        if text.is_empty() {
+        let table = if text.is_empty() {
             String::new()
         } else {
             format!("<table>{text}</table>")
-        }
+        };
+        // docling-core#675: the footnotes follow the table.
+        table + &self.footnotes(item)
     }
 
     /// The `<tr>` rows of a `TableData` (shared with the tabular-chart meta).
@@ -1070,7 +1161,9 @@ impl<'a> Serializer<'a> {
                 .unwrap_or_default();
             match (self.image_mode, uri) {
                 (ImageMode::Embedded, Some(uri)) if uri.starts_with("data:") => {
-                    res_parts.push(format!("<img src=\"{uri}\"{alt}>"));
+                    // `html.escape(str(uri))` since docling-core#894: a
+                    // quote in the URI cannot leave the attribute.
+                    res_parts.push(format!("<img src=\"{}\"{alt}>", escape(uri, true)));
                 }
                 (ImageMode::Referenced, Some(uri)) => {
                     if let Some(path) = self.reference_image(uri) {
@@ -1085,6 +1178,11 @@ impl<'a> Serializer<'a> {
         let meta = self.meta(item);
         if !meta.is_empty() {
             res_parts.push(meta);
+        }
+        // docling-core#675: the footnotes close the figure.
+        let notes = self.footnotes(item);
+        if !notes.is_empty() {
+            res_parts.push(notes);
         }
         let text = res_parts.concat();
         if text.is_empty() {
@@ -1459,6 +1557,46 @@ impl<'a> Serializer<'a> {
 mod tests {
     use super::*;
 
+    /// #1009 (docling-core#675): a picture's footnotes close its `<figure>`;
+    /// a code item with a caption or footnote is wrapped in a `<figure>`
+    /// with its `<figcaption>` and notes after the code. Expected strings are
+    /// docling-core 2.106's `export_to_html()` of the same document.
+    #[test]
+    fn floating_items_render_their_footnotes() {
+        let json: Value = serde_json::from_str(
+            r##"{"name":"t","body":{"self_ref":"#/body","children":[
+                {"$ref":"#/pictures/0"},{"$ref":"#/texts/1"},{"$ref":"#/texts/2"},
+                {"$ref":"#/tables/0"}],"content_layer":"body","label":"unspecified"},
+            "groups":[],
+            "texts":[
+              {"self_ref":"#/texts/0","parent":{"$ref":"#/pictures/0"},"children":[],"content_layer":"body","label":"footnote","text":"Source: a & b"},
+              {"self_ref":"#/texts/1","parent":{"$ref":"#/body"},"children":[],"content_layer":"body","label":"caption","text":"Figure 1"},
+              {"self_ref":"#/texts/2","parent":{"$ref":"#/body"},"children":[{"$ref":"#/texts/3"},{"$ref":"#/texts/4"}],"content_layer":"body","label":"code","text":"x = 1",
+               "captions":[{"$ref":"#/texts/3"}],"footnotes":[{"$ref":"#/texts/4"}],"code_language":"unknown"},
+              {"self_ref":"#/texts/3","parent":{"$ref":"#/texts/2"},"children":[],"content_layer":"body","label":"caption","text":"Listing 1"},
+              {"self_ref":"#/texts/4","parent":{"$ref":"#/texts/2"},"children":[],"content_layer":"body","label":"footnote","text":"Runs in O(1)."},
+              {"self_ref":"#/texts/5","parent":{"$ref":"#/tables/0"},"children":[],"content_layer":"body","label":"footnote","text":"*Note: 'Pending' awaits review."}],
+            "pictures":[{"self_ref":"#/pictures/0","parent":{"$ref":"#/body"},"children":[{"$ref":"#/texts/0"}],"content_layer":"body","label":"picture",
+               "captions":[{"$ref":"#/texts/1"}],"footnotes":[{"$ref":"#/texts/0"}],"annotations":[]}],
+            "tables":[{"self_ref":"#/tables/0","parent":{"$ref":"#/body"},"children":[{"$ref":"#/texts/5"}],"content_layer":"body","label":"table",
+               "captions":[],"footnotes":[{"$ref":"#/texts/5"}],
+               "data":{"num_rows":1,"num_cols":1,"table_cells":[{"text":"x","start_row_offset_idx":0,"end_row_offset_idx":1,"start_col_offset_idx":0,"end_col_offset_idx":1,"row_span":1,"col_span":1,"column_header":false,"row_header":false,"row_section":false}]}}]}"##,
+        )
+        .unwrap();
+        let options = HtmlExportOptions::default();
+        let mut ser = Serializer::new(&json, &options);
+        let body = ser.serialize_body();
+        assert_eq!(
+            body,
+            "<figure><figcaption><div class=\"caption\">Figure 1</div></figcaption>\
+             <div class=\"footnote\">Source: a &amp; b</div></figure>\n\
+             <figure><pre><code>x = 1</code></pre><figcaption><div class=\"caption\">Listing 1</div>\
+             </figcaption><div class=\"footnote\">Runs in O(1).</div></figure>\n\
+             <table><tbody><tr><td>x</td></tr></tbody></table>\
+             <div class=\"footnote\">*Note: &#x27;Pending&#x27; awaits review.</div>"
+        );
+    }
+
     #[test]
     fn escape_matches_python_html_escape() {
         assert_eq!(
@@ -1584,6 +1722,101 @@ mod tests {
             page(&doc.export_to_html_with_layers(ContentLayers::NONE)),
             ""
         );
+    }
+
+    /// docling-core#894: code, formula source and list markers are escaped
+    /// for the context they land in — `test_html_code_item_text_is_escaped`,
+    /// `test_html_mathml_annotation_is_escaped`,
+    /// `test_html_mathml_keeps_symbol_character_references`,
+    /// `test_html_formula_mathml_failure_falls_back_to_escaped_pre` and
+    /// `test_html_list_item_marker_cannot_break_out_of_style_attribute`.
+    #[test]
+    fn code_formula_and_markers_are_escaped() {
+        use crate::document::Node;
+        let body = |nodes: Vec<Node>| {
+            let mut doc = crate::DoclingDocument::new("escape");
+            for n in nodes {
+                doc.push(n);
+            }
+            let html = doc.export_to_html();
+            let start = html.find("<div class='page'>\n").unwrap() + "<div class='page'>\n".len();
+            let end = html.rfind("\n</div>\n</body>").unwrap();
+            html[start..end].to_string()
+        };
+        let code = |text: &str| Node::Code {
+            language: None,
+            text: text.into(),
+            orig: None,
+            pretty: None,
+        };
+        let formula = |latex: &str| Node::Formula {
+            latex: latex.into(),
+            orig: latex.into(),
+            location: None,
+        };
+
+        assert_eq!(
+            body(vec![code("conda create -n <CONDA_NAME>\nDict<str> x = \"<div>\";")]),
+            "<pre><code>conda create -n &lt;CONDA_NAME&gt;\nDict&lt;str&gt; x = \"&lt;div&gt;\";</code></pre>"
+        );
+        assert_eq!(
+            // A node's text keeps `&` entity-escaped (the JSON item's text
+            // is `print('&amp; stays literal')`).
+            body(vec![code(
+                "if a && b:\n    print('&amp;amp; stays literal')"
+            )]),
+            "<pre><code>if a &amp;&amp; b:\n    print('&amp;amp; stays literal')</code></pre>"
+        );
+
+        for (latex, annotation) in [
+            ("a<b && c>d", "a&lt;b &amp;&amp; c&gt;d"),
+            (
+                r"\text{<svg/onload=alert(1)>}",
+                r"\text{&lt;svg/onload=alert(1)&gt;}",
+            ),
+        ] {
+            let html = body(vec![formula(latex)]);
+            assert!(!html.contains("<svg") && !html.contains("<img"), "{html}");
+            assert!(
+                html.contains(&format!(
+                    "<annotation encoding=\"TeX\">{annotation}</annotation></math>"
+                )),
+                "{html}"
+            );
+        }
+        let html = body(vec![formula(r"\alpha \leq \beta")]);
+        assert!(
+            html.contains("<mi>&#x003B1;</mi><mo>&#x02264;</mo><mi>&#x003B2;</mi>"),
+            "{html}"
+        );
+        assert!(!html.contains("&amp;#x"), "{html}");
+        // LaTeX latex2mathml rejects falls back to an escaped `<pre>`.
+        assert_eq!(
+            body(vec![formula(r"\left( a<b & c")]),
+            "<pre>\\left( a&lt;b &amp; c</pre>"
+        );
+
+        // The flat node's marker is DocLang's; the JSON item's (what the
+        // `<li style>` reads) goes through these two.
+        for (marker, style) in [
+            (
+                "x\" onmouseover=\"alert(1)\" y=\"",
+                "list-style-type: 'x&quot; onmouseover=&quot;alert(1)&quot; y=&quot; ';",
+            ),
+            ("it's", r"list-style-type: 'it\'s ';"),
+            (
+                "'; color: red; content: '",
+                r"list-style-type: '\'; color: red; content: \' ';",
+            ),
+        ] {
+            assert_eq!(
+                escape_attr(&format!(
+                    "list-style-type: '{} ';",
+                    escape_css_string(marker)
+                )),
+                style
+            );
+        }
     }
 
     #[test]

@@ -96,6 +96,10 @@ pub(crate) struct SheetFormats {
     /// Absolute 0-based `(row, col)` → `xf` index, for the cells that name
     /// one; a cell without an `s` attribute uses `xf` 0 (General).
     pub(crate) cells: HashMap<(u32, u32), u32>,
+    /// Absolute 0-based `(row, col)` → the image placed in that cell
+    /// (docling#5015, [`super::xlsx_richdata`]): the cells whose `vm` names
+    /// an image rich value. Their `#VALUE!` fallback is not cell text.
+    pub(crate) images: HashMap<(u32, u32), std::sync::Arc<super::xlsx_richdata::CellImage>>,
 }
 
 impl SheetFormats {
@@ -494,7 +498,11 @@ pub(crate) fn raw_text(value: &Data, is_1904: bool) -> String {
         Data::DateTime(dt) => python_str(cell_value(dt, is_1904)),
         Data::DateTimeIso(s) => s.clone(),
         Data::DurationIso(s) => s.clone(),
-        Data::Error(e) => format!("{e:?}"),
+        // openpyxl keeps an error cell's own text (`#N/A`, `#VALUE!`,
+        // `#DIV/0!`), which is calamine's `Display`; its `Debug` is the enum
+        // variant (`NA`, `Value`, `Div0`) and is never what a sheet shows
+        // (#1020).
+        Data::Error(e) => e.to_string(),
     }
 }
 
@@ -898,6 +906,16 @@ mod tests {
         format_value(value, code).unwrap_or_else(|| python_str(value))
     }
 
+    /// #1020: an error cell reads as the sheet shows it — `#N/A`, `#VALUE!`,
+    /// `#DIV/0!` — not as calamine's enum variant (`NA`, `Value`, `Div0`).
+    #[test]
+    fn error_cells_keep_their_excel_text() {
+        use calamine::CellErrorType as E;
+        for (err, text) in [(E::NA, "#N/A"), (E::Value, "#VALUE!"), (E::Div0, "#DIV/0!")] {
+            assert_eq!(raw_text(&Data::Error(err), false), text);
+        }
+    }
+
     /// PR #4628's `test_format_excel_value_matches_excel_display` and
     /// `test_excel_review_number_format_regressions`, verbatim.
     #[test]
@@ -1037,6 +1055,7 @@ mod tests {
         let formats = SheetFormats {
             xfs: std::sync::Arc::new(xfs),
             cells,
+            images: Default::default(),
         };
         assert_eq!(formats.at(0, 0), Some("0.0%"));
         assert_eq!(

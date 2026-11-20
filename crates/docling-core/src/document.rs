@@ -107,9 +107,22 @@ pub enum NoticeKind {
         variable: &'static str,
         limit: usize,
     },
+    /// A page of a multi-page source could not be read and was left out
+    /// (#1147: a METS-GBS page whose image does not decode, or whose image
+    /// or hOCR size is over the image cap); the other pages convert. The
+    /// page keeps its number, so the pages after it keep theirs.
+    PageSkipped { page_no: usize },
 }
 
 impl Notice {
+    /// A [`NoticeKind::PageSkipped`] notice: page `page_no` left out, and why.
+    pub fn page_skipped(page_no: usize, reason: impl Into<String>) -> Self {
+        Notice {
+            kind: NoticeKind::PageSkipped { page_no },
+            message: format!("Page {page_no} failed to parse: {}", reason.into()),
+        }
+    }
+
     /// A [`NoticeKind::DepthLimit`] notice for `what` (the format read).
     pub fn depth_limit(what: &str, variable: &'static str, limit: usize) -> Self {
         Notice {
@@ -183,6 +196,14 @@ pub enum Node {
         /// (Markdown shows `- 1.1. x`, DocLang an ordered `<marker>1.1.</marker>`
         /// with clean text) and inline equations/formatting in list items.
         dclx: Option<ListItemDclx>,
+        /// JSON-only: the item as docling's `ListItemMarkerProcessor` leaves
+        /// it on a page pipeline (PDF) — `orig` with the marker, `text`
+        /// without it, the marker itself and whether it enumerates. Markdown
+        /// and DocLang keep reading the fields above, whose spelling follows
+        /// docling-core's serializers (`- [3] text` is a bullet item there).
+        /// `None` for every other backend: the JSON then writes `text` twice
+        /// and `-` or `N.` as before.
+        split: Option<Box<ListItemSplit>>,
         /// The item's hyperlink target, when its content is a link — docling's
         /// HTML backend emits it as an `<href uri=…/>` in the item head, and the
         /// anchor's Markdown link markup is stripped from the rendered content.
@@ -334,6 +355,19 @@ pub enum Node {
         unwrapped: bool,
         runs: Vec<InlineRun>,
         md_text: String,
+    },
+    /// A PDF text item whose superscripts and subscripts the opt-in
+    /// script-position stage marked (#1005, docling's `ScriptPositionModel`,
+    /// `script_position_options.enabled`). `inner` is the item — a paragraph
+    /// or a footnote — with its text already the runs' joined text (Markdown-
+    /// escaped, `E = mc2 in 1905.`): every serializer but JSON and DocLang
+    /// renders it as it is. The JSON writes docling's shape — the item with
+    /// an empty `text`, holding an inline group of the runs, each a text item
+    /// with `formatting.script` and the box of its own characters — and
+    /// DocLang writes the runs as an inline group.
+    ScriptText {
+        inner: Box<Node>,
+        runs: Vec<ScriptRun>,
     },
     /// A node in a non-body content layer — `furniture` (page headers/footers,
     /// the HTML `<title>`, site navigation/chrome) or `notes` (docx comments).
@@ -500,18 +534,68 @@ pub enum Node {
         /// Page height in PDF points.
         height: f32,
     },
+    /// One more provenance fragment of the last located text item before it
+    /// (#1127): a PDF paragraph the assembler joined across a page break keeps
+    /// the continuation's box this way, as an invisible marker right after the
+    /// joined paragraph; its grid box is on the page `page_skip` page markers
+    /// further on, numbered and sized like every other location there.
+    /// docling's merged `TextItem` lists one `prov` per fragment
+    /// (`ReadingOrderModel`: the first fragment's, then each continuation's
+    /// with its `charspan` into the joined text); the JSON export appends this
+    /// fragment to that item's `prov` once it reaches the fragment's page,
+    /// first ending the entry before it at `prev_end`. Every other serializer
+    /// skips it.
+    ProvContinuation {
+        /// The continuation's box on its page, the 0–511 `<location>` grid.
+        location: [u16; 4],
+        /// Where the fragment before this one ends, in characters of the
+        /// item's (unescaped) text: that entry's `charspan` end.
+        prev_end: usize,
+        /// This fragment's `charspan` in the item's (unescaped) text.
+        span: [usize; 2],
+        /// How many [`Node::PageInfo`] markers follow before the fragment's
+        /// page (1 = the next page). The marker stands right after its item
+        /// — nothing a later pass inserts can come between them — so its page
+        /// is counted rather than implied by position.
+        page_skip: usize,
+    },
     /// A node docling keeps in the document model (and DocLang) but leaves out
     /// of the Markdown and JSON exports — e.g. an ODF *presentation*'s pictures
     /// and charts, which appear in the `.dclx` body but not in its `.md`/`.json`.
     /// DocLang renders the wrapped node in place; Markdown and JSON skip it.
     DoclangOnly(Box<Node>),
-    /// A verbatim plain-text dump — docling's plain-text backend emits the whole
-    /// file as a single text item (used for legacy USPTO APS `.txt` grants, which
-    /// docling routes to plain text rather than its APS parser). The stored string
-    /// is the file body, one record per line. Markdown/JSON render it as one text
-    /// block; the DocLang serializer reproduces minidom's per-line layout, CDATA-
-    /// escaping only the lines that need it (see `emit_text_dump`).
+    /// A verbatim plain-text dump: one text item holding text whose line
+    /// breaks are content (a nested table flattened to its cells' text, an
+    /// ODF text box's raw text). Markdown/JSON render it as one text block,
+    /// DocLang as one `<text>` whose `<content>` keeps the breaks.
     TextDump(String),
+}
+
+/// One run of a [`Node::ScriptText`]: a piece of the item's text at one
+/// script position, with its provenance — one entry per page it is on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScriptRun {
+    /// The run's raw text (not Markdown-escaped), its spaces included:
+    /// serializers join runs with nothing.
+    pub text: String,
+    pub script: Script,
+    /// The run's provenance, one per page, in text order.
+    pub prov: Vec<ScriptRunProv>,
+    /// The item's link, on its baseline runs (each linked run exports as a
+    /// link of its own, so a marker stays out of it).
+    pub hyperlink: Option<String>,
+}
+
+/// Where a [`ScriptRun`] sits on one page: docling's `ProvenanceItem` with a
+/// bottom-left-origin box.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScriptRunProv {
+    /// 1-based page number.
+    pub page_no: usize,
+    /// `[l, t, r, b]`, PDF points, bottom-left origin (`t > b`).
+    pub bbox: [f32; 4],
+    /// The run's characters on this page, as a span of its `text`.
+    pub charspan: [usize; 2],
 }
 
 /// Vertical text position of an [`InlineRun`] — docling's `Script`.
@@ -551,6 +635,10 @@ pub enum ContentLayer {
     Notes,
     /// Invisible content (hidden spreadsheet sheets).
     Invisible,
+    /// Background content (watermarks): docling-core 2.99's `background`
+    /// layer, which DocLang has and an `invisible` item is written to
+    /// (docling-core#800) — read back from a DocLang document.
+    Background,
 }
 
 impl ContentLayer {
@@ -560,6 +648,7 @@ impl ContentLayer {
             ContentLayer::Furniture => "furniture",
             ContentLayer::Notes => "notes",
             ContentLayer::Invisible => "invisible",
+            ContentLayer::Background => "background",
         }
     }
 }
@@ -580,6 +669,8 @@ pub struct ContentLayers {
     pub notes: bool,
     /// [`ContentLayer::Invisible`]: hidden content (hidden sheets, …).
     pub invisible: bool,
+    /// [`ContentLayer::Background`]: background content (watermarks).
+    pub background: bool,
 }
 
 impl Default for ContentLayers {
@@ -595,6 +686,7 @@ impl ContentLayers {
         furniture: false,
         notes: false,
         invisible: false,
+        background: false,
     };
     /// Every layer — Python's `set(ContentLayer)`.
     pub const ALL: Self = Self {
@@ -602,6 +694,7 @@ impl ContentLayers {
         furniture: true,
         notes: true,
         invisible: true,
+        background: true,
     };
     /// No layer at all (nothing renders); build a set from it with
     /// [`with`](Self::with) / [`with_body`](Self::with_body).
@@ -610,6 +703,7 @@ impl ContentLayers {
         furniture: false,
         notes: false,
         invisible: false,
+        background: false,
     };
 
     /// The set plus `layer`.
@@ -618,6 +712,7 @@ impl ContentLayers {
             ContentLayer::Furniture => self.furniture = true,
             ContentLayer::Notes => self.notes = true,
             ContentLayer::Invisible => self.invisible = true,
+            ContentLayer::Background => self.background = true,
         }
         self
     }
@@ -635,27 +730,27 @@ impl ContentLayers {
             Some(ContentLayer::Furniture) => self.furniture,
             Some(ContentLayer::Notes) => self.notes,
             Some(ContentLayer::Invisible) => self.invisible,
+            Some(ContentLayer::Background) => self.background,
         }
     }
 
     /// Whether the layer spelled `name` (`body`, `furniture`, `notes`,
-    /// `invisible` — the JSON `content_layer` values) is in the set; an
-    /// unknown name is not.
+    /// `invisible`, `background` — the JSON `content_layer` values) is in
+    /// the set; an unknown name is not.
     pub fn contains_name(&self, name: &str) -> bool {
         match name {
             "body" => self.body,
             "furniture" => self.furniture,
             "notes" => self.notes,
             "invisible" => self.invisible,
+            "background" => self.background,
             _ => false,
         }
     }
 
     /// Parse a comma-separated list of layer names (`body,furniture`;
     /// whitespace around a name is ignored, `all` is every layer). An
-    /// unknown name is the error. docling-core 2.99's `background` layer
-    /// (watermarks) has no items in this model, so the name is accepted and
-    /// adds nothing — a set written for Python keeps parsing.
+    /// unknown name is the error.
     pub fn parse_list(list: &str) -> Result<Self, String> {
         let mut set = Self::NONE;
         for name in list.split(',').map(str::trim).filter(|n| !n.is_empty()) {
@@ -664,11 +759,11 @@ impl ContentLayers {
                 "furniture" => set.furniture = true,
                 "notes" => set.notes = true,
                 "invisible" => set.invisible = true,
-                "background" => {}
+                "background" => set.background = true,
                 "all" => set = Self::ALL,
                 other => {
                     return Err(format!(
-                        "unknown content layer `{other}` (expected body, furniture, notes, invisible or all)"
+                        "unknown content layer `{other}` (expected body, furniture, notes, invisible, background or all)"
                     ))
                 }
             }
@@ -834,6 +929,19 @@ pub struct ListItemDclx {
     pub runs: Vec<InlineRun>,
 }
 
+/// A page pipeline's list item as docling's `ListItemMarkerProcessor`
+/// exports it to JSON (see [`Node::ListItem::split`]): the source text
+/// (`orig`), the `marker` split off its head (empty when it has none), the
+/// `text` left, and `enumerated` for a numbered marker of any spelling (`1.`,
+/// `[1]`, `a)`, `iv.`). Plain text, not Markdown-escaped.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ListItemSplit {
+    pub orig: String,
+    pub marker: String,
+    pub text: String,
+    pub enumerated: bool,
+}
+
 impl Node {
     /// The paragraph a [`Node::LabeledText`] renders as outside the JSON:
     /// its text, wrapped as `[text](uri)` when it carries a hyperlink. Any
@@ -964,6 +1072,26 @@ impl PictureDescription {
     /// Whether this description is a picture's alt text.
     pub fn is_alt_text(&self) -> bool {
         self.provenance == Self::ALT_TEXT
+    }
+
+    /// The (empty) provenance of a description docling's backend writes
+    /// itself as `PictureMeta.description` — `text` only, no `created_by`
+    /// and no legacy `annotations` entry: the alt text of an XLSX image
+    /// placed in a cell (docling#5015). Unlike [`Self::ALT_TEXT`] it is
+    /// upstream's own output, so every format renders it unconditionally.
+    pub const DOCLING_META: &'static str = "";
+
+    /// A docling-native description, see [`Self::DOCLING_META`].
+    pub fn docling_meta(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            provenance: Self::DOCLING_META.to_string(),
+        }
+    }
+
+    /// Whether this is a docling-native description ([`Self::DOCLING_META`]).
+    pub fn is_docling_meta(&self) -> bool {
+        self.provenance == Self::DOCLING_META
     }
 }
 
@@ -1108,6 +1236,11 @@ pub struct Table {
     /// pipeline's caption layout region, written as the caption item's
     /// `prov` (#609); see [`Node::Picture`]'s field of the same name.
     pub caption_location: Option<[u16; 4]>,
+    /// The table's footnotes (docling's `TableItem.footnotes`, #1009): one
+    /// text each, escaped like [`Self::caption`]. Markdown prints them after
+    /// the grid, one paragraph each; JSON emits `footnote` text items under
+    /// the table that its `footnotes` list references (docling-core#675).
+    pub footnotes: Vec<String>,
     /// Optional per-cell bounding boxes, same shape as [`Self::rows`]: `[l, t,
     /// r, b]` in page points with a **top-left** origin (the PDF pipeline's
     /// native space). Set by the ML pipeline's TableFormer paths — a spanned
@@ -1120,6 +1253,32 @@ pub struct Table {
     /// covered positions there); JSON serializes these cells verbatim when
     /// present, and the DocLang structure overlay is derived from them.
     pub cells: Option<Vec<TableCell>>,
+    /// The table is a table of contents — docling's `document_index` label
+    /// (#1091), which the PDF layout model gives a TOC region and docling
+    /// keeps on the `TableItem`. Only the JSON export (and its read-back)
+    /// tells it apart: every other serializer renders it as a table, as
+    /// docling-core does.
+    pub document_index: bool,
+}
+
+/// The name a [`rich_cell_group`] carries, which the JSON export reads.
+pub(crate) const RICH_CELL: &str = "rich_cell";
+
+/// A rich table cell's blocks as docling's `RichTableCell` (#1119): the one
+/// entry of a [`Table::cell_blocks`] cell, wrapping the cell's paragraphs and
+/// pictures in reading order. The JSON export writes it as the table's
+/// `rich_cell_group_<table>_<col>_<row>` group the cell's `ref` points at,
+/// as the DOCX backend's item tree does; DocLang, which has no group
+/// element, renders the blocks in place. [`Table::rows`] keeps the cell's
+/// Markdown text, its pictures as `<!-- image -->` paragraphs, and the
+/// JSON's cell text leaves those out (python-docx's `cell.text`).
+pub fn rich_cell_group(children: Vec<Node>) -> Node {
+    Node::Group {
+        label: "unspecified".into(),
+        name: Some(RICH_CELL.into()),
+        layer: None,
+        children,
+    }
 }
 
 impl Table {
@@ -1592,6 +1751,85 @@ impl DoclingDocument {
         for_each_picture_in_mut(&mut self.nodes, f);
     }
 
+    /// Change the unit the pages are measured in: every length in page units
+    /// — each [`Node::PageInfo`] size, a [`Node::Prov`] box, a first-class
+    /// table cell's box, a script run's box — is multiplied by `sx`
+    /// horizontally and `sy` vertically, and every image's `dpi` (its pixels
+    /// per inch *of the page unit*: a picture crop, a page image) is divided
+    /// by `sx`, so the same pixels still cover the same part of the page. The
+    /// 0–511 `<location>` grid is relative to the page and needs nothing. The
+    /// image input sizes its page from the file's resolution this way once
+    /// the models have run on its pixels (#1093).
+    pub fn rescale_page_units(&mut self, sx: f32, sy: f32) {
+        let scale_box = |b: &mut [f32; 4]| {
+            b[0] *= sx;
+            b[1] *= sy;
+            b[2] *= sx;
+            b[3] *= sy;
+        };
+        let scale_dpi = |img: &mut PictureImage| {
+            img.dpi = (img.dpi as f32 / sx).round().max(1.0) as u32;
+        };
+        fn table(t: &mut Table, scale_box: &dyn Fn(&mut [f32; 4]), walk: &dyn Fn(&mut [Node])) {
+            for cell in t.cells.iter_mut().flatten() {
+                if let Some(b) = cell.bbox.as_mut() {
+                    scale_box(b);
+                }
+            }
+            for row in t.cell_blocks.iter_mut().flatten() {
+                for cell in row {
+                    walk(cell);
+                }
+            }
+        }
+        fn walk(
+            nodes: &mut [Node],
+            sx: f32,
+            sy: f32,
+            scale_box: &dyn Fn(&mut [f32; 4]),
+            scale_dpi: &dyn Fn(&mut PictureImage),
+        ) {
+            let recurse = |n: &mut [Node]| walk(n, sx, sy, scale_box, scale_dpi);
+            for node in nodes {
+                match node {
+                    Node::PageInfo { width, height, .. } => {
+                        *width *= sx;
+                        *height *= sy;
+                    }
+                    Node::Prov { bbox, inner, .. } => {
+                        scale_box(bbox);
+                        recurse(std::slice::from_mut(inner));
+                    }
+                    Node::ScriptText { inner, runs } => {
+                        for run in runs {
+                            for prov in &mut run.prov {
+                                scale_box(&mut prov.bbox);
+                            }
+                        }
+                        recurse(std::slice::from_mut(inner));
+                    }
+                    Node::Located { inner, .. }
+                    | Node::Track { inner, .. }
+                    | Node::Furniture { inner, .. }
+                    | Node::Commented { inner, .. }
+                    | Node::DoclangOnly(inner) => recurse(std::slice::from_mut(inner)),
+                    Node::Group { children, .. } | Node::PictureChildren(children) => {
+                        recurse(children)
+                    }
+                    Node::Table(t) | Node::Chart { table: t, .. } => table(t, scale_box, &recurse),
+                    Node::Picture {
+                        image: Some(img), ..
+                    } => scale_dpi(img),
+                    _ => {}
+                }
+            }
+        }
+        walk(&mut self.nodes, sx, sy, &scale_box, &scale_dpi);
+        for img in self.page_images.values_mut() {
+            scale_dpi(img);
+        }
+    }
+
     /// Convenience: append a heading.
     pub fn add_heading(&mut self, level: u8, text: impl Into<String>) {
         self.push(Node::Heading {
@@ -1761,15 +1999,20 @@ impl DoclingDocument {
         })
     }
 
-    /// An opted-in item tree's DocLang ([`crate::tree::ItemTree::doclang`]),
-    /// else — no such tree, or one the port does not cover — the nodes'.
+    /// The item tree's DocLang — docling-core's `DocLangDocSerializer`
+    /// ported over the tree (`doclang_tree.rs`, #884), the structure the
+    /// JSON export writes — else (no tree, or one the port does not cover:
+    /// provenance, picture meta, form fields) the nodes'. The flat nodes
+    /// cannot carry a footnote's label, a caption's or a cell's inline
+    /// formulas, text docling never wrote as Markdown, or the whitespace of
+    /// an inline group's runs, which DocLang 0.9 reads as written.
     fn export_doclang(
         &self,
         pictures: crate::doclang::Pictures,
     ) -> (String, Vec<(String, Vec<u8>)>) {
         self.tree
             .as_ref()
-            .filter(|t| t.doclang)
+            .filter(|t| !t.doclang_nodes)
             .and_then(|t| crate::doclang_tree::export(t, pictures))
             .unwrap_or_else(|| crate::doclang::render(&self.nodes, pictures))
     }
@@ -2058,5 +2301,94 @@ mod table_api_tests {
         assert!(plain.set_cell_bbox(0, 1, [1.0, 2.0, 3.0, 4.0]));
         assert_eq!(plain.cell_bbox(0, 1), Some([1.0, 2.0, 3.0, 4.0]));
         assert_eq!(plain.find_cell_by_bbox([1.5, 2.5, 2.5, 3.5]), Some((0, 1)));
+    }
+}
+
+#[cfg(test)]
+mod rescale_tests {
+    use super::*;
+
+    fn image(dpi: u32) -> PictureImage {
+        PictureImage {
+            mimetype: "image/png".into(),
+            width: 300,
+            height: 150,
+            data: Vec::new(),
+            dpi,
+            display_size: None,
+        }
+    }
+
+    /// #1093: a page measured in pixels re-measured in points — the page size,
+    /// a table cell's box and a script run's box scale per axis, an image's
+    /// pixels per inch of the page grow by the inverse, and the 0–511
+    /// locations, relative to the page, stay.
+    #[test]
+    fn a_page_unit_change_scales_lengths_and_resolutions() {
+        let table = Table {
+            rows: vec![vec!["a".into()]],
+            location: Some([10, 20, 30, 40]),
+            cells: Some(vec![TableCell {
+                text: "a".into(),
+                bbox: Some([100.0, 200.0, 300.0, 400.0]),
+                start_row: 0,
+                start_col: 0,
+                row_span: 1,
+                col_span: 1,
+                column_header: false,
+                row_header: false,
+                row_section: false,
+            }]),
+            ..Table::default()
+        };
+        let mut doc = DoclingDocument::new("scan");
+        doc.push(Node::PageInfo {
+            page_no: 1,
+            width: 1000.0,
+            height: 2000.0,
+        });
+        doc.push(Node::Located {
+            location: [1, 2, 3, 4],
+            inner: Box::new(Node::Table(table)),
+        });
+        doc.push(Node::Group {
+            label: "group".into(),
+            name: None,
+            layer: None,
+            children: vec![Node::Picture {
+                caption: None,
+                caption_href: None,
+                image: Some(image(72)),
+                classification: None,
+                description: None,
+                caption_parent: Default::default(),
+                caption_location: None,
+            }],
+        });
+        doc.page_images.insert(1, image(144));
+
+        doc.rescale_page_units(0.24, 0.5);
+
+        assert!(matches!(
+            doc.nodes[0],
+            Node::PageInfo { width, height, .. } if width == 240.0 && height == 1000.0
+        ));
+        let Node::Located { location, inner } = &doc.nodes[1] else {
+            panic!("located table")
+        };
+        assert_eq!(*location, [1, 2, 3, 4]);
+        let Node::Table(t) = inner.as_ref() else {
+            panic!("table")
+        };
+        assert_eq!(t.location, Some([10, 20, 30, 40]));
+        assert_eq!(
+            t.cells.as_ref().unwrap()[0].bbox,
+            Some([24.0, 100.0, 72.0, 200.0])
+        );
+        let Node::Group { children, .. } = &doc.nodes[2] else {
+            panic!("group")
+        };
+        assert!(matches!(&children[0], Node::Picture { image: Some(i), .. } if i.dpi == 300));
+        assert_eq!(doc.page_images[&1].dpi, 600);
     }
 }

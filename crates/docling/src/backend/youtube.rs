@@ -331,6 +331,7 @@ pub fn transcript_document(name: &str, page: &WatchPage, vtt: Option<&str>) -> D
                 marker: None,
                 location: None,
                 spans: None,
+                split: None,
                 dclx: None,
                 href: None,
                 layer: None,
@@ -388,6 +389,8 @@ pub fn transcript_document(name: &str, page: &WatchPage, vtt: Option<&str>) -> D
         let body = dedupe_rolling_cues(body);
         crate::backend::webvtt::append_cues(&mut doc, &mut tree, &body);
     }
+    // The cues' runs keep their own whitespace (schema 1.11.0, #997).
+    tree.inline_whitespace = true;
     doc.tree = Some(tree);
     doc.metadata.title = page.title.clone();
     doc.metadata.description = page.description.clone();
