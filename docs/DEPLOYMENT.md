@@ -409,15 +409,24 @@ models — nothing else (no Tesseract, ffmpeg, speech-recognition or chunking
 models), since every megabyte is pull time on a cold start.
 
 - **Endpoint settings:** branch `claude/port-v2`, Dockerfile path
-  `crates/docling-serve/Dockerfile.runpod`, build context the repository root;
-  `DOCLING_SERVE_API_KEY` in the environment (callers send `X-Api-Key`).
-- **Port and health:** the server listens on `PORT`, 80 by default — RunPod's
-  load-balancer default, so the endpoint needs no port settings. `GET /ping`
-  answers 200 when ready, 204 while `--warmup` loads the models, 503 if loading
-  failed. Endpoint type **Load Balancer**, FlashBoot on.
-- **Conversions:** `POST /v1/convert/r2` (the object-store flow, see the
-  [serve README](../crates/docling-serve/README.md#object-store-conversion-v1convertr2)),
-  one conversion per worker (`--concurrency 1`).
+  `crates/docling-serve/Dockerfile.runpod`, build context the repository root.
+  The servers listen on localhost only, behind RunPod's authenticated job API.
+- **Endpoint type: Queue.** The image runs `crates/docling-serve/runpod/handler.py`,
+  a RunPod queue worker. At start it sizes a pool to the machine — one
+  docling-serve process per document the GPU can hold (GPU memory less a
+  1.5 GB reserve, at 5 GB a document: two on a 16 GB card, four on 24 GB,
+  capped at eight and by CPU cores and host RAM) — waits until every process
+  has its models loaded, and reports that pool size as the worker's
+  concurrency, so RunPod sends it that many jobs at once and a larger card
+  RunPod happens to schedule does proportionally more work. Environment
+  overrides: `DOCLING_POOL_SIZE`, `DOCLING_POOL_GB_PER_DOC`,
+  `DOCLING_POOL_RESERVE_GB`, `DOCLING_POOL_MAX`.
+- **Jobs:** `POST https://api.runpod.ai/v2/<endpoint>/run` with
+  `{"input": <the /v1/convert/r2 body>, "webhook": "<url>"}` — answered at once
+  with a job id; the webhook receives the result. A 4xx/5xx from the server
+  (missing chunk URLs, a failed upload) comes back as the job's `error` with its
+  `status`, so the job is marked failed and RunPod's retry policy applies.
+- FlashBoot on; minimum workers 0 to scale to zero.
 
 ## Offline & Air-Gapped Deployment
 

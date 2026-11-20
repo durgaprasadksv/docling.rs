@@ -94,14 +94,11 @@ COPY --from=build /src/target/release/docling-serve /usr/local/bin/docling-serve
 ENV LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH} \
     DOCLING_RS_EP=auto \
     DOCLING_RS_SYSTEM_FONTS=0 \
-    DOCLING_RS_FONT_DIRS=/usr/share/fonts/truetype/liberation:/usr/share/fonts/truetype/dejavu \
-    PORT=80
-# RunPod's load balancer sends traffic and health checks to `PORT` (80 unless
-# the endpoint sets it) and polls `/ping`: 204 while `--warmup` loads the
-# models, 200 once ready.
-EXPOSE 80
-# `--allow-url-fetch`: /v1/convert/r2 reads and writes through the caller's
-# pre-signed URLs. `--warmup`: the models load before the server reports
-# ready, so the first request does not pay for them. One conversion at a
-# time per GPU; RunPod scales by workers.
-CMD ["sh", "-c", "exec /usr/local/bin/docling-serve --addr 0.0.0.0:${PORT} --allow-url-fetch --warmup --concurrency 1 --no-ui"]
+    DOCLING_RS_FONT_DIRS=/usr/share/fonts/truetype/liberation:/usr/share/fonts/truetype/dejavu
+# A queue endpoint's worker: RunPod hands jobs to `handler.py` through its SDK;
+# the handler starts one docling-serve per document the GPU can hold (two on a
+# 16 GB card, more on a bigger one) and takes that many jobs at once, each
+# going to an idle server's /v1/convert/r2 on localhost.
+RUN python3 -m pip install --no-cache-dir runpod==2.4.0
+COPY crates/docling-serve/runpod/handler.py /app/handler.py
+CMD ["python3", "-u", "/app/handler.py"]
