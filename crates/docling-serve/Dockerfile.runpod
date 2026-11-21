@@ -112,8 +112,8 @@ ENV LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH} \
     DOCLING_RS_SYSTEM_FONTS=0 \
     DOCLING_RS_FONT_DIRS=/usr/share/fonts/truetype/liberation:/usr/share/fonts/truetype/dejavu
 # A queue endpoint's worker: RunPod hands jobs to `handler.py` through its SDK;
-# the handler starts one docling-serve per document the GPU can hold (two on a
-# 16 GB card, more on a bigger one) and takes that many jobs at once, each
+# the handler starts one docling-serve per document the GPU can hold (three on
+# a 16 GB card, more on a bigger one) and takes that many jobs at once, each
 # going to an idle server's /v1/convert/r2 on localhost.
 RUN python3 -m pip install --no-cache-dir runpod==2.4.0
 COPY handler.py /app/handler.py

@@ -411,17 +411,32 @@ models), since every megabyte is pull time on a cold start.
 - **Endpoint settings:** branch `claude/port-v2`, Dockerfile path
   `crates/docling-serve/Dockerfile.runpod`, build context the repository root.
   The servers listen on localhost only, behind RunPod's authenticated job API.
-- **Endpoint type: Queue.** The image runs `handler.py` (at the repository root, where RunPod's GitHub
-  integration looks for `runpod.serverless.start()`),
+- **Endpoint type: Queue.** The image runs `handler.py` (at the repository
+  root, where RunPod's GitHub integration looks for `runpod.serverless.start()`),
   a RunPod queue worker. At start it sizes a pool to the machine — one
   docling-serve process per document the GPU can hold (GPU memory less a
-  1.5 GB reserve, at 5 GB a document: two on a 16 GB card, four on 24 GB,
-  capped at eight and by CPU cores and host RAM) — waits until every process
-  has its models loaded, and reports that pool size as the worker's
-  concurrency, so RunPod sends it that many jobs at once and a larger card
-  RunPod happens to schedule does proportionally more work. Environment
-  overrides: `DOCLING_POOL_SIZE`, `DOCLING_POOL_GB_PER_DOC`,
-  `DOCLING_POOL_RESERVE_GB`, `DOCLING_POOL_MAX`.
+  1.5 GB reserve, at 4 GB a document: three on a 16 GB card, five on 24 GB,
+  capped at eight, by half the pod's vCPUs and by its RAM, read from RunPod's
+  `RUNPOD_CPU_COUNT` / `RUNPOD_MEM_GB` since a container sees the whole host) —
+  waits until every process has its models loaded, and reports that pool size
+  as the worker's concurrency, so RunPod sends it that many jobs at once and a
+  larger card does proportionally more work. Environment overrides:
+  `DOCLING_POOL_SIZE`, `DOCLING_POOL_GB_PER_DOC`, `DOCLING_POOL_RESERVE_GB`,
+  `DOCLING_POOL_MAX`.
+- **Measured on a RunPod pod** (RTX 2000 Ada 16 GB, 9 vCPUs, the worker image,
+  2026-11-20): two processes ready in 2.3 s; 1.2 GB of GPU memory idle.
+
+  | Job | Alone | Several at once |
+  |---|---|---|
+  | 9-page digital paper (arXiv 2206.01062), download → convert → upload | 4.4 s | — |
+  | 14-page digital paper (2305.03393) | — | 2 at once: 4.3 s each, 1.3 GB peak |
+  | 4-page scan (nemotron_multipage, OCR) | 2.3 s | 2 at once: 2.3 s |
+  | a formula-dense page as an image (every formula decoded by the model) | 46.7 s, 5.6 GB peak | 2: 48.5 s, 8.0 GB · 4: 60.8 s, 14.2 GB |
+
+  Digital formulas never reach the model (they are rebuilt from the text
+  layer); a page whose formulas must be decoded from pixels is the slow and
+  memory-heavy case, and running several at once is nearly free in time — the
+  decoder leaves the GPU mostly idle — which is what the pool is for.
 - **Jobs:** `POST https://api.runpod.ai/v2/<endpoint>/run` with
   `{"input": <the /v1/convert/r2 body>, "webhook": "<url>"}` — answered at once
   with a job id; the webhook receives the result. A 4xx/5xx from the server

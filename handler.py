@@ -8,7 +8,7 @@ RunPod queue endpoints hand jobs to a worker through the `runpod` SDK, not as
 HTTP requests, and the worker decides how many it takes at once. One
 docling-serve process converts one PDF at a time (its warm pipeline is shared
 behind a lock), so this worker starts one process per document the GPU can
-hold — two on a 16 GB card, more on a bigger one, rather than leaving a 48 GB
+hold — three on a 16 GB card, more on a bigger one, rather than leaving a 48 GB
 card running a single book — and tells RunPod to send it that many jobs at
 once. Each job goes to an idle process's `/v1/convert/r2` on localhost.
 
@@ -20,7 +20,10 @@ caller's webhook see why.
 
 Sizing, all overridable in the endpoint's environment:
   DOCLING_POOL_SIZE         processes, overriding the computation below
-  DOCLING_POOL_GB_PER_DOC   GPU memory one conversion needs (default 5)
+  DOCLING_POOL_GB_PER_DOC   GPU memory one conversion needs (default 4: measured
+                            on an RTX 2000 Ada, a formula-dense page decoded
+                            from pixels peaks near 3.3 GB per conversion, four
+                            at once 14.2 of 16 GB)
   DOCLING_POOL_RESERVE_GB   GPU memory left free (default 1.5)
   DOCLING_POOL_MAX          upper bound (default 8)
 The count is also capped by CPU cores (one conversion keeps about two busy)
@@ -112,7 +115,7 @@ def pool_size():
     gpu = gpu_memory_gb()
     if gpu is None:
         return 1
-    per_doc = env_float("DOCLING_POOL_GB_PER_DOC", 5)
+    per_doc = env_float("DOCLING_POOL_GB_PER_DOC", 4)
     reserve = env_float("DOCLING_POOL_RESERVE_GB", 1.5)
     n = int((gpu - reserve) // per_doc)
     n = min(n, int(env_float("DOCLING_POOL_MAX", 8)))
