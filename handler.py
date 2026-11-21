@@ -62,6 +62,22 @@ def gpu_memory_gb():
 
 
 def host_memory_gb():
+    """The RAM this container may use in GB: RunPod's allotment
+    (`RUNPOD_MEM_GB`), else the cgroup limit, else the machine's. A container
+    sees the whole host in /proc/meminfo (251 GB on a pod allotted 50)."""
+    allotted = os.environ.get("RUNPOD_MEM_GB")
+    if allotted:
+        try:
+            return float(allotted)
+        except ValueError:
+            pass
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = open(path).read().strip()
+            if raw.isdigit() and int(raw) < 1 << 60:
+                return int(raw) / 1024.0 ** 3
+        except OSError:
+            pass
     try:
         with open("/proc/meminfo") as fh:
             for line in fh:
@@ -70,6 +86,22 @@ def host_memory_gb():
     except OSError:
         pass
     return None
+
+
+def cpu_count():
+    """The CPUs this container may use: RunPod's allotment
+    (`RUNPOD_CPU_COUNT`), else the cgroup quota, else the machine's (a
+    container sees all 48 of a host it is allotted 9 of)."""
+    allotted = os.environ.get("RUNPOD_CPU_COUNT")
+    if allotted and allotted.isdigit():
+        return int(allotted)
+    try:
+        quota, period = open("/sys/fs/cgroup/cpu.max").read().split()
+        if quota != "max":
+            return max(1, int(int(quota) / int(period)))
+    except (OSError, ValueError):
+        pass
+    return os.cpu_count() or 2
 
 
 def pool_size():
@@ -84,7 +116,7 @@ def pool_size():
     reserve = env_float("DOCLING_POOL_RESERVE_GB", 1.5)
     n = int((gpu - reserve) // per_doc)
     n = min(n, int(env_float("DOCLING_POOL_MAX", 8)))
-    n = min(n, max(1, (os.cpu_count() or 2) // 2))
+    n = min(n, max(1, cpu_count() // 2))
     ram = host_memory_gb()
     if ram:
         n = min(n, max(1, int(ram // 4)))
@@ -146,8 +178,8 @@ def post(port, body):
 
 
 POOL = pool_size()
-print(f"docling worker: GPU {gpu_memory_gb()} GB, host {host_memory_gb()} GB, "
-      f"{os.cpu_count()} CPUs -> {POOL} conversion(s) at once", flush=True)
+print(f"docling worker: GPU {gpu_memory_gb()} GB, RAM {host_memory_gb()} GB, "
+      f"{cpu_count()} CPUs -> {POOL} conversion(s) at once", flush=True)
 PROCS = start_servers(POOL)
 FREE = None  # asyncio.Queue of idle ports, made on the SDK's event loop
 
