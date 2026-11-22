@@ -289,7 +289,10 @@ fn charged_groups(s: &str) -> String {
     let mut open: Vec<usize> = Vec::new();
     let mut pairs: Vec<(usize, usize)> = Vec::new();
     for (i, &c) in b.iter().enumerate() {
-        let escaped = i > 0 && b[i - 1] == b'\\';
+        // `\[`, and the brackets of an existing `\left[ … \right]` fence
+        let escaped = (i > 0 && b[i - 1] == b'\\')
+            || s[..i].ends_with("\\left")
+            || s[..i].ends_with("\\right");
         match c {
             b'[' if !escaped => open.push(i),
             b']' if !escaped => {
@@ -871,6 +874,8 @@ mod tests {
             r"\left[Fe(CN)_{6}\right]^{4-}"
         );
         assert_eq!(charged_groups(r"\xrightarrow[a]{b}"), r"\xrightarrow[a]{b}");
+        let fenced = r"\left[ Al^{3+} \right] \left[ OH^{-} \right] ^ {3}";
+        assert_eq!(charged_groups(fenced), fenced);
     }
 
     #[test]
