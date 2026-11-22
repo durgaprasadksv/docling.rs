@@ -252,6 +252,58 @@ fn group_elements(s: &str) -> String {
     out
 }
 
+/// Drop the `\mathrm{…}` around element symbols in a chemical formula:
+/// `\mathrm{COOH}(aq)` → `COOH(aq)`.
+///
+/// A formula recognizer sets every formula upright (`\mathrm{CH}_{3}\mathrm{COOH}`).
+/// The converter turns a multi-letter `\mathrm` group into one `<mi>`, and
+/// MathCAT reads a parenthesis right after a multi-letter identifier as its
+/// argument: `\mathrm{CO}(g)` was "cap c cap o, times g", and one such group
+/// in an equation fails MathCAT's chemistry check for the whole of it (an
+/// acid-base equilibrium came out "times eigh q … right harpoon over left
+/// harpoon"). Bare letters are what [`group_elements`] expects and what
+/// MathCAT merges into element symbols. Only groups of letters and digits are
+/// unwrapped (spaces from the recognizer's tokenization dropped); anything
+/// else in an `\mathrm` stays as it is. Only called for chemistry.
+#[cfg_attr(not(feature = "speech"), allow(dead_code))] // read by the speech chain only
+fn unwrap_upright(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(at) = rest.find("\\mathrm") {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + "\\mathrm".len()..];
+        let open = after.len() - after.trim_start_matches(' ').len();
+        let body = &after[open..];
+        let close = body.find('}');
+        match (body.starts_with('{'), close) {
+            (true, Some(end))
+                if body[1..end].chars().any(|c| c.is_ascii_alphanumeric())
+                    && body[1..end]
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == ' ') =>
+            {
+                // `\to\mathrm{CH}` must not become `\toCH`: after a control word
+                // the letters need the space that ends it.
+                let tail = out.rsplit('\\').next().unwrap_or("");
+                if out.contains('\\')
+                    && !tail.is_empty()
+                    && tail.chars().all(|c| c.is_ascii_alphabetic())
+                {
+                    out.push(' ');
+                }
+                out.extend(body[1..end].chars().filter(|c| *c != ' '));
+                rest = &body[end + 1..];
+            }
+            _ => {
+                out.push_str("\\mathrm");
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Spell `\xrightarrow[below]{above}` and `\xleftarrow` as `\overset` /
 /// `\underset` over a plain arrow.
 ///
@@ -665,7 +717,7 @@ fn speak_expression(latex: &str) -> Option<SpeechStyles> {
     let latex = chemical_arrows(latex);
     let mut tight = bare_states(&normalize_latex(&latex));
     if is_chemistry(&tight) {
-        tight = group_elements(&tight);
+        tight = group_elements(&unwrap_upright(&tight));
     }
     tight = unfold_extensible_arrows(&tight);
     let mathml = crate::mathml::to_xml(&tight).ok()?;
@@ -682,6 +734,22 @@ pub fn speak_latex(_latex: &str) -> Option<SpeechStyles> {
 #[cfg(test)]
 mod tests {
     use super::normalize_latex;
+
+    #[test]
+    fn unwraps_upright_element_groups_only() {
+        use super::unwrap_upright;
+        assert_eq!(
+            unwrap_upright(r"\mathrm{CH}_{3}\mathrm {C O O H}(aq)"),
+            "CH_{3}COOH(aq)"
+        );
+        assert_eq!(
+            unwrap_upright(r"\mathrm{(aq)} + \mathrm{}"),
+            r"\mathrm{(aq)} + \mathrm{}"
+        );
+        assert_eq!(unwrap_upright(r"\mathrm"), r"\mathrm");
+        assert_eq!(unwrap_upright(r"\to\mathrm{CH}_{4}"), r"\to CH_{4}");
+        assert_eq!(unwrap_upright(r"x^{2}\mathrm{CO}"), r"x^{2}CO");
+    }
 
     /// The whole reason this step exists: a recognizer emits one token at a
     /// time, so consecutive digits arrive separated and would parse as separate
@@ -932,6 +1000,20 @@ mod tests {
             ],
         );
         assert!(!s.contains("harpoon"), "{s}");
+
+        // Upright multi-letter groups before a state (GLM-OCR sets formulas in
+        // \mathrm): the state is a state, not an argument, and the equation stays
+        // chemistry.
+        let s = clear(
+            r"\mathrm {C H} _ {3} \mathrm {C O O H} (a q) + \mathrm {H} _ {2} \mathrm {O} (l) \rightleftharpoons \mathrm {C H} _ {3} \mathrm {C O O} ^ {-} (a q) + \mathrm {H} _ {3} \mathrm {O} ^ {+} (a q)",
+        );
+        has(
+            &s,
+            &["aqueous", "liquid", "is in equilibrium with", "super minus"],
+        );
+        assert!(!s.contains("harpoon") && !s.contains("times"), "{s}");
+        let s = clear(r"\mathrm{HCl}(aq) \rightarrow \mathrm{H}^{+}(aq) + \mathrm{Cl}^{-}(aq)");
+        has(&s, &["cap c l", "reacts to form", "aqueous"]);
 
         // Stacked scripts: the charge belongs to the ion, not to the 4.
         has(
