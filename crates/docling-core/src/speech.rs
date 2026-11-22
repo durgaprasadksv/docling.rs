@@ -137,7 +137,7 @@ const UPRIGHT_NAMES: [&str; 28] = [
     "deg", "mod",
 ];
 
-/// Outside chemistry, an upright group of words is prose: `\mathrm{and}` →
+/// An upright group of words is prose: `\mathrm{and}` →
 /// `\text{and}`.
 ///
 /// As `\mathrm` the converter makes each letter a variable, so the
@@ -935,10 +935,11 @@ pub fn speak_latex(latex: &str) -> Option<SpeechStyles> {
 fn speak_expression(latex: &str) -> Option<SpeechStyles> {
     let latex = chemical_arrows(latex);
     let mut tight = bare_states(&normalize_latex(&latex));
+    // Prose first: a lowercase word is never a chemical formula, and a
+    // one-sided limit's `2^{-}` passes the chemistry check.
+    tight = upright_prose(&tight);
     if is_chemistry(&tight) {
         tight = group_elements(&charged_groups(&brace_ions(&unwrap_upright(&tight))));
-    } else {
-        tight = upright_prose(&tight);
     }
     tight = unfold_extensible_arrows(&tight);
     let mathml = crate::mathml::to_xml(&tight).ok()?;
@@ -1304,6 +1305,11 @@ mod tests {
         );
         has(&s, &["Neto", "solid", "is in equilibrium with", "aqueous"]);
         assert!(!s.contains("harpoon"), "{s}");
+        let s = clear(
+            r"\lim _ {x \rightarrow 2 ^ {-}} f (x) \mathrm {and} \lim _ {x \rightarrow 2 ^ {+}} f (x)",
+        );
+        has(&s, &["and; the limit"]);
+        assert!(!s.contains("eigh n d"), "{s}");
         let s = clear(r"\mathrm {SO} _ {4} ^ {2 -}");
         has(&s, &["sub 4 super 2 minus"]);
         let s = clear(r"[\mathrm{Fe}(\mathrm{CN})_{6}]^{4-}");
