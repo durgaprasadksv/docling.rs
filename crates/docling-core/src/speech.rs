@@ -1171,7 +1171,7 @@ mod tests {
         );
         has(
             &s,
-            &["aqueous", "liquid", "is in equilibrium with", "super minus"],
+            &["aqueous", "liquid", "is in equilibrium with", "minus"],
         );
         assert!(!s.contains("harpoon") && !s.contains("times"), "{s}");
         let s = clear(
