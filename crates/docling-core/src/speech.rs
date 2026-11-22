@@ -252,6 +252,72 @@ fn group_elements(s: &str) -> String {
     out
 }
 
+/// Brace a polyatomic ion before its charge: `SO_{4}^{2-}` → `{SO_{4}}^{2-}`.
+///
+/// Bare, MathCAT attaches the charge to the last subscript and reads "cap s;
+/// cap o, sub 4, raised to the 2 minus power"; braced, the charge sits on the
+/// ion: "S, O, sub 4 super 2 minus". Only a run of two or more element symbols
+/// with at least one digit subscript, ending right at a charge, is braced
+/// (OH⁻ and single ions already read right).
+#[cfg_attr(not(feature = "speech"), allow(dead_code))] // read by the speech chain only
+fn brace_ions(s: &str) -> String {
+    static ION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"((?:[A-Z][a-z]?(?:_\{\d+\})?){2,})(\^\{\d*[+\-\x{2212}]\d*\})")
+            .expect("ion pattern")
+    });
+    ION.replace_all(s, |c: &regex::Captures<'_>| {
+        if c[1].contains('_') {
+            format!("{{{}}}{}", &c[1], &c[2])
+        } else {
+            c[0].to_string()
+        }
+    })
+    .into_owned()
+}
+
+/// `[Fe(CN)_{6}]^{4-}` → `\left[Fe(CN)_{6}\right]^{4-}`: a bracket pair
+/// carrying a script.
+///
+/// The converter emits bare brackets as loose operators, so the charge lands
+/// on the closing bracket alone and MathCAT reads "close bracket raised to the
+/// 4 minus power"; as a `\left…\right` fence it is one group and reads "close
+/// bracket super 4 minus". Only pairs whose `]` is directly followed by `^`
+/// or `_` change (an `\xrightarrow[…]{…}` argument is followed by `{`).
+#[cfg_attr(not(feature = "speech"), allow(dead_code))] // read by the speech chain only
+fn charged_groups(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut open: Vec<usize> = Vec::new();
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    for (i, &c) in b.iter().enumerate() {
+        let escaped = i > 0 && b[i - 1] == b'\\';
+        match c {
+            b'[' if !escaped => open.push(i),
+            b']' if !escaped => {
+                if let Some(j) = open.pop() {
+                    if matches!(b.get(i + 1), Some(b'^' | b'_')) {
+                        pairs.push((j, i));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if pairs.is_empty() {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len() + 12 * pairs.len());
+    for (i, ch) in s.char_indices() {
+        if pairs.iter().any(|p| p.0 == i) {
+            out.push_str("\\left[");
+        } else if pairs.iter().any(|p| p.1 == i) {
+            out.push_str("\\right]");
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 /// Drop the `\mathrm{…}` around element symbols in a chemical formula:
 /// `\mathrm{COOH}(aq)` → `COOH(aq)`.
 ///
@@ -773,7 +839,7 @@ fn speak_expression(latex: &str) -> Option<SpeechStyles> {
     let latex = chemical_arrows(latex);
     let mut tight = bare_states(&normalize_latex(&latex));
     if is_chemistry(&tight) {
-        tight = group_elements(&unwrap_upright(&tight));
+        tight = group_elements(&charged_groups(&brace_ions(&unwrap_upright(&tight))));
     }
     tight = unfold_extensible_arrows(&tight);
     let mathml = crate::mathml::to_xml(&tight).ok()?;
@@ -790,6 +856,22 @@ pub fn speak_latex(_latex: &str) -> Option<SpeechStyles> {
 #[cfg(test)]
 mod tests {
     use super::normalize_latex;
+
+    #[test]
+    fn braces_ions_and_fences_charged_brackets() {
+        use super::{brace_ions, charged_groups};
+        assert_eq!(
+            brace_ions(r"Mg^{2+} + SO_{4}^{2-}"),
+            r"Mg^{2+} + {SO_{4}}^{2-}"
+        );
+        assert_eq!(brace_ions(r"OH^{-}"), r"OH^{-}");
+        assert_eq!(brace_ions(r"x_{2}y^{2}"), r"x_{2}y^{2}");
+        assert_eq!(
+            charged_groups(r"[Fe(CN)_{6}]^{4-}"),
+            r"\left[Fe(CN)_{6}\right]^{4-}"
+        );
+        assert_eq!(charged_groups(r"\xrightarrow[a]{b}"), r"\xrightarrow[a]{b}");
+    }
 
     #[test]
     fn splits_a_leading_word_label() {
@@ -1092,6 +1174,11 @@ mod tests {
         );
         has(&s, &["Neto", "solid", "is in equilibrium with", "aqueous"]);
         assert!(!s.contains("harpoon"), "{s}");
+        let s = clear(r"\mathrm {SO} _ {4} ^ {2 -}");
+        has(&s, &["sub 4 super 2 minus"]);
+        let s = clear(r"[\mathrm{Fe}(\mathrm{CN})_{6}]^{4-}");
+        has(&s, &["close bracket super 4 minus"]);
+        assert!(!s.contains("power"), "{s}");
         let s = clear(r"\mathrm{HCl}(aq) \rightarrow \mathrm{H}^{+}(aq) + \mathrm{Cl}^{-}(aq)");
         has(&s, &["cap c l", "reacts to form", "aqueous"]);
 
