@@ -46,9 +46,14 @@
 /// command. `\rightarrow 2` needs no space because a digit cannot extend the
 /// command name.
 pub fn normalize_latex(src: &str) -> String {
+    let src = &keep_word_spaces(src);
     let mut out = String::with_capacity(src.len());
     let mut chars = src.chars().peekable();
     while let Some(c) = chars.next() {
+        if c == WORD_SPACE {
+            out.push(' ');
+            continue;
+        }
         if c != ' ' {
             out.push(c);
             continue;
@@ -71,6 +76,95 @@ pub fn normalize_latex(src: &str) -> String {
         }
     }
     out
+}
+
+/// Stands in for a space between words inside a text command while
+/// [`normalize_latex`] drops the recognizer's token spaces.
+const WORD_SPACE: char = '\u{1}';
+
+/// Commands whose argument is text, not mathematics.
+const TEXT_COMMANDS: [&str; 5] = ["text", "mathrm", "textrm", "operatorname", "textit"];
+
+/// Inside a text command's group, mark the spaces that separate words.
+///
+/// The recognizer spaces every token, so `\mathrm {k g}` must close up to `kg`,
+/// but `\mathrm {Image width and height}` must keep its word breaks: it was
+/// spoken "Imagewidthandheight". A space survives when a word of two or more
+/// letters stands on either side of it; between single characters (`k g`,
+/// `C O O H`) it is the recognizer's and goes.
+fn keep_word_spaces(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut rest = src;
+    while let Some(at) = rest.find('\\') {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at + 1..];
+        let name_len = tail.len()
+            - tail
+                .trim_start_matches(|c: char| c.is_ascii_alphabetic())
+                .len();
+        let name = &tail[..name_len];
+        let after = &tail[name_len..];
+        let body = after.trim_start_matches(' ');
+        let close = body.find('}');
+        if TEXT_COMMANDS.contains(&name) && body.starts_with('{') && close.is_some() {
+            let end = close.unwrap_or(0);
+            let toks: Vec<&str> = body[1..end].split(' ').filter(|t| !t.is_empty()).collect();
+            out.push('\\');
+            out.push_str(name);
+            out.push('{');
+            for (k, t) in toks.iter().enumerate() {
+                if k > 0 && (t.chars().count() > 1 || toks[k - 1].chars().count() > 1) {
+                    out.push(WORD_SPACE);
+                }
+                out.push_str(t);
+            }
+            out.push('}');
+            rest = &body[end + 1..];
+        } else {
+            out.push('\\');
+            out.push_str(name);
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Function and operator names set upright that MathCAT speaks itself.
+const UPRIGHT_NAMES: [&str; 28] = [
+    "sin", "cos", "tan", "cot", "sec", "csc", "sinh", "cosh", "tanh", "arcsin", "arccos", "arctan",
+    "log", "ln", "lg", "exp", "lim", "max", "min", "sup", "inf", "det", "dim", "gcd", "lcm", "arg",
+    "deg", "mod",
+];
+
+/// Outside chemistry, an upright group of words is prose: `\mathrm{and}` →
+/// `\text{and}`.
+///
+/// As `\mathrm` the converter makes each letter a variable, so the
+/// conjunction between two limits read "eigh n d". A group is prose when it
+/// holds two or more words, or one lowercase word of three or more letters
+/// that is not a function name MathCAT knows (`\mathrm{max}` stays).
+#[cfg_attr(not(feature = "speech"), allow(dead_code))] // read by the speech chain only
+fn upright_prose(s: &str) -> String {
+    static GROUP: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"\\mathrm\{([A-Za-z ]+)\}").expect("mathrm pattern")
+    });
+    GROUP
+        .replace_all(s, |c: &regex::Captures<'_>| {
+            let inner = c[1].trim();
+            let words: Vec<&str> = inner.split(' ').filter(|w| !w.is_empty()).collect();
+            let prose = words.len() > 1 && words.iter().any(|w| w.len() > 1)
+                || (words.len() == 1
+                    && inner.len() >= 3
+                    && inner.chars().all(|ch| ch.is_ascii_lowercase())
+                    && !UPRIGHT_NAMES.contains(&inner));
+            if prose {
+                format!("\\text{{ {inner} }}")
+            } else {
+                c[0].to_string()
+            }
+        })
+        .into_owned()
 }
 
 /// Is this LaTeX unambiguously chemistry?
@@ -843,6 +937,8 @@ fn speak_expression(latex: &str) -> Option<SpeechStyles> {
     let mut tight = bare_states(&normalize_latex(&latex));
     if is_chemistry(&tight) {
         tight = group_elements(&charged_groups(&brace_ions(&unwrap_upright(&tight))));
+    } else {
+        tight = upright_prose(&tight);
     }
     tight = unfold_extensible_arrows(&tight);
     let mathml = crate::mathml::to_xml(&tight).ok()?;
@@ -987,6 +1083,35 @@ mod tests {
             assert_eq!(head, s, "unchanged: {s}");
             assert_eq!(note, None);
         }
+    }
+
+    #[test]
+    fn words_in_text_commands_keep_their_spaces() {
+        assert_eq!(
+            normalize_latex(r"\mathrm {Image width and height} \leq 1 0 2 4"),
+            r"\mathrm{Image width and height}\leq1024"
+        );
+        assert_eq!(normalize_latex(r"\mathrm { k J }"), r"\mathrm{kJ}");
+        assert_eq!(
+            normalize_latex(r"\text {if and only if}"),
+            r"\text{if and only if}"
+        );
+        assert_eq!(normalize_latex(r"\mathrm {C O O H}"), r"\mathrm{COOH}");
+    }
+
+    #[test]
+    fn upright_words_are_prose() {
+        use super::upright_prose;
+        assert_eq!(
+            upright_prose(r"f(x)\mathrm{and}g(x)"),
+            r"f(x)\text{ and }g(x)"
+        );
+        assert_eq!(upright_prose(r"\mathrm{max}(a,b)"), r"\mathrm{max}(a,b)");
+        assert_eq!(upright_prose(r"K_{\mathrm{sp}}"), r"K_{\mathrm{sp}}");
+        assert_eq!(
+            upright_prose(r"\mathrm{Image width}"),
+            r"\text{ Image width }"
+        );
     }
 
     /// A lone backslash is the control-space command; its space stays.
