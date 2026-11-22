@@ -436,6 +436,58 @@ fn segments(latex: &str) -> Vec<&str> {
         .collect()
 }
 
+/// A word label in front of a formula, `\mathrm{Net}: …` or `\text{Overall:} …`,
+/// and the formula after it.
+///
+/// Textbooks head an equation with a word ("Net:", "Neto:", "Overall:").
+/// Spoken inside the expression its letters are variables or, in chemistry,
+/// element symbols, and they fail MathCAT's chemistry check for the whole
+/// equation (an equilibrium read "right harpoon over left harpoon"). A label
+/// is a run of at least three letters (spaces from a recognizer's
+/// tokenization dropped when every token is one letter) in `\mathrm` or
+/// `\text`, ending in a colon inside or right after the group.
+#[cfg_attr(not(feature = "speech"), allow(dead_code))] // read by the speech chain only
+fn leading_label(seg: &str) -> (Option<String>, &str) {
+    let s = seg.trim_start();
+    let Some(after) = s
+        .strip_prefix("\\mathrm")
+        .or_else(|| s.strip_prefix("\\text"))
+    else {
+        return (None, seg);
+    };
+    let after = after.trim_start();
+    let Some(body) = after.strip_prefix('{') else {
+        return (None, seg);
+    };
+    let Some(end) = body.find('}') else {
+        return (None, seg);
+    };
+    let inner = body[..end].trim();
+    let (inner, colon_inside) = match inner.strip_suffix(':') {
+        Some(i) => (i.trim_end(), true),
+        None => (inner, false),
+    };
+    let mut rest = &body[end + 1..];
+    if !colon_inside {
+        match rest.trim_start().strip_prefix(':') {
+            Some(r) => rest = r,
+            None => return (None, seg),
+        }
+    }
+    let toks: Vec<&str> = inner.split_whitespace().collect();
+    let word = if toks.len() > 1 && toks.iter().all(|t| t.chars().count() == 1) {
+        toks.concat()
+    } else {
+        toks.join(" ")
+    };
+    if word.chars().filter(|c| c.is_alphabetic()).count() < 3
+        || !word.chars().all(|c| c.is_alphabetic() || c == ' ')
+    {
+        return (None, seg);
+    }
+    (Some(word), rest)
+}
+
 /// A formula segment's prose, if it is nothing but a `\text{…}` note (with or
 /// without parentheses around it).
 #[cfg_attr(not(feature = "speech"), allow(dead_code))] // read by the speech chain only
@@ -697,6 +749,10 @@ pub fn speak_latex(latex: &str) -> Option<SpeechStyles> {
             .collect()
     };
     for seg in segments(latex) {
+        let (label, seg) = leading_label(seg);
+        if let Some(l) = label {
+            append(&mut styles, words(&l));
+        }
         if let Some(note) = words_only(seg) {
             append(&mut styles, words(note));
             continue;
@@ -734,6 +790,25 @@ pub fn speak_latex(_latex: &str) -> Option<SpeechStyles> {
 #[cfg(test)]
 mod tests {
     use super::normalize_latex;
+
+    #[test]
+    fn splits_a_leading_word_label() {
+        use super::leading_label;
+        assert_eq!(
+            leading_label(r"\mathrm {Neto}: \mathrm {Al}^{3+}"),
+            (Some("Neto".to_string()), r" \mathrm {Al}^{3+}")
+        );
+        assert_eq!(
+            leading_label(r"\text{Overall:} x"),
+            (Some("Overall".to_string()), " x")
+        );
+        assert_eq!(
+            leading_label(r"\mathrm {N e t}: x"),
+            (Some("Net".to_string()), " x")
+        );
+        assert_eq!(leading_label(r"\mathrm{Al}: x").0, None); // two letters: a symbol, not a word
+        assert_eq!(leading_label(r"\mathrm{Neto} x").0, None); // no colon
+    }
 
     #[test]
     fn unwraps_upright_element_groups_only() {
@@ -1012,6 +1087,11 @@ mod tests {
             &["aqueous", "liquid", "is in equilibrium with", "super minus"],
         );
         assert!(!s.contains("harpoon") && !s.contains("times"), "{s}");
+        let s = clear(
+            r"\mathrm {Neto}: \mathrm {Al} (\mathrm {OH}) _ {3} (s) + \mathrm {OH} ^ {-} (a q) \rightleftharpoons \mathrm {Al} (\mathrm {OH}) _ {4} ^ {-} (a q)",
+        );
+        has(&s, &["Neto", "solid", "is in equilibrium with", "aqueous"]);
+        assert!(!s.contains("harpoon"), "{s}");
         let s = clear(r"\mathrm{HCl}(aq) \rightarrow \mathrm{H}^{+}(aq) + \mathrm{Cl}^{-}(aq)");
         has(&s, &["cap c l", "reacts to form", "aqueous"]);
 
